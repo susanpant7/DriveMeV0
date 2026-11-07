@@ -124,10 +124,10 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
   const cy = h * 0.53
   const mph = d.units === 'mph'
   const shown = d.speed * (mph ? 2.23694 : 3.6)
-  dial(g, w * 0.24, cy, r, mph
+  dial(g, w * 0.76, cy, r, mph
     ? { max: 150, major: 10, minor: 5, value: shown, label: 'mph', redFrom: 1e9, fmt: (v) => String(v) }
     : { max: 240, major: 20, minor: 10, value: shown, label: 'km/h', redFrom: 1e9, fmt: (v) => String(v) })
-  dial(g, w * 0.76, cy, r, { max: 8, major: 1, minor: 0.5, value: d.rpm / 1000, label: 'x1000 rpm', redFrom: 6.5, fmt: (v) => String(v) })
+  dial(g, w * 0.24, cy, r, { max: 8, major: 1, minor: 0.5, value: d.rpm / 1000, label: 'x1000 rpm', redFrom: 6.5, fmt: (v) => String(v) })
 
   // centre: digital speed, gear, indicators, trip
   g.textAlign = 'center'

@@ -7,14 +7,15 @@
 export const B = 200 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
 export const P = B * G // period of the world
-export const LANE_W = 3.5
+export const LANE_W = 3.7 // 12 ft, the US standard lane width
 export const LANES = 3 // lanes in each direction
 export const HALF_ROAD = LANES * LANE_W // 10.5: half the width of the asphalt
-export const BOX = 11 // half size of a signalled junction
+export const BOX = 12 // half size of a signalled junction
 export const RING_R = 28 // roundabout lane centre radius
 export const RING_OUT = 34 // roundabout outer edge
 export const ISLAND_R = 23 // central island
 export const DELTA = (15 * Math.PI) / 180
+export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
 
 /** Direction indices: 0 = east, 1 = north, 2 = west, 3 = south (counter-clockwise on the map). */
 export const DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, -1], [-1, 0], [0, 1]]
@@ -55,6 +56,7 @@ export interface Piece {
   exit?: boolean
   ringType?: 'between' | 'pass'
   aiOk?: boolean // may AI cars use this lane?
+  sibs?: number[] // the parallel lanes of the same road, by lane index
 }
 
 export const PIECES: Piece[] = []
@@ -63,6 +65,7 @@ export const LINKS = {
   edgeOut: new Map<string, number>(),
   connS: new Map<string, number>(),
   connR: new Map<string, number>(),
+  connL: new Map<string, number>(),
   entryC: new Map<string, number>(),
   exitC: new Map<string, number>(),
   ringPass: new Map<string, number>(),
@@ -137,17 +140,20 @@ function buildPieces() {
         // roads whose junctions are all signalled can carry traffic in every lane; roads that meet a
         // roundabout every other junction only use the outer lane (roundabout entries are single-lane)
         const allSignal = d % 2 === 0 ? mod(j, 2) === 1 : mod(i, 2) === 1
+        const sibIds: number[] = []
         for (let k = 0; k < LANES; k++) {
           const o = aiOff(k)
           const a: Pt = [cx + dx * clrA + rx * o, cz + dz * clrA + rz * o]
           const b: Pt = [cx + dx * (B - clrB) + rx * o, cz + dz * (B - clrB) + rz * o]
           const aiOk = allSignal || k === LANES - 1
-          const id = addPiece('edge', [a, b], 14, {
+          const id = addPiece('edge', [a, b], 22, {
             node: nodeIndex(ni, nj), arm: arrive, lane: k, toKind, axis: arrive % 2 === 0 ? 0 : 1, aiOk,
           })
           LINKS.edgeOut.set(`${n}:${d}:${k}`, id)
+          sibIds.push(id)
           if (aiOk) EDGE_IDS.push(id)
         }
+        sibIds.forEach((id) => (PIECES[id].sibs = sibIds))
       }
 
       if (kind === 'signal') {
@@ -163,7 +169,16 @@ function buildPieces() {
             const [srx, srz] = dirv(t - 1)
             const Xs: Pt = [cx + sx * BOX + srx * o, cz + sz * BOX + srz * o]
             if (!(nodeKind(i + sx, j + sz) === 'round' && k < LANES - 1)) {
-              LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', [E, Xs], 13, { node: n, arm: t, lane: k }))
+              LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', [E, Xs], 17, { node: n, arm: t, lane: k }))
+            }
+            // left turn (the left-most lane only turns left)
+            if (k === 0) {
+              const e = (t + 1) % 4
+              const [ex, ez] = dirv(e)
+              const [erx, erz] = dirv(e - 1)
+              const Xl: Pt = [cx + ex * BOX + erx * o, cz + ez * BOX + erz * o]
+              const ctrl: Pt = sz === 0 ? [Xl[0], E[1]] : [E[0], Xl[1]]
+              LINKS.connL.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xl, 16), 6.5, { node: n, arm: e, lane: 0 }))
             }
             // right turn (outer lane to outer lane)
             if (k === LANES - 1) {

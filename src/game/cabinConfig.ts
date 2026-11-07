@@ -30,9 +30,9 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 // Side mirrors are aimed almost straight back so the inner edge catches your own car's
 // flank, exactly as a properly adjusted door mirror does.
 export const MIRRORS: MirrorCfg[] = [
-  mirror('left', V(-1.08, 1.05, -0.55), [0.4, 0.27], [1300, 880], V(-0.07, -0.02, 1), 1),
+  mirror('left', V(-1.08, 1.05, -0.55), [0.4, 0.27], [1300, 880], V(-0.27, -0.07, 1), 1),
   mirror('center', V(-0.3, 1.42, -0.62), [0.38, 0.115], [1024, 310], V(0, 0.03, 1), 0),
-  mirror('right', V(1.03, 1.05, -0.6), [0.42, 0.28], [1300, 870], V(0.07, -0.02, 1), -1),
+  mirror('right', V(1.03, 1.05, -0.6), [0.46, 0.31], [1300, 880], V(0.27, -0.07, 1), -1),
 ]
 
 export interface LookTarget {
@@ -51,16 +51,16 @@ function glance(m: MirrorCfg, turn: number, pitchK: number, lean: THREE.Vector3)
   return {
     yaw: Math.atan2(-d.x, -d.z) * turn,
     pitch: Math.atan2(d.y, Math.hypot(d.x, d.z)) * pitchK,
-    fov: 62,
+    fov: 56,
     lean,
   }
 }
 
 export const LOOK_TARGETS: Record<Look, LookTarget> = {
-  front: { yaw: 0, pitch: -0.245, fov: 76, lean: V(0, 0, 0) },
+  front: { yaw: 0, pitch: -0.369, fov: 60.6, lean: V(0, 0, 0) },
   left: glance(MIRRORS[0], 0.8, 0.6, V(-0.16, 0, -0.05)),
   center: glance(MIRRORS[1], 0.5, 0.5, V(0.02, 0.03, 0)),
-  right: glance(MIRRORS[2], 0.92, 0.6, V(0.32, 0, -0.07)),
+  right: glance(MIRRORS[2], 0.92, 0.6, V(0.45, 0, -0.08)),
 }
 
 /** Euler that makes a plane (normal +z) at `pos` face the driver's eye. */

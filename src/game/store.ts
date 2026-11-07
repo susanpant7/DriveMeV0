@@ -31,6 +31,7 @@ interface GameState {
   crashTips: string[]
   units: Units
   traffic: 1 | 2 | 3 | 4 | 5
+  pauseReason: 'user' | 'offroad'
 }
 
 export const initialHud: Hud = {
@@ -70,7 +71,8 @@ export const useGame = create<GameState>(() => ({
   messages: [],
   crashReason: '',
   crashTips: [],
-  units: load<Units>('driveme.units', 'kmh', (v) => v === 'kmh' || v === 'mph'),
+  pauseReason: 'user',
+  units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))
 

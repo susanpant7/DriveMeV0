@@ -14,7 +14,7 @@ npm run dev
 | **↓** | brake |
 | **←** / **→** | steer (hold) |
 | **Q** / **E** | left / right indicator |
-| hold **A** / **S** / **D** | look at left mirror / rear-view / right mirror |
+| hold **A** / **W** / **D** | look at left mirror / rear-view / right mirror |
 | **Esc** or **P** | pause (also pauses when the tab loses focus) |
 | **U** | switch km/h <-> mph (menu / pause screen) |
 | **1**-**5** | traffic level: 1 = about 20 cars, 5 = about 400 cars in the city (menu / pause screen) |

@@ -1,11 +1,11 @@
 import { crashSound, initAudio, tick } from './audio'
-import { LINKS, PIECES, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, RING_OUT, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { LANES, LINKS, PIECES, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, RING_OUT, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
 export { CAR_L, CAR_W }
 export const WHEELBASE = 2.7
-export const LIMIT = 50 / 3.6 // city speed limit, m/s
+export const LIMIT = SPEED_LIMIT // city speed limit: 30 mph (about 48 km/h), in m/s
 export const TRAFFIC_LEVELS = [20, 60, 130, 230, 400]
 
 // Rules-engine tuning
@@ -68,6 +68,7 @@ export const sim = {
   warnT: { off: -99, centre: -99, wrong: -99, speed: -99 },
   speedingFor: 0,
   trip: 0,
+  offRoadT: 0,
 }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
@@ -80,7 +81,7 @@ export function resetSim() {
     t: 0, x: B - laneOff(2), z: 60, h: Math.PI, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
     score: 0, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
-    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0,
+    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0,
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
@@ -95,22 +96,55 @@ resetSim()
 export function startGame() {
   initAudio()
   resetSim()
-  useGame.setState({ status: 'playing', messages: [], crashReason: '', crashTips: [], hud: { ...initialHud } })
-  say('Press ↑ to accelerate. Mirrors, signal, then steer.', 'info')
+  useGame.setState({ status: 'playing', pauseReason: 'user', messages: [], crashReason: '', crashTips: [], hud: { ...initialHud } })
 }
 
 export function pauseGame() {
   if (useGame.getState().status !== 'playing') return
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
-  useGame.setState({ status: 'paused' })
+  useGame.setState({ status: 'paused', pauseReason: 'user' })
 }
 
 export function resumeGame() {
-  if (useGame.getState().status === 'paused') {
-    applyTraffic()
-    useGame.setState({ status: 'playing' })
+  if (useGame.getState().status !== 'paused') return
+  if (useGame.getState().pauseReason === 'offroad') recoverToRoad()
+  applyTraffic()
+  useGame.setState({ status: 'playing', pauseReason: 'user' })
+}
+
+/** Put the car back on the nearest road, in the right-hand lane, facing the way it was heading. */
+function recoverToRoad() {
+  const nn = nearestNode(sim.x, sim.z)
+  const clr = clearance(nn.i, nn.j) + 10
+  const fx = -Math.sin(sim.h)
+  const fz = -Math.cos(sim.h)
+  const lane = laneOff(LANES - 1)
+  let x: number, z: number, h: number
+  if (Math.abs(nn.rx) <= Math.abs(nn.rz)) {
+    // nearest road runs north-south (x = the node's column)
+    const north = fz < 0
+    x = nn.cx + (north ? lane : -lane)
+    z = nn.cz + (nn.rz < 0 ? -1 : 1) * Math.max(Math.abs(nn.rz), clr)
+    h = north ? 0 : Math.PI
+  } else {
+    // nearest road runs east-west
+    const east = fx > 0
+    z = nn.cz + (east ? lane : -lane)
+    x = nn.cx + (nn.rx < 0 ? -1 : 1) * Math.max(Math.abs(nn.rx), clr)
+    h = east ? -Math.PI / 2 : Math.PI / 2
   }
+  Object.assign(sim, { x, z, h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, signal: 0, man: null, jn: null, stop: null, offRoadT: 0 })
+  // clear any traffic standing where we're being placed
+  for (const c of cars) {
+    if (c.active && Math.hypot(wrapD(c.x - mod(x, P)), wrapD(c.z - mod(z, P))) < 20) c.active = false
+  }
+}
+
+function pauseOffRoad() {
+  input.look = 'front'
+  input.up = input.down = input.left = input.right = false
+  useGame.setState({ status: 'paused', pauseReason: 'offroad' })
 }
 
 export function toggleSignal(dir: -1 | 1) {
@@ -183,10 +217,9 @@ export function stepSim(dt: number) {
   for (const [a, b] of [[2, 0.9], [2, -0.9], [-2, 0.9], [-2, -0.9], [0, 0]]) {
     if (insideBuilding(sim.x + fx * a + rx * b, sim.z + fz * a + rz * b)) return crash('You hit a building.', ['Stay on the road.'])
   }
-  if (!onRoad && sim.t - sim.warnT.off > 4) {
-    sim.warnT.off = sim.t
-    say('You are off the road!', 'warn')
-  }
+  // leaving the road stops the game (resume puts you back on it)
+  sim.offRoadT = onRoad ? 0 : sim.offRoadT + dt
+  if (sim.offRoadT > 0.5) return pauseOffRoad()
 
   // ---- traffic ----
   stepTraffic(dt, sim.t, playerObs())
@@ -310,7 +343,7 @@ function trackLane() {
         if (target < 0) {
           if (sim.t - sim.warnT.centre > 3) {
             sim.warnT.centre = sim.t
-            say('Do not cross the centre line!', 'warn')
+            say('Do not cross the double yellow line!', 'warn')
           }
         } else if (target <= 2) startManeuver(dir, k, target)
       }
@@ -341,14 +374,7 @@ function finishManeuver(m: Maneuver) {
   sim.man = null
   sim.changes++
   if (sim.signal === m.dir) sim.signal = 0
-  if (m.infractions.length === 0) {
-    sim.clean++
-    sim.score += 100
-    say('Perfect lane change! +100', 'good')
-  } else {
-    sim.score += 20
-    say('Lane change done, but not by the book. +20', 'warn')
-  }
+  if (m.infractions.length === 0) sim.clean++
 }
 
 /* ---------- rules: turns and roundabouts ---------- */
@@ -361,8 +387,7 @@ function trackJunction() {
       const arm = mod(Math.round(Math.atan2(-nn.rz, nn.rx) / (Math.PI / 2)), 4)
       if (ringBusy(nn.n, arm, playerObs()) && sim.speed > 2) {
         sim.jn.yieldFail = true
-        sim.score -= 50
-        say('You failed to give way to traffic on the roundabout! -50', 'warn')
+        say('Yield to traffic already on the roundabout!', 'warn')
       }
     }
   } else if (!inside && sim.jn) {
@@ -373,24 +398,12 @@ function trackJunction() {
       if (Math.abs(dh) < 0.6) return
       const want: Signal = dh > 0 ? -1 : 1
       sim.changes++
-      if (jn.sig === want) {
-        sim.clean++
-        sim.score += 100
-        say(`Perfect ${dh > 0 ? 'left' : 'right'} turn! +100`, 'good')
-      } else {
-        sim.score += 20
-        say(`Signal ${dh > 0 ? 'left' : 'right'} before you turn. +20`, 'warn')
-      }
+      if (jn.sig === want) sim.clean++
+      else say(`Signal ${dh > 0 ? 'left' : 'right'} before you turn`, 'warn')
     } else if (!jn.yieldFail) {
       sim.changes++
-      if (jn.sig === 1 || sim.signal === 1) {
-        sim.clean++
-        sim.score += 100
-        say('Roundabout completed. Well done! +100', 'good')
-      } else {
-        sim.score += 20
-        say('Signal right when you leave a roundabout. +20', 'warn')
-      }
+      if (jn.sig === 1 || sim.signal === 1) sim.clean++
+      else say('Signal right when you leave a roundabout', 'warn')
     }
     sim.signal = 0
   }
@@ -418,14 +431,11 @@ function trackStop() {
     if (!st.passed && st.prevU >= LINE && u < LINE) {
       st.passed = true
       if (col === 2 && sim.speed > 0.5) {
-        sim.score -= 100
-        say('You ran a red light! -100', 'warn')
+        say('You ran a red light!', 'warn')
       }
     }
     if (!st.passed && !st.credited && sim.speed < 0.3 && u > LINE && u < LINE + 22 && col !== 0) {
       st.credited = true
-      sim.score += 50
-      say('Stopped correctly at the light. +50', 'good')
     }
     st.prevU = u
     return
@@ -438,9 +448,8 @@ function trackSpeed(dt: number) {
   else sim.speedingFor = 0
   if (sim.speedingFor > 2 && sim.t - sim.warnT.speed > 6) {
     sim.warnT.speed = sim.t
-    sim.score -= 10
     const u = useGame.getState().units
-    say(`Speeding! The limit is ${u === 'kmh' ? '50 km/h' : '30 mph'}. -10`, 'warn')
+    say(`Speeding! The limit is ${u === 'kmh' ? '48 km/h' : '30 mph'}`, 'warn')
   }
 }
 
@@ -465,4 +474,4 @@ function syncHud() {
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS })
+if (typeof window !== 'undefined') Object.assign(window, { __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS })

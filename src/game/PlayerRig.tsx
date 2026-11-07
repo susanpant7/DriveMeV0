@@ -22,10 +22,10 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       h,
       res: cfg.res,
       // side mirrors are convex: they render a wider view and compress it toward the edges
-      wide: side ? 1.5 : 1.0,
-      m0: side ? 0.78 : 1.0,
+      wide: side ? 1.25 : 1.0,
+      m0: side ? 0.86 : 1.0,
       m1: side ? 1.0 : 1.0,
-      shift: side ? [0, 0.1] : [0, 0.03],
+      shift: [0, 0],
       inner: cfg.inner,
     })
     r.position.copy(cfg.pos)
@@ -39,7 +39,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
   const k = useRef(side ? 0.6 : 1)
   useFrame((_, dt) => {
     if (!side) return
-    const target = sim.look === cfg.id ? 1 : 0.6
+    const target = sim.look === cfg.id ? (cfg.id === 'right' ? 1.3 : 1.08) : 0.6
     k.current += (target - k.current) * (1 - Math.exp(-10 * dt))
     glass.scale.setScalar(k.current)
     housing.current.scale.setScalar(k.current)
@@ -61,7 +61,7 @@ export function PlayerRig() {
   const camera = useThree((s) => s.camera) as THREE.PerspectiveCamera
   const rig = useRef<THREE.Group>(null!)
   const wheel = useRef<THREE.Group>(null!)
-  const view = useRef({ yaw: 0, pitch: 0, fov: 76, lean: new THREE.Vector3() })
+  const view = useRef({ yaw: 0, pitch: 0, fov: 60.6, lean: new THREE.Vector3() })
   const tmp = useMemo(() => new THREE.Vector3(), [])
 
   useEffect(() => {
@@ -80,7 +80,7 @@ export function PlayerRig() {
     const g = rig.current
     g.position.set(sim.x, 0, sim.z)
     g.rotation.y = sim.h
-    wheel.current.rotation.z = -sim.steerIn * 1.6
+    wheel.current.rotation.z = -sim.steerIn * 2.6
 
     const t = LOOK_TARGETS[sim.look]
     const k = 1 - Math.exp(-14 * dt)

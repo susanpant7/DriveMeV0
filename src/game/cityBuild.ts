@@ -114,13 +114,23 @@ function arrowHead(g: CanvasRenderingContext2D, x: number, y: number, ang: numbe
   g.restore()
 }
 
+function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  g.beginPath()
+  g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r)
+  g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath()
+}
+
 export function drawSpeedSign(g: CanvasRenderingContext2D, units: 'kmh' | 'mph') {
   const { x, y, w, h } = SIGN.speed
   g.clearRect(x, y, w, h)
-  g.fillStyle = '#d8251d'; g.beginPath(); g.arc(x + 128, y + 128, 120, 0, 7); g.fill()
-  g.fillStyle = '#fff'; g.beginPath(); g.arc(x + 128, y + 128, 86, 0, 7); g.fill()
-  g.fillStyle = '#111'; g.font = '700 88px Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'
-  g.fillText(units === 'mph' ? '30' : '50', x + 128, y + 134)
+  g.fillStyle = '#fff'; roundRect(g, x + 4, y + 4, w - 8, h - 8, 16); g.fill()
+  g.strokeStyle = '#111'; g.lineWidth = 9; roundRect(g, x + 12, y + 12, w - 24, h - 24, 10); g.stroke()
+  g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'
+  g.font = '700 38px Arial, sans-serif'
+  g.fillText('SPEED', x + 128, y + 52)
+  g.fillText('LIMIT', x + 128, y + 90)
+  g.font = '700 118px Arial, sans-serif'
+  g.fillText(units === 'mph' ? '30' : '50', x + 128, y + 172)
 }
 
 export function makeAtlas(units: 'kmh' | 'mph') {
@@ -130,69 +140,84 @@ export function makeAtlas(units: 'kmh' | 'mph') {
   const g = c.getContext('2d')!
   drawSpeedSign(g, units)
 
-  const tri = (r: Rect, down: boolean) => {
-    g.fillStyle = '#d8251d'
-    g.beginPath()
-    if (down) { g.moveTo(r.x + 6, r.y + 24); g.lineTo(r.x + 250, r.y + 24); g.lineTo(r.x + 128, r.y + 236) }
-    else { g.moveTo(r.x + 128, r.y + 20); g.lineTo(r.x + 250, r.y + 232); g.lineTo(r.x + 6, r.y + 232) }
-    g.closePath(); g.fill()
-    g.fillStyle = '#fff'
-    g.beginPath()
-    if (down) { g.moveTo(r.x + 40, r.y + 52); g.lineTo(r.x + 216, r.y + 52); g.lineTo(r.x + 128, r.y + 204) }
-    else { g.moveTo(r.x + 128, r.y + 66); g.lineTo(r.x + 214, r.y + 210); g.lineTo(r.x + 42, r.y + 210) }
-    g.closePath(); g.fill()
+  // give way (red / white, point down)
+  {
+    const r = SIGN.yield
+    g.fillStyle = '#d8251d'; g.beginPath(); g.moveTo(r.x + 6, r.y + 24); g.lineTo(r.x + 250, r.y + 24); g.lineTo(r.x + 128, r.y + 236); g.closePath(); g.fill()
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(r.x + 42, r.y + 50); g.lineTo(r.x + 214, r.y + 50); g.lineTo(r.x + 128, r.y + 198); g.closePath(); g.fill()
   }
-  // give way
-  tri(SIGN.yield, true)
-  // roundabout ahead (warning)
-  tri(SIGN.rbWarn, false)
-  g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 9
+  // yellow diamond warning signs
+  const diamond = (r: Rect) => {
+    g.fillStyle = '#111'; g.beginPath(); g.moveTo(r.x + 128, r.y + 4); g.lineTo(r.x + 252, r.y + 128); g.lineTo(r.x + 128, r.y + 252); g.lineTo(r.x + 4, r.y + 128); g.closePath(); g.fill()
+    g.fillStyle = '#f7c600'; g.beginPath(); g.moveTo(r.x + 128, r.y + 16); g.lineTo(r.x + 240, r.y + 128); g.lineTo(r.x + 128, r.y + 240); g.lineTo(r.x + 16, r.y + 128); g.closePath(); g.fill()
+  }
+  // roundabout ahead
+  diamond(SIGN.rbWarn)
+  g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 11
   for (let i = 0; i < 3; i++) {
     const a = (i * 2 * Math.PI) / 3 - Math.PI / 2
-    g.beginPath(); g.arc(SIGN.rbWarn.x + 128, SIGN.rbWarn.y + 152, 38, a, a + 1.5); g.stroke()
-    arrowHead(g, SIGN.rbWarn.x + 128 + 38 * Math.cos(a + 1.5), SIGN.rbWarn.y + 152 + 38 * Math.sin(a + 1.5), a + 1.5 + Math.PI / 2, 14)
+    g.beginPath(); g.arc(SIGN.rbWarn.x + 128, SIGN.rbWarn.y + 128, 42, a, a + 1.5); g.stroke()
+    arrowHead(g, SIGN.rbWarn.x + 128 + 42 * Math.cos(a + 1.5), SIGN.rbWarn.y + 128 + 42 * Math.sin(a + 1.5), a + 1.5 + Math.PI / 2, 15)
   }
-  // traffic signals ahead
-  tri(SIGN.sigWarn, false)
-  g.fillStyle = '#111'; g.fillRect(SIGN.sigWarn.x + 98, SIGN.sigWarn.y + 90, 60, 112)
-  ;['#e22', '#fb0', '#2c4'].forEach((col, i) => { g.fillStyle = col; g.beginPath(); g.arc(SIGN.sigWarn.x + 128, SIGN.sigWarn.y + 112 + i * 34, 13, 0, 7); g.fill() })
-  // pedestrian crossing (blue square)
-  g.fillStyle = '#1757b8'; g.fillRect(SIGN.ped.x + 8, SIGN.ped.y + 8, 240, 240)
-  g.fillStyle = '#fff'; g.beginPath(); g.moveTo(SIGN.ped.x + 128, SIGN.ped.y + 30); g.lineTo(SIGN.ped.x + 226, SIGN.ped.y + 214); g.lineTo(SIGN.ped.x + 30, SIGN.ped.y + 214); g.closePath(); g.fill()
-  g.fillStyle = '#111'; g.beginPath(); g.arc(SIGN.ped.x + 128, SIGN.ped.y + 106, 15, 0, 7); g.fill()
-  g.strokeStyle = '#111'; g.lineWidth = 12; g.lineCap = 'round'
-  g.beginPath(); g.moveTo(SIGN.ped.x + 128, SIGN.ped.y + 124); g.lineTo(SIGN.ped.x + 128, SIGN.ped.y + 164); g.lineTo(SIGN.ped.x + 106, SIGN.ped.y + 200); g.moveTo(SIGN.ped.x + 128, SIGN.ped.y + 164); g.lineTo(SIGN.ped.x + 152, SIGN.ped.y + 200); g.moveTo(SIGN.ped.x + 128, SIGN.ped.y + 136); g.lineTo(SIGN.ped.x + 100, SIGN.ped.y + 152); g.moveTo(SIGN.ped.x + 128, SIGN.ped.y + 136); g.lineTo(SIGN.ped.x + 158, SIGN.ped.y + 150); g.stroke()
-  // roundabout mandatory (blue circle)
-  g.fillStyle = '#1757b8'; g.beginPath(); g.arc(SIGN.rbMust.x + 128, SIGN.rbMust.y + 128, 120, 0, 7); g.fill()
-  g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineWidth = 12
-  for (let i = 0; i < 3; i++) {
-    const a = (i * 2 * Math.PI) / 3 - Math.PI / 2
-    g.beginPath(); g.arc(SIGN.rbMust.x + 128, SIGN.rbMust.y + 128, 54, a, a + 1.55); g.stroke()
-    arrowHead(g, SIGN.rbMust.x + 128 + 54 * Math.cos(a + 1.55), SIGN.rbMust.y + 128 + 54 * Math.sin(a + 1.55), a + 1.55 + Math.PI / 2, 20)
+  // traffic signal ahead
+  diamond(SIGN.sigWarn)
+  g.fillStyle = '#111'; roundRect(g, SIGN.sigWarn.x + 100, SIGN.sigWarn.y + 70, 56, 116, 10); g.fill()
+  ;['#e22', '#fb0', '#2c4'].forEach((c, i) => { g.fillStyle = c; g.beginPath(); g.arc(SIGN.sigWarn.x + 128, SIGN.sigWarn.y + 94 + i * 36, 13, 0, 7); g.fill() })
+  // pedestrian crossing: fluorescent yellow-green pentagon
+  {
+    const r = SIGN.ped
+    const pent = (inset: number, color: string) => {
+      g.fillStyle = color; g.beginPath()
+      g.moveTo(r.x + 128, r.y + 6 + inset); g.lineTo(r.x + 246 - inset, r.y + 70 + inset); g.lineTo(r.x + 246 - inset, r.y + 246 - inset)
+      g.lineTo(r.x + 10 + inset, r.y + 246 - inset); g.lineTo(r.x + 10 + inset, r.y + 70 + inset); g.closePath(); g.fill()
+    }
+    pent(0, '#111'); pent(10, '#c8ff1f')
+    g.fillStyle = '#111'; g.beginPath(); g.arc(r.x + 136, r.y + 92, 15, 0, 7); g.fill()
+    g.strokeStyle = '#111'; g.lineWidth = 13; g.lineCap = 'round'; g.lineJoin = 'round'
+    g.beginPath(); g.moveTo(r.x + 134, r.y + 112); g.lineTo(r.x + 124, r.y + 160); g.lineTo(r.x + 100, r.y + 210); g.moveTo(r.x + 124, r.y + 160); g.lineTo(r.x + 150, r.y + 205)
+    g.moveTo(r.x + 132, r.y + 124); g.lineTo(r.x + 168, r.y + 148); g.moveTo(r.x + 132, r.y + 124); g.lineTo(r.x + 98, r.y + 140); g.stroke()
   }
-  // chevron (keep right around the island)
-  g.fillStyle = '#111'; g.fillRect(SIGN.chevron.x + 8, SIGN.chevron.y + 40, 240, 176)
-  g.fillStyle = '#fff'; g.fillRect(SIGN.chevron.x + 18, SIGN.chevron.y + 50, 220, 156)
-  g.strokeStyle = '#111'; g.lineWidth = 26; g.lineJoin = 'miter'
-  g.beginPath(); g.moveTo(SIGN.chevron.x + 96, SIGN.chevron.y + 70); g.lineTo(SIGN.chevron.x + 168, SIGN.chevron.y + 128); g.lineTo(SIGN.chevron.x + 96, SIGN.chevron.y + 186); g.stroke()
-
-  // lane-use sign: blue, three arrows (left / straight / right)
+  // circular intersection (white, black arrows)
+  {
+    const r = SIGN.rbMust
+    g.fillStyle = '#fff'; roundRect(g, r.x + 8, r.y + 8, 240, 240, 16); g.fill()
+    g.strokeStyle = '#111'; g.lineWidth = 8; roundRect(g, r.x + 16, r.y + 16, 224, 224, 10); g.stroke()
+    g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 13
+    for (let i = 0; i < 3; i++) {
+      const a = (i * 2 * Math.PI) / 3 - Math.PI / 2
+      g.beginPath(); g.arc(r.x + 128, r.y + 128, 56, a, a + 1.55); g.stroke()
+      arrowHead(g, r.x + 128 + 56 * Math.cos(a + 1.55), r.y + 128 + 56 * Math.sin(a + 1.55), a + 1.55 + Math.PI / 2, 21)
+    }
+  }
+  // chevron: black on yellow
+  {
+    const r = SIGN.chevron
+    g.fillStyle = '#111'; g.fillRect(r.x + 8, r.y + 40, 240, 176)
+    g.fillStyle = '#f7c600'; g.fillRect(r.x + 16, r.y + 48, 224, 160)
+    g.strokeStyle = '#111'; g.lineWidth = 26; g.lineJoin = 'miter'
+    g.beginPath(); g.moveTo(r.x + 96, r.y + 72); g.lineTo(r.x + 168, r.y + 128); g.lineTo(r.x + 96, r.y + 184); g.stroke()
+  }
+  // lane-use sign: white, black arrows (left / straight / right)
   {
     const r = SIGN.lanes
-    g.fillStyle = '#1757b8'; g.fillRect(r.x + 10, r.y + 10, 236, 236)
-    g.strokeStyle = '#fff'; g.lineWidth = 8; g.strokeRect(r.x + 18, r.y + 18, 220, 220)
-    g.fillStyle = '#fff'; g.strokeStyle = '#fff'; g.lineWidth = 16; g.lineCap = 'butt'
-    const lane = (cx: number, kind: 'L' | 'S' | 'R') => {
+    g.fillStyle = '#fff'; roundRect(g, r.x + 8, r.y + 8, 240, 240, 16); g.fill()
+    g.strokeStyle = '#111'; g.lineWidth = 8; roundRect(g, r.x + 16, r.y + 16, 224, 224, 10); g.stroke()
+    g.fillStyle = '#111'; g.strokeStyle = '#111'; g.lineWidth = 16; g.lineCap = 'butt'
+    const lane = (cx: number, kind: 'L' | 'S' | 'R' | 'SR') => {
       const bx = r.x + cx, by = r.y + 214
       g.beginPath(); g.moveTo(bx, by); g.lineTo(bx, by - 100); g.stroke()
-      if (kind === 'S') { g.beginPath(); g.moveTo(bx - 26, by - 100); g.lineTo(bx + 26, by - 100); g.lineTo(bx, by - 150); g.closePath(); g.fill() }
+      if (kind === 'SR') {
+        g.beginPath(); g.moveTo(bx - 26, by - 100); g.lineTo(bx + 26, by - 100); g.lineTo(bx, by - 150); g.closePath(); g.fill()
+        g.beginPath(); g.moveTo(bx, by - 62); g.lineTo(bx + 34, by - 96); g.stroke()
+        g.beginPath(); g.moveTo(bx + 14, by - 122); g.lineTo(bx + 62, by - 122); g.lineTo(bx + 62, by - 74); g.closePath(); g.fill()
+      } else if (kind === 'S') { g.beginPath(); g.moveTo(bx - 26, by - 100); g.lineTo(bx + 26, by - 100); g.lineTo(bx, by - 150); g.closePath(); g.fill() }
       else {
         const d = kind === 'L' ? -1 : 1
         g.beginPath(); g.moveTo(bx, by - 100); g.lineTo(bx + d * 40, by - 140); g.stroke()
         g.beginPath(); g.moveTo(bx + d * 18, by - 160); g.lineTo(bx + d * 70, by - 160); g.lineTo(bx + d * 70, by - 108); g.closePath(); g.fill()
       }
     }
-    lane(72, 'L'); lane(128, 'S'); lane(184, 'R')
+    lane(62, 'L'); lane(118, 'S'); lane(170, 'SR')
   }
   // street name plates
   ;[...VERTICAL_NAMES, ...HORIZONTAL_NAMES].forEach((name, i) => {
@@ -219,19 +244,37 @@ export function makeAtlas(units: 'kmh' | 'mph') {
   return c
 }
 
-export function facadeCanvas() {
-  const c = document.createElement('canvas')
-  c.width = c.height = 256
-  const g = c.getContext('2d')!
-  g.fillStyle = '#ebe7df'; g.fillRect(0, 0, 256, 256)
-  for (const [x, y] of [[26, 30], [150, 30], [26, 158], [150, 158]]) {
-    const gr = g.createLinearGradient(0, y, 0, y + 70)
-    gr.addColorStop(0, '#3c4c5e'); gr.addColorStop(1, '#6f8296')
-    g.fillStyle = '#c9c4ba'; g.fillRect(x - 5, y - 5, 90, 80)
-    g.fillStyle = gr; g.fillRect(x, y, 80, 70)
-    g.fillStyle = 'rgba(255,255,255,0.25)'; g.fillRect(x, y, 80, 8)
+/** Curtain-wall facade: colour, roughness and metalness maps (glass is glossy and reflects the sky). */
+export function facadeCanvases() {
+  const mk = () => {
+    const c = document.createElement('canvas')
+    c.width = c.height = 256
+    return { c, g: c.getContext('2d')! }
   }
-  return c
+  const col = mk(), rough = mk(), metal = mk()
+  col.g.fillStyle = '#dcd9d2'; col.g.fillRect(0, 0, 256, 256)
+  for (let i = 0; i < 900; i++) {
+    const v = 195 + Math.random() * 40
+    col.g.fillStyle = `rgba(${v},${v - 2},${v - 8},0.35)`
+    col.g.fillRect(Math.random() * 256, Math.random() * 256, 2, 2)
+  }
+  rough.g.fillStyle = '#e6e6e6'; rough.g.fillRect(0, 0, 256, 256)
+  metal.g.fillStyle = '#000'; metal.g.fillRect(0, 0, 256, 256)
+  for (const fy of [0, 128]) {
+    const y0 = fy + 20, h = 90
+    const gl = col.g.createLinearGradient(0, y0, 0, y0 + h)
+    gl.addColorStop(0, '#a9c4dc'); gl.addColorStop(0.55, '#5f7f9c'); gl.addColorStop(1, '#34506a')
+    col.g.fillStyle = '#2a3037'; col.g.fillRect(8, y0 - 5, 240, h + 10)
+    col.g.fillStyle = gl; col.g.fillRect(12, y0, 232, h)
+    // reflection streak + mullions
+    col.g.fillStyle = 'rgba(255,255,255,0.13)'
+    col.g.beginPath(); col.g.moveTo(40, y0 + h); col.g.lineTo(88, y0); col.g.lineTo(120, y0); col.g.lineTo(72, y0 + h); col.g.closePath(); col.g.fill()
+    for (const mx of [76, 140, 204]) { col.g.fillStyle = '#2a3037'; col.g.fillRect(mx - 2, y0, 4, h) }
+    rough.g.fillStyle = '#1c1c1c'; rough.g.fillRect(12, y0, 232, h)
+    metal.g.fillStyle = '#8c8c8c'; metal.g.fillRect(12, y0, 232, h)
+    for (const mx of [76, 140, 204]) { rough.g.fillStyle = '#a0a0a0'; rough.g.fillRect(mx - 2, y0, 4, h); metal.g.fillStyle = '#000'; metal.g.fillRect(mx - 2, y0, 4, h) }
+  }
+  return { color: col.c, rough: rough.c, metal: metal.c }
 }
 
 /* ------------------------------------------------------------------ */
@@ -416,24 +459,25 @@ export function buildCity() {
         signQuad(x + ox * 0.08, h + hh / 2 - 0.1, z + oz * 0.08, w, hh, face, r)
       }
       side(clr + 62, 2.6, 1.1, 1.1, kind === 'signal' ? SIGN.sigWarn : SIGN.rbWarn)
-      side(clr + 30, 2.4, 0.95, 0.95, SIGN.speed)
+      side(clr + 30, 2.4, 0.85, 1.05, SIGN.speed)
       side(clr + 11, 2.3, 0.95, 0.95, SIGN.ped)
-      side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes)
+      if (kind === 'signal') side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows)
 
       if (kind === 'signal') {
-        // mast arm over the lanes with two signal heads and a street-name plate
-        const mu = clr + 0.6
-        const [px, pz] = P(mu, HALF_ROAD + 1.7)
-        post(px, pz, 6.2, 0.28)
-        const [mx, mz] = P(mu, (HALF_ROAD + 1.7 + 0.6) / 2)
-        solid.box(mx, 5.9, mz, HALF_ROAD + 1.1, 0.22, 0.22, Math.atan2(-rz, rx), POLE)
-        for (const q of [laneOff(0), laneOff(1), laneOff(2)]) {
-          const [hx, hz] = P(mu, q)
-          solid.box(hx, 4.65, hz, 0.45, 1.25, 0.3, yaw, DARK)
-          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.17, y: 5.55 - l * 0.38, z: hz + oz * 0.17, yaw, node: n, axis: a % 2 === 0 ? 0 : 1, l })
+        // Signals sit on the FAR side of the junction (as on US roads), on low poles at both far corners,
+        // facing the traffic that is waiting at the stop line, so you can see them from your seat.
+        const uf = -(clr + 1.5)
+        for (const q of [HALF_ROAD + 1.7, -(HALF_ROAD + 1.7)]) {
+          const [hx, hz] = P(uf, q)
+          post(hx, hz, 4.4, 0.22)
+          solid.box(hx, 3.2, hz, 0.8, 2.0, 0.1, yaw, DARK) // backplate
+          solid.box(hx, 3.2, hz, 0.62, 1.75, 0.3, yaw, DARK) // housing
+          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.17, y: 3.7 - l * 0.5, z: hz + oz * 0.17, yaw, node: n, axis: a % 2 === 0 ? 0 : 1, l })
         }
-        const [nx, nz] = P(mu, 5.3)
-        signQuad(nx + ox * 0.15, 6.75, nz + oz * 0.15, 2.4, 1.2, face, PLATE(crossIdx))
+        // street-name plate above the far-right signal
+        const [nx, nz] = P(uf, HALF_ROAD + 1.7)
+        post(nx, nz, 5.4, 0.12)
+        signQuad(nx + ox * 0.15, 5.7, nz + oz * 0.15, 2.4, 1.2, face, PLATE(crossIdx))
       } else {
         // give way + roundabout signs at the entry, chevrons on the island
         const [yx, yz] = P(clr + 2.5, HALF_ROAD + 1.7)
@@ -456,7 +500,11 @@ export function buildCity() {
       continue
     }
     solid.box((l.x0 + l.x1) / 2, 0, (l.z0 + l.z1) / 2, l.x1 - l.x0, 0.08, l.z1 - l.z0, 0, [0.55, 0.56, 0.58])
-    buildings.box((l.bx0 + l.bx1) / 2, 0.08, (l.bz0 + l.bz1) / 2, l.bx1 - l.bx0, l.h, l.bz1 - l.bz0, 0, l.color, true)
+    const bw = l.bx1 - l.bx0, bd = l.bz1 - l.bz0, bcx = (l.bx0 + l.bx1) / 2, bcz = (l.bz0 + l.bz1) / 2
+    buildings.box(bcx, 0.08, bcz, bw, l.h, bd, 0, l.color, true)
+    solid.box(bcx, 0.08, bcz, bw + 2, 5, bd + 2, 0, [0.3, 0.31, 0.33]) // dark podium / shopfront band
+    if (l.h > 26) buildings.box(bcx, 0.08 + l.h, bcz, bw * 0.66, l.h * 0.28, bd * 0.66, 0, [l.color[0] * 0.9, l.color[1] * 0.9, l.color[2] * 0.92], true) // setback tier
+    solid.box(bcx, 0.08 + l.h + (l.h > 26 ? l.h * 0.28 : 0), bcz, bw * 0.3, 2.2, bd * 0.3, 0, [0.42, 0.43, 0.45]) // roof plant
   }
 
   return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build(), buildings: buildings.build(), signs: signs.build(), lamps, trees }

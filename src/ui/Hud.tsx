@@ -44,7 +44,7 @@ function ControlsList() {
       <li><span><Key>↓</Key></span> Brake</li>
       <li><span><Key>←</Key><Key>→</Key></span> Steer</li>
       <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator</li>
-      <li><span><Key>A</Key><Key>S</Key><Key>D</Key></span> Look: left mirror / rear-view / right mirror <em>(hold)</em></li>
+      <li><span><Key>A</Key><Key>W</Key><Key>D</Key></span> Look: left mirror / rear-view / right mirror <em>(hold)</em></li>
       <li><span><Key>Esc</Key></span> Pause <span className="gap" /><Key>M</Key> mute</li>
     </ul>
   )
@@ -86,17 +86,14 @@ function PlayingHud() {
       </div>
 
       <div className="tr">
-        <div className="card score">
-          <div className="score-main"><span>Score</span><b>{hud.score}</b></div>
-          <div className="score-sub">{hud.clean}/{hud.changes} clean</div>
-        </div>
         <button className="icon-btn" onClick={pauseGame} aria-label="Pause (Esc)" title="Pause (Esc)">
           <svg viewBox="0 0 24 24" width="18" height="18"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor" /><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor" /></svg>
         </button>
       </div>
 
       <div className={`limit${speeding ? ' over' : ''}`} title="Speed limit">
-        <span>{units === 'kmh' ? 50 : 30}</span>
+        <small>SPEED<br />LIMIT</small>
+        <b>{units === 'kmh' ? 50 : 30}</b>
       </div>
 
       <div className={`helpbar${help ? ' show' : ''}`}>
@@ -104,7 +101,7 @@ function PlayingHud() {
         <span><Key>↓</Key> brake</span>
         <span><Key>←</Key><Key>→</Key> steer</span>
         <span><Key>Q</Key><Key>E</Key> indicators</span>
-        <span><Key>A</Key><Key>S</Key><Key>D</Key> mirrors</span>
+        <span><Key>A</Key><Key>W</Key><Key>D</Key> mirrors</span>
         <span><Key>Esc</Key> pause</span>
       </div>
     </>
@@ -113,8 +110,8 @@ function PlayingHud() {
 
 export function Hud() {
   const status = useGame((s) => s.status)
-  const hud = useGame((s) => s.hud)
   const reason = useGame((s) => s.crashReason)
+  const pauseReason = useGame((s) => s.pauseReason)
   const tips = useGame((s) => s.crashTips)
   const start = startGame
 
@@ -127,7 +124,7 @@ export function Hud() {
           <div className="panel wide">
             <header>
               <div className="logo">Drive<span>Me</span></div>
-              <p>Learn to drive in a real city: lanes, traffic lights, junctions and roundabouts. Check your mirrors, signal, then move. A crash ends the run.</p>
+              <p>Learn to drive in a real city: lanes, traffic lights, junctions and roundabouts. Check your mirrors, signal, then move. A crash ends the run. Mistakes are flagged as you make them.</p>
             </header>
             <div className="cols">
               <section>
@@ -144,14 +141,24 @@ export function Hud() {
         </div>
       )}
 
-      {status === 'paused' && (
+      {status === 'paused' && pauseReason === 'offroad' && (
+        <div className="overlay warn">
+          <div className="panel">
+            <div className="badge warn">Stopped</div>
+            <h2>You left the road</h2>
+            <p>Stay on the pavement. Resume puts you back in your lane, stopped, facing the way you were going.</p>
+            <div className="actions">
+              <button className="primary" onClick={resumeGame}>Resume on the road <Key>Enter</Key></button>
+              <button className="secondary" onClick={start}>Restart <Key>R</Key></button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {status === 'paused' && pauseReason === 'user' && (
         <div className="overlay">
           <div className="panel">
             <h2>Paused</h2>
-            <div className="stats">
-              <div><b>{hud.score}</b><span>Score</span></div>
-              <div><b>{hud.clean}/{hud.changes}</b><span>Clean manoeuvres</span></div>
-            </div>
             <Settings />
             <div className="actions">
               <button className="primary" onClick={resumeGame}>Resume <Key>Esc</Key></button>
@@ -172,10 +179,6 @@ export function Hud() {
                 {tips.map((t) => <li key={t}>{t}</li>)}
               </ul>
             )}
-            <div className="stats">
-              <div><b>{hud.score}</b><span>Score</span></div>
-              <div><b>{hud.clean}/{hud.changes}</b><span>Clean manoeuvres</span></div>
-            </div>
             <div className="actions">
               <button className="primary" onClick={start}>Try again <Key>Enter</Key></button>
             </div>

@@ -83,9 +83,9 @@ const FRAG = /* glsl */ `
   // curved edge that widens toward the bottom, belt trim and a handle.
   vec3 ownCar( vec2 q, vec3 col ) {
     float e = uInner > 0.0 ? 1.0 - q.x : q.x;        // distance from the edge nearest the car
-    float edge = 0.15 + 0.13 * ( 1.0 - q.y );
+    float edge = 0.08 + 0.07 * ( 1.0 - q.y );
     float skin = 1.0 - smoothstep( edge - 0.01, edge + 0.01, e );
-    float winEdge = edge - 0.04;
+    float winEdge = edge - 0.022;
     float above = smoothstep( 0.49, 0.505, q.y );
     float win = skin * above * ( 1.0 - smoothstep( winEdge - 0.008, winEdge + 0.008, e ) );
     vec3 glass = mix( vec3( 0.62, 0.76, 0.88 ), vec3( 0.34, 0.48, 0.64 ), smoothstep( 0.5, 1.0, q.y ) );

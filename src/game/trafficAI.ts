@@ -1,8 +1,8 @@
-import { B, EDGE_IDS, LINKS, P, PIECES, RING_R, mod, nodeIJ, pieceAt, signalColor, wrapD, type Piece } from './map'
+import { B, EDGE_IDS, LANES, LANE_W, LINKS, P, PIECES, RING_R, SPEED_LIMIT, mod, nodeIJ, pieceAt, signalColor, wrapD, type Piece } from './map'
 
 export const MAX_CARS = 400
 export const CAR_L = 4.4
-export const CAR_W = 1.9
+export const CAR_W = 1.82
 const COLORS = ['#2e86de', '#f1c40f', '#ecf0f1', '#27ae60', '#8e44ad', '#e67e22', '#34495e', '#16a085', '#c0392b', '#95a5a6']
 
 export interface AiCar {
@@ -23,6 +23,19 @@ export interface AiCar {
   braking: boolean
   behindPlayer: boolean
   kind: number // body type: 0 sedan, 1 SUV, 2 van
+  style: 0 | 1 // 0 = cruiser (keeps right, at the speed limit), 1 = fast (prefers the left lanes)
+  pref: number // desired speed before the lane limit is applied (m/s)
+  plan: 'L' | 'S' | 'R' // what this car intends to do at the next signalled junction
+  turnSig: -1 | 0 | 1 // indicator for a junction turn / roundabout exit
+  lcSig: -1 | 0 | 1 // indicator for a lane change
+  sig: -1 | 0 | 1 // what the indicator lamps show (read by the renderer)
+  lcWant: -1 | 0 | 1 // lane change being prepared (indicator on, waiting for a gap)
+  lcPrep: number
+  lcT: number // progress of a lane change in seconds, -1 when not changing
+  lcDur: number
+  lat0: number // lateral offset (m, right positive) at the start of the lane change
+  cool: number // seconds before this car may consider another lane change
+  waitL: number // how long a left-turner has been waiting for a gap
 }
 
 export const cars: AiCar[] = []
@@ -39,9 +52,60 @@ export interface Obstacle {
 
 function place(c: AiCar) {
   pieceAt(PIECES[c.piece], c.s, tmp)
-  c.x = mod(tmp.x, P)
-  c.z = mod(tmp.z, P)
-  c.h = Math.atan2(-tmp.dx, -tmp.dz)
+  let x = tmp.x
+  let z = tmp.z
+  let yaw = 0
+  if (c.lcT >= 0) {
+    const u = Math.min(1, c.lcT / c.lcDur)
+    const lat = c.lat0 * (1 - u * u * (3 - 2 * u))
+    const vlat = (-c.lat0 * 6 * u * (1 - u)) / c.lcDur // rightward speed
+    x += -tmp.dz * lat // right of travel = (-dz, dx)
+    z += tmp.dx * lat
+    yaw = -Math.atan2(vlat, Math.max(c.speed, 2))
+  }
+  c.x = mod(x, P)
+  c.z = mod(z, P)
+  c.h = Math.atan2(-tmp.dx, -tmp.dz) + yaw
+}
+
+/* ---------------- lanes, plans and manoeuvres ---------------- */
+const leftExitOk = (p: Piece) => {
+  const e = (((p.arm + 2) % 4) + 1) % 4
+  const ex = LINKS.edgeOut.get(`${p.node}:${e}:0`)
+  return ex !== undefined && !!PIECES[ex].aiOk
+}
+const laneOk = (p: Piece, k: number) => k >= 0 && k < LANES && !!p.sibs && !!PIECES[p.sibs[k]].aiOk
+const hasLeft = (p: Piece) => p.toKind === 'signal' && laneOk(p, 0) && LINKS.connL.has(`${p.node}:${p.arm}:0`) && leftExitOk(p)
+
+/** What the car will actually do at the end of this road. The lane it is in decides: the left lane turns left. */
+function maneuver(c: AiCar, p: Piece): 'L' | 'S' | 'R' {
+  if (p.toKind !== 'signal') return 'S'
+  if (p.lane === 0 && hasLeft(p)) return 'L'
+  if (p.lane === LANES - 1 && c.plan === 'R') return 'R'
+  return 'S'
+}
+
+function planEdge(c: AiCar, p: Piece) {
+  c.plan = 'S'
+  if (p.kind !== 'edge' || p.toKind !== 'signal') return
+  const r = Math.random()
+  if (r < 0.18 && hasLeft(p)) c.plan = 'L'
+  else if (r < 0.4) c.plan = 'R'
+}
+
+function reqLane(c: AiCar, p: Piece) {
+  if (c.plan === 'L' && hasLeft(p)) return 0
+  if (c.plan === 'R') return LANES - 1
+  return c.style === 1 && laneOk(p, 1) ? 1 : LANES - 1
+}
+
+const compat = (plan: 'L' | 'S' | 'R', lane: number) => (plan === 'L' ? lane === 0 : plan === 'R' ? lane === LANES - 1 : lane >= 1)
+
+/** Right lane: at (or just under) the speed limit. Left lanes may go faster. */
+function laneV0(c: AiCar, lane: number) {
+  if (lane === LANES - 1) return Math.min(c.pref, SPEED_LIMIT * 0.99)
+  if (lane === 0) return Math.min(c.pref, 16.5)
+  return c.pref
 }
 
 function spawn(c: AiCar, player: Obstacle | null) {
@@ -52,13 +116,24 @@ function spawn(c: AiCar, player: Obstacle | null) {
     pieceAt(p, s, tmp)
     const x = mod(tmp.x, P)
     const z = mod(tmp.z, P)
+    if (p.toKind === 'signal' && p.lane === 0 && !hasLeft(p)) continue // the left lane is a left-turn lane
     if (player && Math.hypot(wrapD(x - player.x), wrapD(z - player.z)) < 70) continue
     if (cars.some((o) => o !== c && o.active && Math.hypot(wrapD(x - o.x), wrapD(z - o.z)) < 8)) continue
     c.piece = pid
     c.s = s
     c.lane = p.lane
-    c.v0 = rand(10.5, 13.5)
-    c.speed = c.v0 * 0.8
+    c.style = Math.random() < 0.7 ? 0 : 1
+    c.pref = c.style === 0 ? rand(12.4, 13.3) : rand(15, 19)
+    c.v0 = laneV0(c, p.lane)
+    c.speed = c.v0 * 0.85
+    c.lcT = -1
+    c.lcSig = 0
+    c.lcWant = 0
+    c.sig = 0
+    c.turnSig = 0
+    c.cool = rand(0.5, 5)
+    c.waitL = 0
+    planEdge(c, p)
     c.color = pick(COLORS)
     const r = Math.random()
     c.kind = r < 0.6 ? 0 : r < 0.92 ? 1 : 2
@@ -73,7 +148,7 @@ function spawn(c: AiCar, player: Obstacle | null) {
 export function initTraffic() {
   cars.length = 0
   for (let i = 0; i < MAX_CARS; i++) {
-    cars.push({ id: i, active: false, piece: 0, s: 0, speed: 0, v0: 12, lane: 0, exitArm: 0, x: 0, z: 0, h: 0, color: COLORS[0], stuck: 0, ghost: 0, braking: false, behindPlayer: false, kind: 0 })
+    cars.push({ id: i, active: false, piece: 0, s: 0, speed: 0, v0: 12, lane: 0, exitArm: 0, x: 0, z: 0, h: 0, color: COLORS[0], stuck: 0, ghost: 0, braking: false, behindPlayer: false, kind: 0, style: 0, pref: 12, plan: 'S', turnSig: 0, lcSig: 0, sig: 0, lcWant: 0, lcPrep: 0, lcT: -1, lcDur: 2.8, lat0: 0, cool: 0, waitL: 0 })
   }
 }
 initTraffic()
@@ -93,8 +168,12 @@ function chooseNext(c: AiCar, p: Piece): number | undefined {
   if (p.kind === 'edge') {
     if (p.toKind === 'signal') {
       const key = `${p.node}:${p.arm}:${p.lane}`
-      const right = L.connR.get(key)
-      if (right !== undefined && Math.random() < 0.4) return right
+      const m = maneuver(c, p)
+      if (m === 'L') return L.connL.get(key)
+      if (m === 'R') {
+        const right = L.connR.get(key)
+        if (right !== undefined) return right
+      }
       return L.connS.get(key)
     }
     c.exitArm = (p.arm + 1 + Math.floor(Math.random() * 3)) % 4
@@ -154,6 +233,101 @@ const CELL = 50
 const CN = P / CELL
 const grid: number[][] = Array.from({ length: CN * CN }, () => [])
 const cellOf = (x: number, z: number) => (Math.floor(x / CELL) % CN) * CN + (Math.floor(z / CELL) % CN)
+
+
+/** Is the target lane free of other cars (and the player) alongside, ahead and behind? */
+function laneSafe(c: AiCar, p: Piece, dir: -1 | 1, player: Obstacle): boolean {
+  const target = p.lane + dir
+  if (!laneOk(p, target)) return false
+  const sib = p.sibs![target]
+  const gx = Math.floor(c.x / CELL)
+  const gz = Math.floor(c.z / CELL)
+  for (let ix = -1; ix <= 1; ix++) {
+    for (let iz = -1; iz <= 1; iz++) {
+      for (const oi of grid[mod(gx + ix, CN) * CN + mod(gz + iz, CN)]) {
+        const o = cars[oi]
+        if (o === c || o.piece !== sib) continue
+        const ds = o.s - c.s
+        if (ds >= 0) {
+          if (ds < 9 + Math.max(0, c.speed - o.speed) * 2.2) return false
+        } else if (-ds < 9 + Math.max(0, o.speed - c.speed) * 2.2) return false
+      }
+    }
+  }
+  const fx = -Math.sin(c.h)
+  const fz = -Math.cos(c.h)
+  const rx = wrapD(player.x - c.x)
+  const rz = wrapD(player.z - c.z)
+  const along = rx * fx + rz * fz
+  const lat = rx * -fz + rz * fx
+  if (Math.abs(lat - dir * LANE_W) < 2.4) {
+    if (along >= 0 ? along < 9 + Math.max(0, c.speed - player.speed) * 2.2 : -along < 9 + Math.max(0, player.speed - c.speed) * 2.2) return false
+  }
+  return true
+}
+
+function startChange(c: AiCar, p: Piece, dir: -1 | 1) {
+  const target = p.lane + dir
+  c.lat0 = -dir * LANE_W // the new lane's centre is dir*LANE_W to the right of where the car is
+  c.lcT = 0
+  c.lcDur = 2.8
+  c.piece = p.sibs![target]
+  c.lane = target
+  c.v0 = laneV0(c, target)
+}
+
+function decideLane(c: AiCar, p: Piece, gap: number, lv: number) {
+  let want: -1 | 0 | 1 = 0
+  let urgent = false
+  if (p.toKind === 'signal') {
+    const req = reqLane(c, p)
+    if (p.lane !== req) {
+      want = req > p.lane ? 1 : -1
+      urgent = true
+    } else if (gap < 32 && lv < c.pref * 0.88 && p.lane > 0 && compat(c.plan, p.lane - 1) && laneOk(p, p.lane - 1)) {
+      want = -1 // overtake a slower car on the left
+    }
+  }
+  if (want && laneOk(p, p.lane + want)) {
+    c.lcWant = want
+    c.lcSig = want
+    c.lcPrep = urgent ? 0.9 : 1.4
+  } else c.cool = 0.5
+}
+
+/** Would a left-turner at the stop line cut across oncoming traffic? */
+function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle): boolean {
+  const [ji, jj] = nodeIJ(p.node)
+  const cx = ji * B
+  const cz = jj * B
+  const gx = Math.floor(cx / CELL)
+  const gz = Math.floor(cz / CELL)
+  const fx = -Math.sin(c.h)
+  const fz = -Math.cos(c.h)
+  const opp = (p.arm + 2) % 4
+  for (let ix = -1; ix <= 1; ix++) {
+    for (let iz = -1; iz <= 1; iz++) {
+      for (const oi of grid[mod(gx + ix, CN) * CN + mod(gz + iz, CN)]) {
+        const o = cars[oi]
+        if (o === c) continue
+        const op = PIECES[o.piece]
+        if (op.kind === 'edge' && op.node === p.node && op.arm === opp) {
+          // oncoming and about to enter, with a light that isn't red, and not turning left itself
+          if (op.len - o.s < 42 && signalColor(p.node, op.axis as 0 | 1, t) !== 2 && maneuver(o, op) !== 'L') return true
+        } else if (op.kind === 'conn' && op.node === p.node && o.speed > 0.8) {
+          const ofx = -Math.sin(o.h)
+          const ofz = -Math.cos(o.h)
+          if (ofx * fx + ofz * fz < -0.5 && Math.hypot(wrapD(o.x - cx), wrapD(o.z - cz)) < 15) return true
+        }
+      }
+    }
+  }
+  const pdx = wrapD(player.x - cx)
+  const pdz = wrapD(player.z - cz)
+  const pfx = -Math.sin(player.h)
+  const pfz = -Math.cos(player.h)
+  return player.speed > 1 && pfx * fx + pfz * fz < -0.5 && Math.hypot(pdx, pdz) < 40
+}
 
 export function stepTraffic(dt: number, t: number, player: Obstacle) {
   for (const g of grid) g.length = 0
@@ -236,6 +410,51 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       }
     }
 
+    // 3. turns: slow down, give way when turning left across oncoming traffic
+    if (p.kind === 'edge' && p.toKind === 'signal') {
+      const m = maneuver(c, p)
+      if (m !== 'S' && toEnd < 32) vcap = Math.min(vcap, 8)
+      if (m === 'L' && toEnd < 40) {
+        const dist = toEnd - 3.9
+        if (dist > -2 && c.waitL < 12 && leftConflict(c, p, t, player)) {
+          if (dist < gap) {
+            gap = Math.max(dist, 0.05)
+            lv = 0
+          }
+          if (c.speed < 0.3) c.waitL += dt
+        } else if (dist > -2 && c.speed < 0.3 && c.waitL >= 12) c.waitL += dt
+      } else c.waitL = 0
+    }
+
+    // 4. indicators and lane changes
+    c.cool -= dt
+    if (p.kind === 'edge') {
+      c.turnSig = p.toKind === 'signal' && toEnd < 45 ? (maneuver(c, p) === 'L' ? -1 : maneuver(c, p) === 'R' ? 1 : 0) : 0
+      if (c.lcT >= 0) {
+        c.lcT += dt
+        if (c.lcT >= c.lcDur) {
+          c.lcT = -1
+          c.lcSig = 0
+        }
+      } else if (c.lcWant !== 0) {
+        c.lcPrep -= dt
+        if (c.lcPrep <= 0) {
+          const dir = c.lcWant
+          c.lcWant = 0
+          if (toEnd > 45 && laneSafe(c, p, dir, player)) {
+            startChange(c, p, dir)
+            c.cool = p.toKind === 'signal' && c.plan !== 'S' ? 1 : 6 + Math.random() * 6
+          } else {
+            c.lcSig = 0
+            c.cool = 1.5
+          }
+        }
+      } else if (c.cool <= 0 && c.speed > 3 && c.s > 12 && toEnd > 70 && c.ghost <= 0 && p.sibs) decideLane(c, p, gap, lv)
+    } else if (p.kind === 'ring') {
+      c.turnSig = p.ringType === 'between' && c.exitArm === p.arm ? 1 : 0
+    } else if (p.entry) c.turnSig = 0
+    c.sig = c.lcSig !== 0 ? c.lcSig : c.turnSig
+
     const v0 = Math.min(c.v0, vcap)
     const acc = idm(c.speed, v0, gap, c.speed - lv)
     c.braking = acc < -1
@@ -262,6 +481,17 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       }
       c.s -= cur.len
       c.piece = nxt
+      const np = PIECES[nxt]
+      c.lane = np.lane
+      c.lcT = -1
+      c.lcSig = 0
+      c.lcWant = 0
+      if (np.kind === 'edge') {
+        c.turnSig = 0
+        c.v0 = laneV0(c, np.lane)
+        c.cool = rand(0.3, 2)
+        planEdge(c, np)
+      }
     }
     place(c)
   }

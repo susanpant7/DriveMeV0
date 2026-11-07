@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
+import * as THREE from 'three'
 import { Canvas } from '@react-three/fiber'
-import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
+import { BrightnessContrast, ChromaticAberration, EffectComposer, HueSaturation, N8AO, Noise, SMAA, ToneMapping, Vignette, Bloom } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import { installInput } from './game/input'
 import { PlayerRig } from './game/PlayerRig'
@@ -28,10 +29,14 @@ export default function App() {
         <PlayerRig />
         {!LOWFX && (
         <EffectComposer multisampling={0}>
-          <N8AO aoRadius={0.7} distanceFalloff={1} intensity={2.4} quality="medium" />
-          <Bloom luminanceThreshold={0.9} intensity={0.35} mipmapBlur />
+          <N8AO aoRadius={0.8} distanceFalloff={1} intensity={3} quality="medium" />
+          <Bloom luminanceThreshold={0.95} intensity={0.25} mipmapBlur />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          <Vignette offset={0.3} darkness={0.45} />
+          <HueSaturation saturation={-0.14} />
+          <BrightnessContrast brightness={-0.02} contrast={0.1} />
+          <ChromaticAberration offset={new THREE.Vector2(0.0005, 0.0005)} radialModulation={false} modulationOffset={0} />
+          <Noise opacity={0.06} />
+          <Vignette offset={0.25} darkness={0.55} />
           <SMAA />
         </EffectComposer>
         )}

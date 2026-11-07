@@ -28,7 +28,7 @@ export function Sky() {
       t.mapping = THREE.EquirectangularReflectionMapping
       scene.background = t
       scene.environment = t
-      scene.environmentIntensity = 0.9
+      scene.environmentIntensity = 1.0
 
       // find the sun (brightest texel) and the horizon colour (for matching the fog)
       const { width: w, height: h, data } = t.image as unknown as { width: number; height: number; data: Uint16Array }
@@ -75,8 +75,8 @@ export function SunLight() {
     <directionalLight
       ref={light}
       castShadow
-      intensity={2.6}
-      color="#fff1d6"
+      intensity={1.7}
+      color="#fff6e6"
       shadow-mapSize={[2048, 2048]}
       shadow-camera-left={-32}
       shadow-camera-right={32}

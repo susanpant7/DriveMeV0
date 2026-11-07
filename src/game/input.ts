@@ -2,7 +2,7 @@ import { toggleMute } from './audio'
 import { input, pauseGame, resumeGame, startGame, toggleSignal } from './sim'
 import { setTraffic, setUnits, useGame, type Look } from './store'
 
-const LOOK_KEYS: Record<string, Look> = { KeyA: 'left', KeyS: 'center', KeyD: 'right' }
+const LOOK_KEYS: Record<string, Look> = { KeyA: 'left', KeyW: 'center', KeyD: 'right' }
 
 /** Wires keyboard controls. Returns a cleanup function. */
 export function installInput() {
@@ -33,7 +33,6 @@ export function installInput() {
     if (e.code === 'ArrowRight') input.right = true
     if (e.repeat) return
     switch (e.code) {
-      case 'KeyW': input.look = 'front'; break
       case 'KeyQ': toggleSignal(-1); break
       case 'KeyE': toggleSignal(1); break
     }

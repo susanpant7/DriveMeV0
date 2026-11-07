@@ -21,16 +21,16 @@ interface ModelDef {
 
 const DEFS: ModelDef[] = [
   { // sedan
-    body: [[-2.2, 0.35], [-2.2, 0.8], [-1.8, 0.93], [-0.9, 0.96], [0.9, 0.96], [1.65, 0.86], [2.2, 0.7], [2.2, 0.35]], bodyW: 1.82,
-    glass: [[-1.45, 0.93], [-0.95, 1.4], [0.45, 1.4], [1.15, 0.93]], glassW: 1.62, halfLen: 2.2, halfW: 0.91, wheelZ: 1.4, tyre: 0.33,
+    body: [[-2.2, 0.35], [-2.2, 0.8], [-1.8, 0.93], [-0.9, 0.96], [0.9, 0.96], [1.65, 0.86], [2.2, 0.7], [2.2, 0.35]], bodyW: 1.78,
+    glass: [[-1.45, 0.93], [-0.95, 1.4], [0.45, 1.4], [1.15, 0.93]], glassW: 1.58, halfLen: 2.2, halfW: 0.89, wheelZ: 1.4, tyre: 0.33,
   },
   { // SUV
-    body: [[-2.15, 0.4], [-2.15, 1.1], [-1.95, 1.2], [0.5, 1.22], [1.5, 0.98], [2.15, 0.78], [2.15, 0.4]], bodyW: 1.9,
-    glass: [[-1.95, 1.15], [-1.75, 1.68], [0.3, 1.68], [1.1, 1.17]], glassW: 1.7, halfLen: 2.15, halfW: 0.95, wheelZ: 1.38, tyre: 0.37,
+    body: [[-2.15, 0.4], [-2.15, 1.1], [-1.95, 1.2], [0.5, 1.22], [1.5, 0.98], [2.15, 0.78], [2.15, 0.4]], bodyW: 1.84,
+    glass: [[-1.95, 1.15], [-1.75, 1.68], [0.3, 1.68], [1.1, 1.17]], glassW: 1.64, halfLen: 2.15, halfW: 0.92, wheelZ: 1.38, tyre: 0.37,
   },
   { // van
-    body: [[-2.45, 0.42], [-2.45, 2.05], [1.1, 2.05], [1.85, 1.25], [2.45, 0.95], [2.45, 0.42]], bodyW: 1.95,
-    glass: [[-2.3, 1.3], [-2.3, 1.9], [1.1, 1.9], [1.7, 1.25]], glassW: 1.97, halfLen: 2.45, halfW: 0.97, wheelZ: 1.65, tyre: 0.35,
+    body: [[-2.45, 0.42], [-2.45, 2.05], [1.1, 2.05], [1.85, 1.25], [2.45, 0.95], [2.45, 0.42]], bodyW: 1.88,
+    glass: [[-2.3, 1.3], [-2.3, 1.9], [1.1, 1.9], [1.7, 1.25]], glassW: 1.9, halfLen: 2.45, halfW: 0.94, wheelZ: 1.65, tyre: 0.35,
   },
 ]
 
@@ -62,6 +62,8 @@ tyreGeo.rotateZ(Math.PI / 2)
 const rimGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.27, 12)
 rimGeo.rotateZ(Math.PI / 2)
 const lampGeo = new THREE.BoxGeometry(0.42, 0.13, 0.05)
+const blinkGeo = new THREE.BoxGeometry(0.22, 0.11, 0.07) // amber indicator at a front / rear corner
+const repeaterGeo = new THREE.BoxGeometry(0.05, 0.09, 0.22) // side repeater
 
 const paintMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.32, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.12 })
 const darkMat = new THREE.MeshStandardMaterial({ color: '#10141a', roughness: 0.18, metalness: 0.8 })
@@ -69,6 +71,7 @@ const tyreMat = new THREE.MeshStandardMaterial({ color: '#0c0c0d', roughness: 0.
 const rimMat = new THREE.MeshStandardMaterial({ color: '#b9bec6', roughness: 0.28, metalness: 0.9 })
 const headMat = new THREE.MeshBasicMaterial({ color: '#fff3d0', toneMapped: false })
 const tailMat = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false })
+const amberMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.25, 0.05), toneMapped: false })
 
 const _m = new THREE.Matrix4()
 const _w = new THREE.Matrix4()
@@ -96,6 +99,8 @@ export function Traffic() {
   const rims = useRef<THREE.InstancedMesh>(null!)
   const heads = useRef<THREE.InstancedMesh>(null!)
   const tails = useRef<THREE.InstancedMesh>(null!)
+  const blinkers = useRef<THREE.InstancedMesh>(null!)
+  const repeaters = useRef<THREE.InstancedMesh>(null!)
 
   useEffect(() => () => models.forEach((m) => { m.body.dispose(); m.dark.dispose() }), [models])
 
@@ -103,6 +108,9 @@ export function Traffic() {
     const counts = [0, 0, 0]
     let nw = 0
     let nl = 0
+    let nb = 0
+    let nr = 0
+    const now = performance.now()
     for (const c of cars) {
       if (!c.active) continue
       const dx = wrapD(c.x - sim.x)
@@ -126,14 +134,27 @@ export function Traffic() {
       }
       const hl = md.d.halfLen + 0.01
       for (const sx of [-0.66, 0.66]) {
-        _l.makeTranslation(sx * (md.d.halfW / 0.91), 0.72, -hl)
+        _l.makeTranslation(sx * (md.d.halfW / 0.89), 0.72, -hl)
         _w.multiplyMatrices(_m, _l)
         heads.current.setMatrixAt(nl, _w)
-        _l.makeTranslation(sx * (md.d.halfW / 0.91), k === 2 ? 0.95 : 0.78, hl)
+        _l.makeTranslation(sx * (md.d.halfW / 0.89), k === 2 ? 0.95 : 0.78, hl)
         _w.multiplyMatrices(_m, _l)
         tails.current.setMatrixAt(nl, _w)
         tails.current.setColorAt(nl, c.braking ? TAIL_ON : TAIL_DIM)
         nl++
+      }
+      // indicators: blink on the side the car is signalling (lane change or turn)
+      if (c.sig !== 0 && (now / 380 + c.id * 0.37) % 2 < 1) {
+        const sx = c.sig * (md.d.halfW - 0.13)
+        _l.makeTranslation(sx, 0.72, -hl)
+        _w.multiplyMatrices(_m, _l)
+        blinkers.current.setMatrixAt(nb++, _w)
+        _l.makeTranslation(sx, k === 2 ? 0.95 : 0.8, hl)
+        _w.multiplyMatrices(_m, _l)
+        blinkers.current.setMatrixAt(nb++, _w)
+        _l.makeTranslation(c.sig * (md.d.halfW + 0.012), 0.82, -hl * 0.55)
+        _w.multiplyMatrices(_m, _l)
+        repeaters.current.setMatrixAt(nr++, _w)
       }
     }
     for (let k = 0; k < 3; k++) {
@@ -145,6 +166,9 @@ export function Traffic() {
     }
     tyres.current.count = rims.current.count = nw
     heads.current.count = tails.current.count = nl
+    blinkers.current.count = nb
+    repeaters.current.count = nr
+    blinkers.current.instanceMatrix.needsUpdate = repeaters.current.instanceMatrix.needsUpdate = true
     tyres.current.instanceMatrix.needsUpdate = rims.current.instanceMatrix.needsUpdate = true
     heads.current.instanceMatrix.needsUpdate = tails.current.instanceMatrix.needsUpdate = true
     if (tails.current.instanceColor) tails.current.instanceColor.needsUpdate = true
@@ -163,6 +187,8 @@ export function Traffic() {
       <instancedMesh ref={rims} args={[rimGeo, rimMat, MAX_CARS * 4]} frustumCulled={false} />
       <instancedMesh ref={heads} args={[lampGeo, headMat, MAX_CARS * 2]} frustumCulled={false} />
       <instancedMesh ref={tails} args={[lampGeo, tailMat, MAX_CARS * 2]} frustumCulled={false} />
+      <instancedMesh ref={blinkers} args={[blinkGeo, amberMat, MAX_CARS * 2]} frustumCulled={false} />
+      <instancedMesh ref={repeaters} args={[repeaterGeo, amberMat, MAX_CARS]} frustumCulled={false} />
     </>
   )
 }
