@@ -257,3 +257,43 @@ canvas { touch-action: none; }
 .tl .nav-text span { font-size: 11.5px; }
 .tl .nav-dist { font-size: 17px; }
 .hud.touch .tl .navbanner { width: min(280px, 44vw); }
+
+/* ================= navigation screen (bottom right, beside the steering wheel) ================= */
+.mapscreen {
+  position: absolute; right: 16px; bottom: 16px; border-radius: 14px; pointer-events: none;
+  border: 2px solid rgba(255,255,255,.16); box-shadow: 0 0 0 5px rgba(8,11,17,.82), 0 12px 34px rgba(0,0,0,.55);
+  background: #0e151e;
+}
+.hud.touch .mapscreen { right: 10px; bottom: calc(clamp(54px, 17vh, 92px) * 1.35 + 22px); }
+
+/* ================= city picker ================= */
+.citypicker { display: flex; flex-direction: column; gap: 10px; }
+.citypicker .seg { align-self: flex-start; }
+.citypicker .seg button { padding: 8px 18px; }
+.muted.small, .small { font-size: 12.5px; color: var(--muted); margin: 0; }
+.real { display: flex; flex-direction: column; gap: 10px; }
+.search { display: flex; gap: 8px; }
+.search input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--stroke); background: rgba(255,255,255,.06); color: var(--text); font: inherit; }
+.search input:focus { outline: 2px solid var(--accent-2); outline-offset: 1px; }
+.search button { padding: 9px 16px !important; font-size: 14px !important; min-width: 84px; }
+.places { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 150px; overflow: auto; }
+.places li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-radius: 10px; background: rgba(255,255,255,.05); border: 1px solid var(--stroke); font-size: 13.5px; }
+.places li em { color: var(--warn); font-size: 12px; font-style: normal; }
+.mini { padding: 5px 11px; border-radius: 8px; border: 1px solid var(--stroke); background: rgba(59,130,246,.25); font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+.mini:hover { background: rgba(59,130,246,.45); }
+.mini.ghost { background: transparent; margin-left: 6px; }
+.mini:disabled, .chip2:disabled { opacity: .5; cursor: default; }
+.chips2 { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip2 { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--stroke); background: rgba(255,255,255,.06); font-size: 12.5px; }
+.chip2:hover:not(:disabled) { background: rgba(255,255,255,.13); }
+.saved h4 { margin: 4px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); }
+.note.warn { padding: 7px 10px; border-radius: 9px; background: rgba(245,158,11,.14); border: 1px solid rgba(245,158,11,.5); font-size: 13px; }
+.status { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.06); border: 1px solid var(--stroke); }
+.status > div { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.status b { font-size: 14px; }
+.status span { font-size: 12.5px; color: var(--muted); }
+.status.done { border-color: rgba(34,197,94,.6); background: rgba(34,197,94,.12); }
+.status.error { border-color: rgba(239,68,68,.6); background: rgba(239,68,68,.12); }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.25); border-top-color: #fff; animation: spin .8s linear infinite; flex: none; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+button.primary:disabled { opacity: .6; cursor: wait; transform: none; }

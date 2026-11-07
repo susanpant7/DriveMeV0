@@ -1,13 +1,19 @@
 import { crashSound, initAudio, tick } from './audio'
-import { LINKS, PIECES, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, RING_OUT, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { nav, navJunctionExit, navUpdate, startRoute } from './nav'
+import { realNavUpdate, rnav, startRealRoute } from '../real/nav'
+import { locate } from '../real/player'
+import { realSignal, axisOf } from '../real/signals'
+import { initRealTraffic, setRealCount, stepRealTraffic } from '../real/traffic'
+import { edgeAt } from '../real/graph'
+import { WORLD, inRealBuilding } from '../real/world'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
 export { CAR_L, CAR_W }
 export const WHEELBASE = 2.7
 export const LIMIT = SPEED_LIMIT // city speed limit: 30 mph (about 48 km/h), in m/s
-export const TRAFFIC_LEVELS = [20, 60, 130, 230, 400]
+export const TRAFFIC_LEVELS = [30, 110, 280, 520, 850]
 
 // Rules-engine tuning
 const SIGNAL_MIN = 1.0 // signal must be on this long before moving
@@ -77,11 +83,11 @@ export const sim = {
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 const normAngle = (a: number) => mod(a + Math.PI, Math.PI * 2) - Math.PI
-const playerObs = () => ({ x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
+const playerObs = () => (WORLD.real ? { x: sim.x, z: sim.z, h: sim.h, speed: sim.speed } : { x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
 
 /* ---------- lifecycle ---------- */
 export function resetSim() {
-  const pose = startRoute(useGame.getState().mode) // where the practice route starts
+  const pose = WORLD.real ? startRealRoute() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
@@ -90,11 +96,14 @@ export function resetSim() {
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
-  initTraffic()
+  if (WORLD.real) initRealTraffic()
+  else initTraffic()
   applyTraffic()
 }
 export function applyTraffic() {
-  setActiveCount(TRAFFIC_LEVELS[useGame.getState().traffic - 1], playerObs())
+  const n = TRAFFIC_LEVELS[useGame.getState().traffic - 1]
+  if (WORLD.real) setRealCount(Math.round(n * 0.55), playerObs()) // real streets are narrower: fewer cars than the grid city for the same feel
+  else setActiveCount(n, playerObs())
 }
 resetSim()
 
@@ -126,6 +135,22 @@ export function resumeGame() {
 
 /** Put the car back on the nearest road, in the right-hand lane, facing the way it was heading. */
 function recoverToRoad() {
+  if (WORLD.real) {
+    // nearest real road: the lane on its right, facing the way we were heading, at rest
+    const n = WORLD.index!.nearest(sim.x, sim.z) ?? { edge: WORLD.graph!.edges[0], s: 5, d: 0, side: 0 }
+    let e = n.edge
+    const t = { x: 0, z: 0, dx: 0, dz: 0 }
+    edgeAt(e, n.s, t)
+    let s = Math.min(Math.max(n.s, 6), e.len - 6)
+    if (t.dx * -Math.sin(sim.h) + t.dz * -Math.cos(sim.h) < 0 && e.reverse >= 0) { e = WORLD.graph!.edges[e.reverse]; s = Math.min(Math.max(e.len - n.s, 6), e.len - 6) }
+    edgeAt(e, s, t)
+    const lane = e.oneWay ? Math.floor((e.lanes - 1) / 2) : e.lanes - 1
+    const off = e.oneWay ? (lane - (e.lanes - 1) / 2) * 3.4 : (lane + 0.5) * 3.4
+    const x = t.x - t.dz * off, z = t.z + t.dx * off
+    Object.assign(sim, { x, z, h: Math.atan2(-t.dx, -t.dz), speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, signal: 0, man: null, jn: null, stop: null, offRoadT: 0 })
+    for (const c of cars) if (c.active && Math.hypot(c.x - x, c.z - z) < 20) c.active = false
+    return
+  }
   const nn = nearestNode(sim.x, sim.z)
   const clr = clearance(nn.i, nn.j) + 10
   const fx = -Math.sin(sim.h)
@@ -181,7 +206,7 @@ export function stepSim(dt: number) {
   if (status !== 'playing') return
   sim.t += dt
 
-  const onRoad = onAsphalt(sim.x, sim.z)
+  const onRoad = WORLD.real ? WORLD.onRoad(sim.x, sim.z) : onAsphalt(sim.x, sim.z)
 
   // ---- pedals and longitudinal dynamics ----
   const thrT = input.up ? 1 : 0
@@ -221,32 +246,42 @@ export function stepSim(dt: number) {
   if (sim.look !== 'front' && sim.t - sim.lookSince >= GLANCE_TIME) sim.lastCheck[sim.look] = sim.t
 
   // ---- hard obstacles ----
-  if (inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])
+  if (!WORLD.real && inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
   const rx = Math.cos(sim.h)
   const rz = -Math.sin(sim.h)
   for (const [a, b] of [[2, 0.9], [2, -0.9], [-2, 0.9], [-2, -0.9], [0, 0]]) {
-    if (insideBuilding(sim.x + fx * a + rx * b, sim.z + fz * a + rz * b)) return crash('You hit a building.', ['Stay on the road.'])
+    const bx = sim.x + fx * a + rx * b, bz = sim.z + fz * a + rz * b
+    if (WORLD.real ? !WORLD.onRoad(bx, bz) && inRealBuilding(bx, bz) : insideBuilding(bx, bz)) return crash('You hit a building.', ['Stay on the road.'])
   }
   // leaving the road stops the game (resume puts you back on it)
   sim.offRoadT = onRoad ? 0 : sim.offRoadT + dt
   if (sim.offRoadT > 0.5) return pauseOffRoad()
 
   // ---- traffic ----
-  stepTraffic(dt, sim.t, playerObs())
+  if (WORLD.real) stepRealTraffic(dt, sim.t, playerObs())
+  else stepTraffic(dt, sim.t, playerObs())
   for (const c of cars) {
     if (c.active && hits(c)) return crashInto(c)
   }
 
   // ---- navigation ----
-  const arrivedAt = navUpdate(sim.x, sim.z)
-  if (arrivedAt) say(`You have arrived: ${arrivedAt}`, 'good')
+  if (WORLD.real) {
+    const m = realNavUpdate(sim.x, sim.z, sim.h)
+    if (m) say(m, m.startsWith('You have') ? 'good' : 'warn')
+  } else {
+    const arrivedAt = navUpdate(sim.x, sim.z)
+    if (arrivedAt) say(`You have arrived: ${arrivedAt}`, 'good')
+  }
 
   // ---- rules ----
-  trackLane()
-  trackJunction()
-  trackStop()
+  if (WORLD.real) trackRealRules()
+  else {
+    trackLane()
+    trackJunction()
+    trackStop()
+  }
   trackSpeed(dt)
 
   sim.hudTimer += dt
@@ -325,7 +360,7 @@ function crash(reason: string, tips: string[]) {
 /* ---------- rules: lane changes ---------- */
 function laneInfo() {
   const nn = nearestNode(sim.x, sim.z)
-  const clr = nn.kind === 'round' ? RING_OUT : BOX
+  const clr = nn.spec ? nn.spec.outer : BOX
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
   const xm = mod(sim.x + B / 2, B) - B / 2
@@ -340,6 +375,8 @@ function laneInfo() {
     r = zm * dirv(d - 1)[1]
   }
   if (d < 0) return null
+  // near a roundabout the lanes flare outward beside the splitter island: measure from the shifted lane edge
+  if (nn.kind === 'round' && r > 0) r = Math.max(0, r - rbShift((d % 2 === 0 ? Math.abs(xm) : Math.abs(zm)) - clr))
   return { d, r, k: r < 0 ? -1 : r < LANE_W ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3 }
 }
 
@@ -396,7 +433,7 @@ function finishManeuver(m: Maneuver) {
 /* ---------- rules: turns and roundabouts ---------- */
 function trackJunction() {
   const nn = nearestNode(sim.x, sim.z)
-  const inside = nn.kind === 'signal' ? Math.abs(nn.rx) < BOX + 1 && Math.abs(nn.rz) < BOX + 1 : Math.hypot(nn.rx, nn.rz) < RING_OUT
+  const inside = nn.kind === 'signal' ? Math.abs(nn.rx) < BOX + 1 && Math.abs(nn.rz) < BOX + 1 : Math.hypot(nn.rx, nn.rz) < nn.spec!.outer
   if (inside && !sim.jn) {
     sim.jn = { n: nn.n, i: nn.i, j: nn.j, kind: nn.kind, h0: sim.h, sig: sim.signal, yieldFail: false }
     if (nn.kind === 'round') {
@@ -431,19 +468,21 @@ function trackJunction() {
 /* ---------- rules: traffic lights ---------- */
 function trackStop() {
   const nn = nearestNode(sim.x, sim.z)
-  if (nn.kind !== 'signal') {
+  const rbSig = !!nn.spec?.signals // a signalised roundabout has its own stop lines, before the crosswalk
+  if (nn.kind !== 'signal' && !rbSig) {
     sim.stop = null
     return
   }
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
-  const LINE = BOX + 2
+  const half = nn.spec ? nn.spec.outer : BOX
+  const LINE = rbSig ? half + 17 : BOX + 2
   for (let d = 0; d < 4; d++) {
     const [ox, oz] = dirv(d)
     const [lx, lz] = dirv(d + 1)
     const u = nn.rx * ox + nn.rz * oz
     const lat = nn.rx * lx + nn.rz * lz
-    if (u <= 0 || u > BOX + 45 || Math.abs(lat) > HALF_ROAD + 1.5 || fx * ox + fz * oz > -0.6) continue
+    if (u <= 0 || u > half + 45 || Math.abs(lat) > HALF_ROAD + 1.5 || fx * ox + fz * oz > -0.6) continue
     let st = sim.stop
     if (!st || st.n !== nn.n || st.d !== d) st = sim.stop = { n: nn.n, d, prevU: u, passed: false, credited: false }
     // the left lane has its own left-turn arrow; everyone else follows the through signal
@@ -463,13 +502,45 @@ function trackStop() {
   sim.stop = null
 }
 
+/** Rules on real streets: wrong side of the road, and red lights at signals. */
+const rstop = { edge: -1, prev: 99, done: false }
+function trackRealRules() {
+  const loc = locate(sim.x, sim.z, sim.h)
+  if (!loc || loc.d > loc.e.width / 2 + 0.5) return
+  const { e, s, d, side } = loc
+  // two-way road: keep to the right of the centre line
+  if (!e.oneWay && sim.speed > 2 && d > 0.8 && side < -0.3) {
+    if (sim.t - sim.warnT.wrong > 3) { sim.warnT.wrong = sim.t; say('You are on the wrong side of the road!', 'warn') }
+  }
+  // red light: crossing the stop line (about 11 m before the junction) while the light is red
+  const node = WORLD.graph!.nodes.get(e.to)!
+  const toEnd = e.len - s
+  if (!node.signal) { rstop.edge = -1; return }
+  if (rstop.edge !== e.id) { rstop.edge = e.id; rstop.prev = toEnd; rstop.done = false }
+  edgeAt(e, e.len - 0.5, {x: 0, z: 0, dx: 0, dz: 0})
+  const t = { x: 0, z: 0, dx: 0, dz: 0 }
+  edgeAt(e, e.len - 0.5, t)
+  const col = realSignal(node.id, axisOf(t.dx, t.dz), sim.t)
+  if (!rstop.done && rstop.prev >= 11 && toEnd < 11) {
+    rstop.done = true
+    if (col === 2 && sim.speed > 0.5) say('You ran a red light!', 'warn')
+  }
+  rstop.prev = toEnd
+}
+
+function currentLimit() {
+  if (!WORLD.real) return LIMIT
+  return locate(sim.x, sim.z, sim.h)?.e.speed ?? LIMIT
+}
+
 function trackSpeed(dt: number) {
-  if (sim.speed > LIMIT * 1.12) sim.speedingFor += dt
+  const limit = currentLimit()
+  if (sim.speed > limit * 1.12) sim.speedingFor += dt
   else sim.speedingFor = 0
   if (sim.speedingFor > 2 && sim.t - sim.warnT.speed > 6) {
     sim.warnT.speed = sim.t
     const u = useGame.getState().units
-    say(`Speeding! The limit is ${u === 'kmh' ? '48 km/h' : '30 mph'}`, 'warn')
+    say(`Speeding! The limit is ${u === 'kmh' ? Math.round((limit * 3.6) / 5) * 5 + ' km/h' : Math.round((limit * 2.237) / 5) * 5 + ' mph'}`, 'warn')
   }
 }
 
@@ -489,6 +560,7 @@ function syncHud() {
       changes: sim.changes,
       clean: sim.clean,
       errors: sim.errors,
+      limit: currentLimit(),
     },
     nav: { text: nav.text, sub: nav.sub, icon: nav.icon, dist: nav.dist, arrived: nav.arrived },
     messages: s.messages.filter((m) => m.until > sim.t),
@@ -496,4 +568,4 @@ function syncHud() {
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __navfn: { startRoute, navUpdate, navJunctionExit } })
+if (typeof window !== 'undefined') Object.assign(window, { __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __rnav: rnav, __world: WORLD, __edgeAt: edgeAt, __realSignal: realSignal, __axisOf: axisOf, __navfn: { startRoute, navUpdate, navJunctionExit } })

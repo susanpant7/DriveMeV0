@@ -6,6 +6,8 @@ import { ToneMappingMode } from 'postprocessing'
 import { installInput } from './game/input'
 import { PlayerRig } from './game/PlayerRig'
 import { City } from './game/City'
+import { RealCity } from './real/RealCity'
+import { useGame } from './game/store'
 import { HORIZON, Sky, SunLight } from './game/Scenery'
 import { Traffic } from './game/Traffic'
 import { Ground, Simulation } from './game/World'
@@ -17,6 +19,8 @@ const LOWFX = IS_COARSE || (typeof location !== 'undefined' && new URLSearchPara
 
 export default function App() {
   useEffect(() => installInput(), [])
+  const world = useGame((s) => s.world)
+  const realName = useGame((s) => s.realName)
   return (
     <>
       <Canvas flat shadows dpr={IS_COARSE ? [1, 1.25] : [1, 1.5]} gl={{ antialias: LOWFX }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
@@ -26,7 +30,7 @@ export default function App() {
         <SunLight />
         <Simulation />
         <Ground />
-        <City />
+        {world === 'real' ? <RealCity key={realName} /> : <City />}
         <Traffic />
         <PlayerRig />
         {!LOWFX && (

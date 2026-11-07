@@ -23,6 +23,7 @@ export interface Hud {
   changes: number
   clean: number
   errors: number
+  limit: number // posted speed limit here, m/s
 }
 
 export interface NavHud {
@@ -32,6 +33,8 @@ export interface NavHud {
   dist: number
   arrived: number
 }
+
+export interface DlState { phase: 'idle' | 'connecting' | 'downloading' | 'processing' | 'done' | 'error'; message: string; place: string }
 
 interface GameState {
   status: Status
@@ -44,6 +47,9 @@ interface GameState {
   pauseReason: 'user' | 'offroad'
   mode: Mode
   nav: NavHud
+  world: 'grid' | 'real'
+  realName: string
+  dl: DlState
 }
 
 export const initialHud: Hud = {
@@ -56,6 +62,7 @@ export const initialHud: Hud = {
   changes: 0,
   clean: 0,
   errors: 0,
+  limit: 13.4,
 }
 
 const load = <T,>(key: string, fallback: T, ok: (v: unknown) => boolean): T => {
@@ -87,6 +94,9 @@ export const useGame = create<GameState>(() => ({
   pauseReason: 'user',
   mode: load<Mode>('driveme.mode', 'city', (v) => v === 'city' || v === 'roundabout' || v === 'junction' || v === 'lanes'),
   nav: { text: '', sub: '', icon: 'S', dist: 0, arrived: 0 },
+  world: 'grid',
+  realName: '',
+  dl: { phase: 'idle', message: '', place: '' },
   units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))

@@ -1,7 +1,9 @@
 import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
-import { MODES, fmtDist, type Mode } from '../game/nav'
-import { LIMIT, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
+import { MODES, type Mode } from '../game/nav'
+import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import { setMode, setTraffic, setUnits, useGame, type Look } from '../game/store'
+import { CityPicker } from './CityPicker'
+import { MapOverlay } from './MapOverlay'
 import { useViewport } from './useViewport'
 
 const Key = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>
@@ -130,26 +132,6 @@ function TouchHelp() {
   )
 }
 
-const GLYPH: Record<string, string> = { L: '↰', R: '↱', S: '↑', U: '↶', F: '⚑' }
-
-/** Next instruction from the navigation, shown at the top of the screen. */
-function NavBanner() {
-  const nav = useGame((s) => s.nav)
-  const units = useGame((s) => s.units)
-  if (!nav.text) return null
-  const glyph = nav.icon[0] === 'O' ? '⟳' : GLYPH[nav.icon] ?? '↑'
-  return (
-    <div className="navbanner" role="status">
-      <div className="nav-icon">{glyph}{nav.icon[0] === 'O' && <sub>{nav.icon[1]}</sub>}</div>
-      <div className="nav-text">
-        <b>{nav.text}</b>
-        <span>{nav.sub}</span>
-      </div>
-      <div className="nav-dist">{fmtDist(nav.dist, units)}</div>
-    </div>
-  )
-}
-
 function ModePicker() {
   const mode = useGame((s) => s.mode)
   return (
@@ -176,7 +158,7 @@ function PlayingHud() {
     const t = setTimeout(() => setHelp(false), 15000)
     return () => clearTimeout(t)
   }, [])
-  const speeding = hud.speed > LIMIT * 1.12
+  const speeding = hud.speed > hud.limit * 1.12
   const chip = (label: string, on: boolean, active: boolean) => (
     <span className={`chip${on ? ' on' : ''}${active ? ' active' : ''}`}><MirrorIcon />{label}</span>
   )
@@ -188,7 +170,6 @@ function PlayingHud() {
           {chip('Rear', hud.checks.center, hud.look === 'center')}
           {chip('Right', hud.checks.right, hud.look === 'right')}
         </div>
-        <NavBanner />
         <div className="toasts">
           {messages.map((m) => (
             <div key={m.id} className={`toast ${m.kind}`}>{m.text}</div>
@@ -204,8 +185,10 @@ function PlayingHud() {
 
       <div className={`limit${speeding ? ' over' : ''}${touch ? ' top' : ''}`} title="Speed limit">
         <small>SPEED<br />LIMIT</small>
-        <b>{units === 'kmh' ? 50 : 30}</b>
+        <b>{Math.round((hud.limit * (units === 'kmh' ? 3.6 : 2.23694)) / 5) * 5}</b>
       </div>
+
+      <MapOverlay />
 
       {touch && <TouchControls />}
 
@@ -229,6 +212,10 @@ export function Hud() {
   const start = startGame
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
+  const world = useGame((s) => s.world)
+  const realName = useGame((s) => s.realName)
+  const dlPhase = useGame((s) => s.dl.phase)
+  const loading = dlPhase === 'connecting' || dlPhase === 'downloading' || dlPhase === 'processing'
   const { touch, portrait } = useViewport()
 
   // phones and tablets play in landscape: pause and ask for a rotation
@@ -257,9 +244,15 @@ export function Hud() {
               <p>Learn to drive in a real city: lanes, traffic lights, junctions and roundabouts. Check your mirrors, signal, then move. A crash ends the run. Mistakes are flagged as you make them.</p>
             </header>
             <section className="practice">
-              <h3>What do you want to practise?</h3>
-              <ModePicker />
+              <h3>Where do you want to drive?</h3>
+              <CityPicker />
             </section>
+            {world === 'grid' && (
+              <section className="practice">
+                <h3>What do you want to practise?</h3>
+                <ModePicker />
+              </section>
+            )}
             <div className="cols">
               <section>
                 <h3>Controls</h3>
@@ -270,7 +263,7 @@ export function Hud() {
                 <Settings />
               </section>
             </div>
-            <button className="primary" onClick={start}>Start: {modeTitle(mode)} <Key>Enter</Key></button>
+            <button className="primary" onClick={start} disabled={loading}>{loading ? 'Loading the map…' : world === 'real' ? `Drive in ${realName}` : `Start: ${modeTitle(mode)}`} <Key>Enter</Key></button>
           </div>
         </div>
       )}

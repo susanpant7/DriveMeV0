@@ -3,7 +3,6 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { faceEuler } from './cabinConfig'
 import { drawCluster } from './gauges'
-import { drawNavMap } from './navMap'
 import { extrudeProfile } from './geom'
 import { sim } from './sim'
 import { useGame } from './store'
@@ -60,37 +59,6 @@ function useCanvasTexture(w: number, h: number) {
     tex.anisotropy = 8
     return { ctx: c.getContext('2d')!, tex }
   }, [w, h])
-}
-
-/** Navigation screen on the dash, to the right of the wheel: a heading-up map with the route. */
-function MapScreen() {
-  const map = useCanvasTexture(512, 320)
-  const last = useRef(0)
-  const pos = useMemo(() => new THREE.Vector3(0.0, 1.075, -0.68), [])
-  const rot = useMemo(() => faceEuler(pos), [pos])
-  useFrame(() => {
-    const now = performance.now()
-    if (now - last.current < 100) return
-    last.current = now
-    drawNavMap(map.ctx, 512, 320, sim.x, sim.z, sim.h, useGame.getState().units)
-    map.tex.needsUpdate = true
-  }, -1)
-  useEffect(() => () => map.tex.dispose(), [map])
-  return (
-    <group position={pos} rotation={rot}>
-      <mesh position={[0, 0, -0.018]} material={matteBlack}>
-        <boxGeometry args={[0.27, 0.178, 0.03]} />
-      </mesh>
-      <mesh>
-        <planeGeometry args={[0.255, 0.16]} />
-        <meshBasicMaterial map={map.tex} toneMapped={false} />
-      </mesh>
-      {/* stand on the dash */}
-      <mesh position={[0, -0.12, -0.03]} material={matteBlack}>
-        <boxGeometry args={[0.06, 0.07, 0.04]} />
-      </mesh>
-    </group>
-  )
 }
 
 /** Live instrument cluster in a slim bezel. */
@@ -409,7 +377,6 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[1.9, 0.4, 0.05]} />
       </mesh>
       <Displays />
-      <MapScreen />
       <BodySide sd={-1} />
       <BodySide sd={1} />
 

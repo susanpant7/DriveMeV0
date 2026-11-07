@@ -14,14 +14,26 @@ export const HALF_MID = LANES_MID * LANE_W // half the width of the ordinary 2-l
 export const HALF_ROAD = LANES * LANE_W // half the width where a third (turn) lane is added
 export const FLARE = 80 // length of the full 3-lane section before a signalised junction
 export const TAPER = 30 // the road widens from 2 to 3 lanes over this distance
-export const RB_LANE = 1 // roundabout entries and exits use the outer lane of the 2-lane road
 /** how far the road has widened (0..1) at distance d before the junction's edge */
+/**
+ * Roundabout entrances flare outward so each lane keeps its full width beside the splitter island.
+ * [distance from the ring, half-width of the island there (= how far each lane has shifted outward)]
+ */
+export const RB_ISLAND: ReadonlyArray<readonly [number, number]> = [[0.6, 1.9], [9, 1.55], [20, 0.7], [29, 0.15], [30, 0]]
+export function rbShift(d: number) {
+  if (d <= RB_ISLAND[0][0]) return RB_ISLAND[0][1]
+  for (let i = 1; i < RB_ISLAND.length; i++) {
+    if (d <= RB_ISLAND[i][0]) {
+      const [d0, v0] = RB_ISLAND[i - 1]
+      const [d1, v1] = RB_ISLAND[i]
+      return v0 + ((v1 - v0) * (d - d0)) / (d1 - d0)
+    }
+  }
+  return 0
+}
+export const RB_SHIFT = RB_ISLAND[0][1]
 export const flare = (d: number) => (d <= FLARE ? 1 : d >= FLARE + TAPER ? 0 : 1 - (d - FLARE) / TAPER)
 export const BOX = 12 // half size of a signalled junction
-export const RING_R = 30.2 // roundabout lane centre radius (middle of the 26.6 .. 34 m circulating roadway)
-export const APRON_R = 26.6 // inner edge of the circulating roadway (the truck apron fills ISLAND_R .. APRON_R)
-export const RING_OUT = 34 // roundabout outer edge
-export const ISLAND_R = 23 // central island
 export const DELTA = (15 * Math.PI) / 180
 export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
 
@@ -31,12 +43,46 @@ export const dirv = (d: number) => DIRS[((d % 4) + 4) % 4]
 
 export const mod = (a: number, n: number) => ((a % n) + n) % n
 /** wrap a coordinate difference into [-P/2, P/2) so "nearest copy" maths works */
-export const wrapD = (d: number) => mod(d + P / 2, P) - P / 2
+/** the world repeats every `period` metres (the grid city); a real city does not repeat, so its period is effectively infinite */
+export const WORLD_PERIOD = { v: P }
+export const wrapD = (d: number) => mod(d + WORLD_PERIOD.v / 2, WORLD_PERIOD.v) - WORLD_PERIOD.v / 2
 export const nodeIndex = (i: number, j: number) => mod(i, G) * G + mod(j, G)
 export const nodeIJ = (n: number): [number, number] => [Math.floor(n / G), n % G]
 export type NodeKind = 'round' | 'signal'
 export const nodeKind = (i: number, j: number): NodeKind => (mod(i, G) % 2 === 0 && mod(j, G) % 2 === 0 ? 'round' : 'signal')
-export const clearance = (i: number, j: number) => (nodeKind(i, j) === 'round' ? RING_OUT : BOX)
+
+/** The roundabout designs. Each of the four roundabouts in the city is a different one. */
+export type RbVariant = 'two' | 'signal' | 'single' | 'mini'
+export interface RbSpec {
+  variant: RbVariant
+  label: string
+  outer: number // outer radius of the circulating roadway (where the approach roads meet it)
+  island: number // radius of the central island
+  apron: number // inner edge of the circulating roadway (the truck apron fills island .. apron)
+  laneR: number[] // centre radii of the circulating lanes, inner first
+  signals: boolean // traffic lights at the entries
+  splitter: boolean // raised splitter islands and flared entrances
+  aiLanes: number[] // approach lanes (0 = left, 1 = right) that AI cars use
+  domed: boolean // a mountable domed island (mini roundabout)
+}
+export const RB_SPECS: Record<RbVariant, RbSpec> = {
+  two: { variant: 'two', label: 'Two-lane roundabout', outer: 42, island: 26, apron: 31.5, laneR: [34.1, 39.4], signals: false, splitter: true, aiLanes: [0, 1], domed: false },
+  signal: { variant: 'signal', label: 'Signalised roundabout', outer: 46, island: 28, apron: 34, laneR: [37, 43], signals: true, splitter: true, aiLanes: [0, 1], domed: false },
+  single: { variant: 'single', label: 'Single-lane roundabout', outer: 27, island: 15.5, apron: 19.5, laneR: [23.2], signals: false, splitter: true, aiLanes: [1], domed: false },
+  mini: { variant: 'mini', label: 'Mini roundabout', outer: 16, island: 4, apron: 5, laneR: [10.5], signals: false, splitter: false, aiLanes: [1], domed: true },
+}
+const RB_AT: Record<string, RbVariant> = { '0,0': 'two', '2,0': 'signal', '0,2': 'mini', '2,2': 'single' }
+export function rbSpec(i: number, j: number): RbSpec | undefined {
+  return nodeKind(i, j) === 'round' ? RB_SPECS[RB_AT[`${mod(i, G)},${mod(j, G)}`] ?? 'two'] : undefined
+}
+export const rbSpecOfNode = (n: number) => { const [i, j] = nodeIJ(n); return rbSpec(i, j)! }
+/** do the lanes flare outward beside a splitter island at this node? */
+export const flareOf = (i: number, j: number) => !!rbSpec(i, j)?.splitter
+export const ringDelta = (spec: RbSpec, ringLane: number) => {
+  const maxO = (spec.laneR.length === 1 ? aiOff(1) : aiOff(ringLane)) + (spec.splitter ? RB_SHIFT : 0)
+  return Math.max(0.26, Math.asin(Math.min(0.9, maxO / spec.laneR[ringLane])) + 0.08)
+}
+export const clearance = (i: number, j: number) => rbSpec(i, j)?.outer ?? BOX
 export const laneOff = (k: number) => LANE_W / 2 + LANE_W * k
 export const aiOff = laneOff
 
@@ -64,6 +110,7 @@ export interface Piece {
   exit?: boolean
   ringType?: 'between' | 'pass'
   laneFrom?: number // the lane only exists from this distance along the piece (the added turn lane)
+  hl?: boolean // cached: can cars in the left lane turn left here?
   aiOk?: boolean // may AI cars use this lane?
   sibs?: number[] // the parallel lanes of the same road, by lane index
 }
@@ -118,13 +165,13 @@ const bez2 = (p0: Pt, p1: Pt, p2: Pt, n: number): Pt[] => {
   }
   return out
 }
-const ringPt = (cx: number, cz: number, th: number, r = RING_R): Pt => [cx + r * Math.cos(th), cz - r * Math.sin(th)]
+const ringPt = (cx: number, cz: number, th: number, r: number): Pt => [cx + r * Math.cos(th), cz - r * Math.sin(th)]
 const ringTan = (th: number): Pt => [-Math.sin(th), -Math.cos(th)] // counter-clockwise travel
 
-function arc(cx: number, cz: number, t0: number, t1: number): Pt[] {
-  const n = Math.max(2, Math.ceil((RING_R * (t1 - t0)) / 2))
+function arc(cx: number, cz: number, t0: number, t1: number, r: number): Pt[] {
+  const n = Math.max(2, Math.ceil((r * (t1 - t0)) / 2))
   const pts: Pt[] = []
-  for (let i = 0; i <= n; i++) pts.push(ringPt(cx, cz, t0 + ((t1 - t0) * i) / n))
+  for (let i = 0; i <= n; i++) pts.push(ringPt(cx, cz, t0 + ((t1 - t0) * i) / n, r))
   return pts
 }
 
@@ -149,12 +196,22 @@ function buildPieces() {
         // Ordinary road: 2 lanes (0 inner, 1 outer). Approaching a signalised junction a third, outer lane (2) is added
         // for right turns. Approaching a roundabout only the outer lane enters it.
         const sibIds: number[] = []
+        const segLen = B - clrA - clrB
+        // breakpoints along the road where the lane shifts (it follows the splitter island at roundabout ends)
+        const bps = new Set<number>([0, segLen])
+        const flA = flareOf(i, j), flB = flareOf(ni, nj)
+        if (flA) for (const [dd] of RB_ISLAND) if (dd < segLen) bps.add(dd)
+        if (flB) for (const [dd] of RB_ISLAND) if (segLen - dd > 0) bps.add(segLen - dd)
+        const sorted = [...bps].sort((p, q) => p - q)
         for (let k = 0; k < LANES; k++) {
           const o = aiOff(k)
-          const a: Pt = [cx + dx * clrA + rx * o, cz + dz * clrA + rz * o]
-          const b: Pt = [cx + dx * (B - clrB) + rx * o, cz + dz * (B - clrB) + rz * o]
-          const aiOk = k === LANES - 1 ? toKind === 'signal' : toKind === 'round' ? k === RB_LANE : true
-          const id = addPiece('edge', [a, b], 22, {
+          const pts: Pt[] = sorted.map((sv) => {
+            const off = o + (flA ? rbShift(sv) : 0) + (flB ? rbShift(segLen - sv) : 0)
+            return [cx + dx * (clrA + sv) + rx * off, cz + dz * (clrA + sv) + rz * off] as Pt
+          })
+          const rbB = rbSpec(ni, nj)
+          const aiOk = k === LANES - 1 ? toKind === 'signal' : rbB ? rbB.aiLanes.includes(k) : true // the 3rd lane only exists at a signalised junction
+          const id = addPiece('edge', pts, 22, {
             node: nodeIndex(ni, nj), arm: arrive, lane: k, toKind, axis: arrive % 2 === 0 ? 0 : 1, aiOk,
           })
           if (k === LANES - 1 && toKind === 'signal') PIECES[id].laneFrom = PIECES[id].len - FLARE
@@ -179,7 +236,7 @@ function buildPieces() {
             const [srx, srz] = dirv(t - 1)
             const exitOff = k === LANES - 1 ? aiOff(1) : o
             const Xs: Pt = [cx + sx * BOX + srx * exitOff, cz + sz * BOX + srz * exitOff]
-            if (k === 1 || (k === 0 && nodeKind(i + sx, j + sz) === 'signal')) {
+            if (k <= 1) {
               LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', [E, Xs], 17, { node: n, arm: t, lane: k }))
             }
             // left turn (the left-most lane only turns left)
@@ -210,26 +267,37 @@ function buildPieces() {
           const [rx, rz] = dirv(d - 1)
           const t = (d + 2) % 4
           const [tx, tz] = dirv(t)
-          for (let k = RB_LANE; k <= RB_LANE; k++) {
+          const spec = rbSpec(i, j)!
+          const L = spec.laneR.length
+          const sh = spec.splitter ? RB_SHIFT : 0
+          // entries: with two circulating lanes the left approach lane feeds the inner one and the right lane the outer one;
+          // with a single circulating lane both approach lanes merge into it
+          for (let k = 0; k < 2; k++) {
             const o = aiOff(k)
-            {
-            // entry: arm lane end -> ring at (arm angle + DELTA)
-            const P0: Pt = [cx + ox * RING_OUT + lx * o, cz + oz * RING_OUT + lz * o]
-            const P3 = ringPt(cx, cz, th + DELTA)
-            const tg = ringTan(th + DELTA)
+            const rl = L === 1 ? 0 : k
+            const rr = spec.laneR[rl]
+            const dl = ringDelta(spec, rl)
+            const P0: Pt = [cx + ox * spec.outer + lx * (o + sh), cz + oz * spec.outer + lz * (o + sh)]
+            const P3 = ringPt(cx, cz, th + dl, rr)
+            const tg = ringTan(th + dl)
             const h1 = 0.45 * Math.hypot(P3[0] - P0[0], P3[1] - P0[1])
-            LINKS.entryC.set(`${n}:${d}:${k}`, addPiece('conn', bez3(P0, [P0[0] + tx * h1, P0[1] + tz * h1], [P3[0] - tg[0] * h1, P3[1] - tg[1] * h1], P3, 14), 6.5, { node: n, arm: d, lane: k, entry: true }))
-            }
-            // exit: ring at (arm angle - DELTA) -> arm lane start
-            const Q0 = ringPt(cx, cz, th - DELTA)
-            const tq = ringTan(th - DELTA)
-            const Q3: Pt = [cx + ox * RING_OUT + rx * o, cz + oz * RING_OUT + rz * o]
-            const h = 0.45 * Math.hypot(Q3[0] - Q0[0], Q3[1] - Q0[1])
-            LINKS.exitC.set(`${n}:${d}:${k}`, addPiece('conn', bez3(Q0, [Q0[0] + tq[0] * h, Q0[1] + tq[1] * h], [Q3[0] - ox * h, Q3[1] - oz * h], Q3, 14), 6.5, { node: n, arm: d, lane: k, exit: true }))
+            LINKS.entryC.set(`${n}:${d}:${k}`, addPiece('conn', bez3(P0, [P0[0] + tx * h1, P0[1] + tz * h1], [P3[0] - tg[0] * h1, P3[1] - tg[1] * h1], P3, 14), 6.5, { node: n, arm: d, lane: rl, entry: true }))
           }
-          // ring: pass arm d (exit_d -> entry_d), between d and d+1 (entry_d -> exit_{d+1})
-          LINKS.ringPass.set(`${n}:${d}`, addPiece('ring', arc(cx, cz, th - DELTA, th + DELTA), 7.6, { node: n, arm: d, ringType: 'pass' }))
-          LINKS.ringBetween.set(`${n}:${d}`, addPiece('ring', arc(cx, cz, th + DELTA, th + Math.PI / 2 - DELTA), 7.6, { node: n, arm: (d + 1) % 4, ringType: 'between' }))
+          // exits, and the ring itself, one set per circulating lane
+          for (let r = 0; r < L; r++) {
+            const rr = spec.laneR[r]
+            const dl = ringDelta(spec, r)
+            const ko = L === 1 ? 1 : r // the outbound lane this ring lane leaves into
+            const o = aiOff(ko)
+            const Q0 = ringPt(cx, cz, th - dl, rr)
+            const tq = ringTan(th - dl)
+            const Q3: Pt = [cx + ox * spec.outer + rx * (o + sh), cz + oz * spec.outer + rz * (o + sh)]
+            const h = 0.45 * Math.hypot(Q3[0] - Q0[0], Q3[1] - Q0[1])
+            LINKS.exitC.set(`${n}:${d}:${r}`, addPiece('conn', bez3(Q0, [Q0[0] + tq[0] * h, Q0[1] + tq[1] * h], [Q3[0] - ox * h, Q3[1] - oz * h], Q3, 14), 6.5, { node: n, arm: d, lane: ko, exit: true }))
+            // ring: pass arm d (exit_d -> entry_d), between d and d+1 (entry_d -> exit_{d+1})
+            LINKS.ringPass.set(`${n}:${d}:${r}`, addPiece('ring', arc(cx, cz, th - dl, th + dl, rr), Math.min(7.6, Math.sqrt(2.4 * rr)), { node: n, arm: d, lane: r, ringType: 'pass' }))
+            LINKS.ringBetween.set(`${n}:${d}:${r}`, addPiece('ring', arc(cx, cz, th + dl, th + Math.PI / 2 - dl, rr), Math.min(7.6, Math.sqrt(2.4 * rr)), { node: n, arm: (d + 1) % 4, lane: r, ringType: 'between' }))
+          }
         }
       }
     }
@@ -268,7 +336,8 @@ export function pieceAt(p: Piece, s: number, out: { x: number; z: number; dx: nu
  * Each green is followed by amber and a short all-red.
  */
 export const CYCLE = 54
-const nodeOffset = (n: number) => ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE
+const nodeOffsets: number[] = Array.from({ length: 64 }, (_, n) => ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE)
+const nodeOffset = (n: number) => nodeOffsets[n] ?? ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE
 /** 0 = green, 1 = amber, 2 = red. axis 1 = north-south approaches, 0 = east-west. move 'T' = through / right, 'L' = left turn. */
 export function signalColor(node: number, axis: 0 | 1, t: number, move: 'T' | 'L' = 'T'): 0 | 1 | 2 {
   const ph = mod(t + nodeOffset(node), CYCLE)
@@ -328,7 +397,7 @@ function buildLots(): Lot[] {
             const cz = cj * B
             const dx = Math.max(x0 - cx, 0, cx - x1)
             const dz = Math.max(z0 - cz, 0, cz - z1)
-            if (Math.hypot(dx, dz) < RING_OUT + 10) park = true
+            if (Math.hypot(dx, dz) < clearance(ci, cj) + 10) park = true
           }
           const inset = 3 + hash(i * 3 + a, j * 3 + b, 1) * 6
           lots.push({
@@ -369,7 +438,7 @@ export function nearestNode(x: number, z: number) {
   const j = Math.round(z / B)
   const cx = i * B
   const cz = j * B
-  return { i, j, n: nodeIndex(i, j), cx, cz, kind: nodeKind(i, j), rx: x - cx, rz: z - cz }
+  return { i, j, n: nodeIndex(i, j), cx, cz, kind: nodeKind(i, j), spec: rbSpec(i, j), rx: x - cx, rz: z - cz }
 }
 
 /**
@@ -377,20 +446,20 @@ export function nearestNode(x: number, z: number) {
  * `right` is the +v side (west of a southbound road, south of an eastbound one) and `left` the other side.
  * The road only widens on the approach side of a signalised junction, where the third lane is added.
  */
-export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number) {
+export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number, flA = kA === 'round', flB = kB === 'round') {
   const dA = u - clrA
   const dB = B - u - clrB
   return {
-    right: HALF_MID + (kB === 'signal' ? (HALF_ROAD - HALF_MID) * flare(dB) : 0),
-    left: HALF_MID + (kA === 'signal' ? (HALF_ROAD - HALF_MID) * flare(dA) : 0),
+    right: HALF_MID + (kB === 'signal' ? (HALF_ROAD - HALF_MID) * flare(dB) : 0) + (flB ? rbShift(dB) : 0),
+    left: HALF_MID + (kA === 'signal' ? (HALF_ROAD - HALF_MID) * flare(dA) : 0) + (flA ? rbShift(dA) : 0),
   }
 }
 
 export function onAsphalt(x: number, z: number) {
   const nn = nearestNode(x, z)
-  if (nn.kind === 'round') {
+  if (nn.spec) {
     const r = Math.hypot(nn.rx, nn.rz)
-    if (r < RING_OUT) return r > ISLAND_R
+    if (r < nn.spec.outer) return r > nn.spec.island
   } else if (Math.abs(nn.rx) < BOX + 0.2 && Math.abs(nn.rz) < BOX + 0.2) return true
   // vertical road (runs south): +v side is west
   {
@@ -402,8 +471,8 @@ export function onAsphalt(x: number, z: number) {
     const kB = nodeKind(i, jA + 1)
     const cA = clearance(i, jA)
     const cB = clearance(i, jA + 1)
-    if (u >= cA && u <= B - cB) {
-      const h = segHalves(kA, kB, cA, cB, u)
+    if (u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
+      const h = segHalves(kA, kB, cA, cB, u, flareOf(i, jA), flareOf(i, jA + 1))
       if (Math.abs(lat) < (lat < 0 ? h.right : h.left) + 0.2) return true
     }
   }
@@ -417,8 +486,8 @@ export function onAsphalt(x: number, z: number) {
     const kB = nodeKind(iA + 1, j)
     const cA = clearance(iA, j)
     const cB = clearance(iA + 1, j)
-    if (u >= cA && u <= B - cB) {
-      const h = segHalves(kA, kB, cA, cB, u)
+    if (u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
+      const h = segHalves(kA, kB, cA, cB, u, flareOf(iA, j), flareOf(iA + 1, j))
       if (Math.abs(lat) < (lat > 0 ? h.right : h.left) + 0.2) return true
     }
   }
@@ -427,5 +496,5 @@ export function onAsphalt(x: number, z: number) {
 
 export function inIsland(x: number, z: number) {
   const nn = nearestNode(x, z)
-  return nn.kind === 'round' && Math.hypot(nn.rx, nn.rz) < ISLAND_R - 0.3
+  return !!nn.spec && Math.hypot(nn.rx, nn.rz) < nn.spec.island - 0.3
 }

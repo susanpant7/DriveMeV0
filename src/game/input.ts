@@ -6,7 +6,9 @@ const LOOK_KEYS: Record<string, Look> = { KeyA: 'left', KeyW: 'center', KeyD: 'r
 
 /** Wires keyboard controls. Returns a cleanup function. */
 export function installInput() {
+  const typing = (e: KeyboardEvent) => ['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement | null)?.tagName ?? '')
   const down = (e: KeyboardEvent) => {
+    if (typing(e)) return // typing in a text box must not drive the game
     const status = useGame.getState().status
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault()
     if (e.code === 'KeyM' && !e.repeat) toggleMute()
@@ -38,6 +40,7 @@ export function installInput() {
     }
   }
   const up = (e: KeyboardEvent) => {
+    if (typing(e)) return
     if (LOOK_KEYS[e.code] && input.look === LOOK_KEYS[e.code]) input.look = 'front'
     if (e.code === 'ArrowUp') input.up = false
     if (e.code === 'ArrowDown') input.down = false

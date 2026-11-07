@@ -49,9 +49,36 @@ and a third, outer lane opens: left lane = left turn, middle = straight, outer =
 lane-use sign match). Roundabout approaches stay 2 lanes; AI cars enter from the outer lane.
 
 ## Roundabouts
-Each arm has a raised splitter island, a crosswalk set back from a dashed yield line (white "shark teeth"), a yield sign and
-a roundabout-ahead sign. The circulating roadway has counter-clockwise arrows, a mountable apron around the central island and
-kerbed pavements. AI cars slow down on approach, stop at the yield line if a car is coming round, and go when it is clear.
+Four different designs, one per roundabout in the city:
+- **Two-lane** (big, 42 m radius, 5 m lanes): left lane straight / left (inner ring lane), right lane right / straight (outer lane).
+- **Signalised** two-lane (46 m): traffic lights and stop bars at every entry, plus the yield to circulating traffic.
+- **Single-lane** (27 m): one wide circulating lane, both approach lanes merge into it.
+- **Mini** (16 m): a small domed island ringed with paint, painted splitters, no raised kerbs.
+
+Every arm has a splitter island (raised, with a keep-right sign, except at the mini roundabout), a crosswalk set back from a
+dashed yield line (white "shark teeth"), and roadside signs. Entrances flare outward so each lane keeps its full width.
+AI cars slow down on approach, stop at the yield line if a car is coming round, and go when it is clear.
+
+## Navigation map
+A 2D screen at the bottom right, drawn on top of the game (heading-up, smoothly moving, zooming out with speed). Roads have
+outlines and street names, roundabouts are drawn with their real shape, and the blue route follows the actual arc around
+a roundabout and the rounded corner through a junction.
+
+## Real cities
+On the menu choose **Real city**: search any place, or pick a preset (Palo Alto, Austin, Boston, Seattle, Chicago, San Diego,
+Paris, Berlin). The game downloads about 1 km² of OpenStreetMap data (roads, junctions, traffic signals, buildings), saves it on
+your device (IndexedDB) so it is only downloaded once, then you drive on it with traffic, signals, speed limits and turn-by-turn
+navigation. Data (c) OpenStreetMap contributors, ODbL. Left-hand-traffic countries are not supported yet.
+
+- `src/real/osm.ts`: place search (Nominatim), download (Overpass, several servers, retries), saved-city cache.
+- `src/real/graph.ts`: road network (lanes, widths, speed limits, one-ways, roundabouts, signals) and the road-surface test.
+- `src/real/RealCity.tsx`: roads, lane paint, crosswalks, buildings, street trees, traffic lights.
+- `src/real/traffic.ts`: AI cars (follow lanes, obey signals, take turns at unsignalised junctions, yield at roundabouts and when turning left).
+- `src/real/nav.ts`: route planning, instructions, wrong-turn recalculation. `scripts/bake-city.mjs` pre-bakes a city into `public/cities/` (Palo Alto ships with the game).
+
+## Traffic
+Cars live in a window around you and are recycled once they fall behind, so level 5 (about 850 cars) is genuinely dense
+near you. Levels: 30 / 110 / 280 / 520 / 850 cars.
 
 ## Rules the game checks
 - lane changes: indicator (on >= 1 s before), side-mirror and rear-view glance
