@@ -1,0 +1,4 @@
+Textures and HDRI from Poly Haven (https://polyhaven.com), licensed CC0:
+- kloofendal_48d_partly_cloudy_puresky (HDRI)
+- asphalt_02
+- aerial_grass_rock
