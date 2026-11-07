@@ -1,5 +1,6 @@
 import { crashSound, initAudio, tick } from './audio'
-import { LANES, LINKS, PIECES, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, RING_OUT, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { LINKS, PIECES, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, RING_OUT, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { nav, navJunctionExit, navUpdate, startRoute } from './nav'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
@@ -25,6 +26,8 @@ interface Maneuver {
 }
 interface JunctionVisit {
   n: number
+  i: number // unwrapped grid position of the junction (for following the route)
+  j: number
   kind: 'signal' | 'round'
   h0: number
   sig: Signal
@@ -69,6 +72,7 @@ export const sim = {
   speedingFor: 0,
   trip: 0,
   offRoadT: 0,
+  errors: 0,
 }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
@@ -77,11 +81,12 @@ const playerObs = () => ({ x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: 
 
 /* ---------- lifecycle ---------- */
 export function resetSim() {
+  const pose = startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
-    t: 0, x: B - laneOff(2), z: 60, h: Math.PI, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
+    t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
     score: 0, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
-    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0,
+    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0,
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
@@ -97,6 +102,12 @@ export function startGame() {
   initAudio()
   resetSim()
   useGame.setState({ status: 'playing', pauseReason: 'user', messages: [], crashReason: '', crashTips: [], hud: { ...initialHud } })
+}
+
+export function goMenu() {
+  input.look = 'front'
+  input.up = input.down = input.left = input.right = false
+  useGame.setState({ status: 'menu', pauseReason: 'user' })
 }
 
 export function pauseGame() {
@@ -119,7 +130,7 @@ function recoverToRoad() {
   const clr = clearance(nn.i, nn.j) + 10
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
-  const lane = laneOff(LANES - 1)
+  const lane = laneOff(1) // the outer lane of the 2-lane road
   let x: number, z: number, h: number
   if (Math.abs(nn.rx) <= Math.abs(nn.rz)) {
     // nearest road runs north-south (x = the node's column)
@@ -155,6 +166,7 @@ export function toggleSignal(dir: -1 | 1) {
 
 /* ---------- messages ---------- */
 function say(text: string, kind: Msg['kind']) {
+  if (kind === 'warn') sim.errors++
   const msg: Msg = { id: ++sim.msgId, text, kind, until: sim.t + 4.5 }
   useGame.setState((s) => ({ messages: [...s.messages.filter((m) => m.until > sim.t).slice(-3), msg] }))
 }
@@ -226,6 +238,10 @@ export function stepSim(dt: number) {
   for (const c of cars) {
     if (c.active && hits(c)) return crashInto(c)
   }
+
+  // ---- navigation ----
+  const arrivedAt = navUpdate(sim.x, sim.z)
+  if (arrivedAt) say(`You have arrived: ${arrivedAt}`, 'good')
 
   // ---- rules ----
   trackLane()
@@ -382,7 +398,7 @@ function trackJunction() {
   const nn = nearestNode(sim.x, sim.z)
   const inside = nn.kind === 'signal' ? Math.abs(nn.rx) < BOX + 1 && Math.abs(nn.rz) < BOX + 1 : Math.hypot(nn.rx, nn.rz) < RING_OUT
   if (inside && !sim.jn) {
-    sim.jn = { n: nn.n, kind: nn.kind, h0: sim.h, sig: sim.signal, yieldFail: false }
+    sim.jn = { n: nn.n, i: nn.i, j: nn.j, kind: nn.kind, h0: sim.h, sig: sim.signal, yieldFail: false }
     if (nn.kind === 'round') {
       const arm = mod(Math.round(Math.atan2(-nn.rz, nn.rx) / (Math.PI / 2)), 4)
       if (ringBusy(nn.n, arm, playerObs()) && sim.speed > 2) {
@@ -393,6 +409,9 @@ function trackJunction() {
   } else if (!inside && sim.jn) {
     const jn = sim.jn
     sim.jn = null
+    // which way did we leave? (from where we are relative to the junction: more reliable than the heading mid-turn)
+    const dOut = Math.abs(nn.rx) > Math.abs(nn.rz) ? (nn.rx > 0 ? 0 : 2) : nn.rz > 0 ? 3 : 1
+    if (navJunctionExit(jn.i, jn.j, dOut) === 'wrong') say('Wrong turn: recalculating the route', 'warn')
     const dh = normAngle(sim.h - jn.h0) // positive = turned left
     if (jn.kind === 'signal') {
       if (Math.abs(dh) < 0.6) return
@@ -427,7 +446,8 @@ function trackStop() {
     if (u <= 0 || u > BOX + 45 || Math.abs(lat) > HALF_ROAD + 1.5 || fx * ox + fz * oz > -0.6) continue
     let st = sim.stop
     if (!st || st.n !== nn.n || st.d !== d) st = sim.stop = { n: nn.n, d, prevU: u, passed: false, credited: false }
-    const col = signalColor(nn.n, d % 2 === 0 ? 0 : 1, sim.t)
+    // the left lane has its own left-turn arrow; everyone else follows the through signal
+    const col = signalColor(nn.n, d % 2 === 0 ? 0 : 1, sim.t, laneInfo()?.k === 0 ? 'L' : 'T')
     if (!st.passed && st.prevU >= LINE && u < LINE) {
       st.passed = true
       if (col === 2 && sim.speed > 0.5) {
@@ -468,10 +488,12 @@ function syncHud() {
       distance: 0,
       changes: sim.changes,
       clean: sim.clean,
+      errors: sim.errors,
     },
+    nav: { text: nav.text, sub: nav.sub, icon: nav.icon, dist: nav.dist, arrived: nav.arrived },
     messages: s.messages.filter((m) => m.until > sim.t),
   }))
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS })
+if (typeof window !== 'undefined') Object.assign(window, { __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __navfn: { startRoute, navUpdate, navJunctionExit } })

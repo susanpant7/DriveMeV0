@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { Mode } from './nav'
 
 export type Status = 'menu' | 'playing' | 'paused' | 'crashed'
 export type Look = 'front' | 'left' | 'center' | 'right'
@@ -21,6 +22,15 @@ export interface Hud {
   distance: number // m
   changes: number
   clean: number
+  errors: number
+}
+
+export interface NavHud {
+  text: string
+  sub: string
+  icon: string
+  dist: number
+  arrived: number
 }
 
 interface GameState {
@@ -32,6 +42,8 @@ interface GameState {
   units: Units
   traffic: 1 | 2 | 3 | 4 | 5
   pauseReason: 'user' | 'offroad'
+  mode: Mode
+  nav: NavHud
 }
 
 export const initialHud: Hud = {
@@ -43,6 +55,7 @@ export const initialHud: Hud = {
   distance: 0,
   changes: 0,
   clean: 0,
+  errors: 0,
 }
 
 const load = <T,>(key: string, fallback: T, ok: (v: unknown) => boolean): T => {
@@ -72,6 +85,8 @@ export const useGame = create<GameState>(() => ({
   crashReason: '',
   crashTips: [],
   pauseReason: 'user',
+  mode: load<Mode>('driveme.mode', 'city', (v) => v === 'city' || v === 'roundabout' || v === 'junction' || v === 'lanes'),
+  nav: { text: '', sub: '', icon: 'S', dist: 0, arrived: 0 },
   units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))
@@ -83,4 +98,8 @@ export const setUnits = (u: Units) => {
 export const setTraffic = (n: 1 | 2 | 3 | 4 | 5) => {
   save('driveme.traffic', n)
   useGame.setState({ traffic: n })
+}
+export const setMode = (m: Mode) => {
+  save('driveme.mode', m)
+  useGame.setState({ mode: m })
 }

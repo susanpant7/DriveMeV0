@@ -1,6 +1,7 @@
 import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
-import { LIMIT, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
-import { setTraffic, setUnits, useGame, type Look } from '../game/store'
+import { MODES, fmtDist, type Mode } from '../game/nav'
+import { LIMIT, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
+import { setMode, setTraffic, setUnits, useGame, type Look } from '../game/store'
 import { useViewport } from './useViewport'
 
 const Key = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>
@@ -129,6 +130,42 @@ function TouchHelp() {
   )
 }
 
+const GLYPH: Record<string, string> = { L: '↰', R: '↱', S: '↑', U: '↶', F: '⚑' }
+
+/** Next instruction from the navigation, shown at the top of the screen. */
+function NavBanner() {
+  const nav = useGame((s) => s.nav)
+  const units = useGame((s) => s.units)
+  if (!nav.text) return null
+  const glyph = nav.icon[0] === 'O' ? '⟳' : GLYPH[nav.icon] ?? '↑'
+  return (
+    <div className="navbanner" role="status">
+      <div className="nav-icon">{glyph}{nav.icon[0] === 'O' && <sub>{nav.icon[1]}</sub>}</div>
+      <div className="nav-text">
+        <b>{nav.text}</b>
+        <span>{nav.sub}</span>
+      </div>
+      <div className="nav-dist">{fmtDist(nav.dist, units)}</div>
+    </div>
+  )
+}
+
+function ModePicker() {
+  const mode = useGame((s) => s.mode)
+  return (
+    <div className="modes" role="radiogroup" aria-label="Practice">
+      {MODES.map((m) => (
+        <button key={m.id} role="radio" aria-checked={mode === m.id} className={`mode${mode === m.id ? ' on' : ''}`} onClick={() => setMode(m.id as Mode)}>
+          <b>{m.title}</b>
+          <span>{m.blurb}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+const modeTitle = (m: Mode) => MODES.find((x) => x.id === m)?.title ?? ''
+
 function PlayingHud() {
   const hud = useGame((s) => s.hud)
   const messages = useGame((s) => s.messages)
@@ -151,6 +188,7 @@ function PlayingHud() {
           {chip('Rear', hud.checks.center, hud.look === 'center')}
           {chip('Right', hud.checks.right, hud.look === 'right')}
         </div>
+        <NavBanner />
         <div className="toasts">
           {messages.map((m) => (
             <div key={m.id} className={`toast ${m.kind}`}>{m.text}</div>
@@ -189,6 +227,8 @@ export function Hud() {
   const pauseReason = useGame((s) => s.pauseReason)
   const tips = useGame((s) => s.crashTips)
   const start = startGame
+  const mode = useGame((s) => s.mode)
+  const hud = useGame((s) => s.hud)
   const { touch, portrait } = useViewport()
 
   // phones and tablets play in landscape: pause and ask for a rotation
@@ -216,6 +256,10 @@ export function Hud() {
               <div className="logo">Drive<span>Me</span></div>
               <p>Learn to drive in a real city: lanes, traffic lights, junctions and roundabouts. Check your mirrors, signal, then move. A crash ends the run. Mistakes are flagged as you make them.</p>
             </header>
+            <section className="practice">
+              <h3>What do you want to practise?</h3>
+              <ModePicker />
+            </section>
             <div className="cols">
               <section>
                 <h3>Controls</h3>
@@ -226,7 +270,7 @@ export function Hud() {
                 <Settings />
               </section>
             </div>
-            <button className="primary" onClick={start}>Start driving <Key>Enter</Key></button>
+            <button className="primary" onClick={start}>Start: {modeTitle(mode)} <Key>Enter</Key></button>
           </div>
         </div>
       )}
@@ -249,10 +293,12 @@ export function Hud() {
         <div className="overlay">
           <div className="panel">
             <h2>Paused</h2>
+            <p className="sub">{modeTitle(mode)} · {hud.errors} {hud.errors === 1 ? 'mistake' : 'mistakes'} so far</p>
             <Settings />
             <div className="actions">
               <button className="primary" onClick={resumeGame}>Resume <Key>Esc</Key></button>
               <button className="secondary" onClick={start}>Restart <Key>R</Key></button>
+              <button className="secondary" onClick={goMenu}>Change practice</button>
             </div>
           </div>
         </div>
@@ -271,6 +317,7 @@ export function Hud() {
             )}
             <div className="actions">
               <button className="primary" onClick={start}>Try again <Key>Enter</Key></button>
+              <button className="secondary" onClick={goMenu}>Change practice</button>
             </div>
           </div>
         </div>

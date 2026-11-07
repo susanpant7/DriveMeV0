@@ -8,10 +8,18 @@ export const B = 200 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
 export const P = B * G // period of the world
 export const LANE_W = 3.7 // 12 ft, the US standard lane width
-export const LANES = 3 // lanes in each direction
-export const HALF_ROAD = LANES * LANE_W // 10.5: half the width of the asphalt
+export const LANES = 3 // lanes in each direction at a signalised junction approach
+export const LANES_MID = 2 // lanes in each direction on an ordinary stretch of road
+export const HALF_MID = LANES_MID * LANE_W // half the width of the ordinary 2-lane road
+export const HALF_ROAD = LANES * LANE_W // half the width where a third (turn) lane is added
+export const FLARE = 80 // length of the full 3-lane section before a signalised junction
+export const TAPER = 30 // the road widens from 2 to 3 lanes over this distance
+export const RB_LANE = 1 // roundabout entries and exits use the outer lane of the 2-lane road
+/** how far the road has widened (0..1) at distance d before the junction's edge */
+export const flare = (d: number) => (d <= FLARE ? 1 : d >= FLARE + TAPER ? 0 : 1 - (d - FLARE) / TAPER)
 export const BOX = 12 // half size of a signalled junction
-export const RING_R = 28 // roundabout lane centre radius
+export const RING_R = 30.2 // roundabout lane centre radius (middle of the 26.6 .. 34 m circulating roadway)
+export const APRON_R = 26.6 // inner edge of the circulating roadway (the truck apron fills ISLAND_R .. APRON_R)
 export const RING_OUT = 34 // roundabout outer edge
 export const ISLAND_R = 23 // central island
 export const DELTA = (15 * Math.PI) / 180
@@ -55,6 +63,7 @@ export interface Piece {
   entry?: boolean
   exit?: boolean
   ringType?: 'between' | 'pass'
+  laneFrom?: number // the lane only exists from this distance along the piece (the added turn lane)
   aiOk?: boolean // may AI cars use this lane?
   sibs?: number[] // the parallel lanes of the same road, by lane index
 }
@@ -137,18 +146,18 @@ function buildPieces() {
         const clrB = clearance(ni, nj)
         const toKind = nodeKind(ni, nj)
         const arrive = (d + 2) % 4
-        // roads whose junctions are all signalled can carry traffic in every lane; roads that meet a
-        // roundabout every other junction only use the outer lane (roundabout entries are single-lane)
-        const allSignal = d % 2 === 0 ? mod(j, 2) === 1 : mod(i, 2) === 1
+        // Ordinary road: 2 lanes (0 inner, 1 outer). Approaching a signalised junction a third, outer lane (2) is added
+        // for right turns. Approaching a roundabout only the outer lane enters it.
         const sibIds: number[] = []
         for (let k = 0; k < LANES; k++) {
           const o = aiOff(k)
           const a: Pt = [cx + dx * clrA + rx * o, cz + dz * clrA + rz * o]
           const b: Pt = [cx + dx * (B - clrB) + rx * o, cz + dz * (B - clrB) + rz * o]
-          const aiOk = allSignal || k === LANES - 1
+          const aiOk = k === LANES - 1 ? toKind === 'signal' : toKind === 'round' ? k === RB_LANE : true
           const id = addPiece('edge', [a, b], 22, {
             node: nodeIndex(ni, nj), arm: arrive, lane: k, toKind, axis: arrive % 2 === 0 ? 0 : 1, aiOk,
           })
+          if (k === LANES - 1 && toKind === 'signal') PIECES[id].laneFrom = PIECES[id].len - FLARE
           LINKS.edgeOut.set(`${n}:${d}:${k}`, id)
           sibIds.push(id)
           if (aiOk) EDGE_IDS.push(id)
@@ -164,11 +173,13 @@ function buildPieces() {
           for (let k = 0; k < LANES; k++) {
             const o = aiOff(k)
             const E: Pt = [cx + ox * BOX + lx * o, cz + oz * BOX + lz * o]
-            // straight (inner lanes never run toward a roundabout, so no connector is needed there)
+            // straight: lanes 0 and 1 carry on in their own lane (lane 0 only toward a signalised exit); the added right-turn
+            // lane (2) only turns right, but a driver who goes straight from it merges into lane 1
             const [sx, sz] = dirv(t)
             const [srx, srz] = dirv(t - 1)
-            const Xs: Pt = [cx + sx * BOX + srx * o, cz + sz * BOX + srz * o]
-            if (!(nodeKind(i + sx, j + sz) === 'round' && k < LANES - 1)) {
+            const exitOff = k === LANES - 1 ? aiOff(1) : o
+            const Xs: Pt = [cx + sx * BOX + srx * exitOff, cz + sz * BOX + srz * exitOff]
+            if (k === 1 || (k === 0 && nodeKind(i + sx, j + sz) === 'signal')) {
               LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', [E, Xs], 17, { node: n, arm: t, lane: k }))
             }
             // left turn (the left-most lane only turns left)
@@ -185,9 +196,9 @@ function buildPieces() {
               const e = (t + 3) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
-              const Xr: Pt = [cx + ex * BOX + erx * o, cz + ez * BOX + erz * o]
+              const Xr: Pt = [cx + ex * BOX + erx * aiOff(1), cz + ez * BOX + erz * aiOff(1)]
               const ctrl: Pt = sz === 0 ? [Xr[0], E[1]] : [E[0], Xr[1]]
-              LINKS.connR.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xr, 12), 6.5, { node: n, arm: e, lane: k }))
+              LINKS.connR.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xr, 12), 6.5, { node: n, arm: e, lane: 1 }))
             }
           }
         }
@@ -199,7 +210,7 @@ function buildPieces() {
           const [rx, rz] = dirv(d - 1)
           const t = (d + 2) % 4
           const [tx, tz] = dirv(t)
-          for (let k = LANES - 1; k < LANES; k++) {
+          for (let k = RB_LANE; k <= RB_LANE; k++) {
             const o = aiOff(k)
             {
             // entry: arm lane end -> ring at (arm angle + DELTA)
@@ -217,8 +228,8 @@ function buildPieces() {
             LINKS.exitC.set(`${n}:${d}:${k}`, addPiece('conn', bez3(Q0, [Q0[0] + tq[0] * h, Q0[1] + tq[1] * h], [Q3[0] - ox * h, Q3[1] - oz * h], Q3, 14), 6.5, { node: n, arm: d, lane: k, exit: true }))
           }
           // ring: pass arm d (exit_d -> entry_d), between d and d+1 (entry_d -> exit_{d+1})
-          LINKS.ringPass.set(`${n}:${d}`, addPiece('ring', arc(cx, cz, th - DELTA, th + DELTA), 7, { node: n, arm: d, ringType: 'pass' }))
-          LINKS.ringBetween.set(`${n}:${d}`, addPiece('ring', arc(cx, cz, th + DELTA, th + Math.PI / 2 - DELTA), 7, { node: n, arm: (d + 1) % 4, ringType: 'between' }))
+          LINKS.ringPass.set(`${n}:${d}`, addPiece('ring', arc(cx, cz, th - DELTA, th + DELTA), 7.6, { node: n, arm: d, ringType: 'pass' }))
+          LINKS.ringBetween.set(`${n}:${d}`, addPiece('ring', arc(cx, cz, th + DELTA, th + Math.PI / 2 - DELTA), 7.6, { node: n, arm: (d + 1) % 4, ringType: 'between' }))
         }
       }
     }
@@ -248,13 +259,25 @@ export function pieceAt(p: Piece, s: number, out: { x: number; z: number; dx: nu
 /* Traffic signals                                                     */
 /* ------------------------------------------------------------------ */
 
-export const CYCLE = 40
+/**
+ * Four-phase signals with protected left turns, like a real junction:
+ *   1. north-south through + right turns green, their left turns RED
+ *   2. north-south left turns green (arrow), their through traffic RED
+ *   3. east-west through + right turns green, left turns RED
+ *   4. east-west left turns green (arrow), through traffic RED
+ * Each green is followed by amber and a short all-red.
+ */
+export const CYCLE = 54
 const nodeOffset = (n: number) => ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE
-/** 0 = green, 1 = amber, 2 = red. axis 1 = north-south approaches, 0 = east-west. */
-export function signalColor(node: number, axis: 0 | 1, t: number): 0 | 1 | 2 {
+/** 0 = green, 1 = amber, 2 = red. axis 1 = north-south approaches, 0 = east-west. move 'T' = through / right, 'L' = left turn. */
+export function signalColor(node: number, axis: 0 | 1, t: number, move: 'T' | 'L' = 'T'): 0 | 1 | 2 {
   const ph = mod(t + nodeOffset(node), CYCLE)
-  const a = axis === 1 ? ph : mod(ph - 20, CYCLE)
-  return a < 15 ? 0 : a < 18 ? 1 : 2
+  const a = axis === 1 ? ph : mod(ph - 27, CYCLE) // east-west runs 27 s after north-south
+  const g0 = move === 'T' ? 0 : 17
+  const g1 = move === 'T' ? 13 : 23
+  if (a >= g0 && a < g1) return 0
+  if (a >= g1 && a < g1 + 3) return 1
+  return 2
 }
 
 /* ------------------------------------------------------------------ */
@@ -349,14 +372,55 @@ export function nearestNode(x: number, z: number) {
   return { i, j, n: nodeIndex(i, j), cx, cz, kind: nodeKind(i, j), rx: x - cx, rz: z - cz }
 }
 
+/**
+ * Half-widths of the road between node A and node B (A -> B runs east or south), at distance u from A's centre.
+ * `right` is the +v side (west of a southbound road, south of an eastbound one) and `left` the other side.
+ * The road only widens on the approach side of a signalised junction, where the third lane is added.
+ */
+export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number) {
+  const dA = u - clrA
+  const dB = B - u - clrB
+  return {
+    right: HALF_MID + (kB === 'signal' ? (HALF_ROAD - HALF_MID) * flare(dB) : 0),
+    left: HALF_MID + (kA === 'signal' ? (HALF_ROAD - HALF_MID) * flare(dA) : 0),
+  }
+}
+
 export function onAsphalt(x: number, z: number) {
-  const xm = mod(x + B / 2, B) - B / 2
-  const zm = mod(z + B / 2, B) - B / 2
-  if (Math.abs(xm) < HALF_ROAD + 0.2 || Math.abs(zm) < HALF_ROAD + 0.2) return true
   const nn = nearestNode(x, z)
   if (nn.kind === 'round') {
     const r = Math.hypot(nn.rx, nn.rz)
-    if (r < RING_OUT && r > ISLAND_R) return true
+    if (r < RING_OUT) return r > ISLAND_R
+  } else if (Math.abs(nn.rx) < BOX + 0.2 && Math.abs(nn.rz) < BOX + 0.2) return true
+  // vertical road (runs south): +v side is west
+  {
+    const i = Math.round(x / B)
+    const lat = x - i * B
+    const jA = Math.floor(z / B)
+    const u = z - jA * B
+    const kA = nodeKind(i, jA)
+    const kB = nodeKind(i, jA + 1)
+    const cA = clearance(i, jA)
+    const cB = clearance(i, jA + 1)
+    if (u >= cA && u <= B - cB) {
+      const h = segHalves(kA, kB, cA, cB, u)
+      if (Math.abs(lat) < (lat < 0 ? h.right : h.left) + 0.2) return true
+    }
+  }
+  // horizontal road (runs east): +v side is south
+  {
+    const j = Math.round(z / B)
+    const lat = z - j * B
+    const iA = Math.floor(x / B)
+    const u = x - iA * B
+    const kA = nodeKind(iA, j)
+    const kB = nodeKind(iA + 1, j)
+    const cA = clearance(iA, j)
+    const cB = clearance(iA + 1, j)
+    if (u >= cA && u <= B - cB) {
+      const h = segHalves(kA, kB, cA, cB, u)
+      if (Math.abs(lat) < (lat > 0 ? h.right : h.left) + 0.2) return true
+    }
   }
   return false
 }

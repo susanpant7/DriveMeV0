@@ -22,8 +22,8 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       h,
       res: cfg.res,
       // side mirrors are convex: they render a wider view and compress it toward the edges
-      wide: side ? 1.25 : 1.0,
-      m0: side ? 0.86 : 1.0,
+      wide: side ? 1.5 : 1.0,
+      m0: side ? 0.8 : 1.0,
       m1: side ? 1.0 : 1.0,
       shift: [0, 0],
       inner: cfg.inner,
@@ -101,6 +101,15 @@ export function PlayerRig() {
       v.yaw + sim.h + (shake ? (Math.random() - 0.5) * shake : 0),
       -sim.steer * 0.15,
     )
+    // dev hook: window.__dbgCam = { p: [x, y, z], t: [x, y, z], fov } looks at the world from anywhere
+    const dbg = (window as unknown as { __dbgCam?: { p: number[]; t: number[]; fov: number } }).__dbgCam
+    if (dbg) {
+      camera.position.set(dbg.p[0], dbg.p[1], dbg.p[2])
+      camera.lookAt(dbg.t[0], dbg.t[1], dbg.t[2])
+      if (camera.fov !== dbg.fov) camera.fov = dbg.fov
+      camera.updateProjectionMatrix()
+      return
+    }
     if (Math.abs(camera.fov - v.fov) > 0.01) {
       camera.fov = v.fov
       camera.updateProjectionMatrix()

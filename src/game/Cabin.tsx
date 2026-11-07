@@ -3,6 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { faceEuler } from './cabinConfig'
 import { drawCluster } from './gauges'
+import { drawNavMap } from './navMap'
 import { extrudeProfile } from './geom'
 import { sim } from './sim'
 import { useGame } from './store'
@@ -59,6 +60,37 @@ function useCanvasTexture(w: number, h: number) {
     tex.anisotropy = 8
     return { ctx: c.getContext('2d')!, tex }
   }, [w, h])
+}
+
+/** Navigation screen on the dash, to the right of the wheel: a heading-up map with the route. */
+function MapScreen() {
+  const map = useCanvasTexture(512, 320)
+  const last = useRef(0)
+  const pos = useMemo(() => new THREE.Vector3(0.0, 1.075, -0.68), [])
+  const rot = useMemo(() => faceEuler(pos), [pos])
+  useFrame(() => {
+    const now = performance.now()
+    if (now - last.current < 100) return
+    last.current = now
+    drawNavMap(map.ctx, 512, 320, sim.x, sim.z, sim.h, useGame.getState().units)
+    map.tex.needsUpdate = true
+  }, -1)
+  useEffect(() => () => map.tex.dispose(), [map])
+  return (
+    <group position={pos} rotation={rot}>
+      <mesh position={[0, 0, -0.018]} material={matteBlack}>
+        <boxGeometry args={[0.27, 0.178, 0.03]} />
+      </mesh>
+      <mesh>
+        <planeGeometry args={[0.255, 0.16]} />
+        <meshBasicMaterial map={map.tex} toneMapped={false} />
+      </mesh>
+      {/* stand on the dash */}
+      <mesh position={[0, -0.12, -0.03]} material={matteBlack}>
+        <boxGeometry args={[0.06, 0.07, 0.04]} />
+      </mesh>
+    </group>
+  )
 }
 
 /** Live instrument cluster in a slim bezel. */
@@ -124,7 +156,7 @@ function Vent({ w, h, pos }: { w: number; h: number; pos: [number, number, numbe
 /** Centre stack: air vents, climate dials and buttons, on the face turned toward the driver. */
 function CenterStack() {
   return (
-    <group position={[0.2, 0.9, -0.8]}>
+    <group position={[0.38, 0.9, -0.8]}>
       <mesh material={plastic}>
         <boxGeometry args={[0.4, 0.2, 0.16]} />
       </mesh>
@@ -182,6 +214,81 @@ function Windshield() {
         </mesh>
       </group>
     </>
+  )
+}
+
+
+/** Painted side of your own car (door, window, handles, rear wheel arch), as seen in the door mirrors. */
+function sideTexture(flip: boolean) {
+  const W = 1536, H = 500
+  const c = document.createElement('canvas')
+  c.width = W
+  c.height = H
+  const g = c.getContext('2d')!
+  if (flip) { g.translate(W, 0); g.scale(-1, 1) } // u runs front -> rear; the right side is mirrored
+  const Z = (z: number) => ((z + 0.7) / 3.15) * W // metres along the car (front at -0.7) -> px
+  const Y = (y: number) => ((1.45 - y) / 1.03) * H // height in metres -> px
+  const paintTop = Y(0.95), paintBot = Y(0.42)
+  // lower body paint with a soft highlight along the shoulder line
+  const pg = g.createLinearGradient(0, paintTop, 0, paintBot)
+  pg.addColorStop(0, '#b3281f'); pg.addColorStop(0.18, '#a1221b'); pg.addColorStop(0.5, '#7d1914'); pg.addColorStop(1, '#4a0d0a')
+  g.fillStyle = pg
+  g.fillRect(0, paintTop, W, paintBot - paintTop)
+  g.fillStyle = 'rgba(255,255,255,0.16)'; g.fillRect(0, Y(0.9), W, 7)
+  // sill
+  g.fillStyle = '#0c0c0e'; g.fillRect(0, Y(0.5), W, Y(0.42) - Y(0.5))
+  // greenhouse: glass between the pillars
+  const roof = Y(1.45), belt = Y(0.95)
+  g.fillStyle = '#0b0b0d'; g.fillRect(0, roof, W, belt - roof) // frame colour behind the glass
+  const glass = (z0: number, z1: number) => {
+    const gg = g.createLinearGradient(0, roof, 0, belt)
+    gg.addColorStop(0, '#6f8fae'); gg.addColorStop(0.45, '#2c4358'); gg.addColorStop(1, '#101a24')
+    g.fillStyle = gg
+    g.beginPath(); g.moveTo(Z(z0), belt - 6); g.lineTo(Z(z0 + 0.1), roof + 14); g.lineTo(Z(z1 - 0.1), roof + 14); g.lineTo(Z(z1), belt - 6); g.closePath(); g.fill()
+    g.fillStyle = 'rgba(255,255,255,0.13)'
+    g.beginPath(); g.moveTo(Z(z0 + 0.15), belt - 6); g.lineTo(Z(z0 + 0.3), roof + 14); g.lineTo(Z(z0 + 0.45), roof + 14); g.lineTo(Z(z0 + 0.3), belt - 6); g.closePath(); g.fill()
+  }
+  glass(-0.35, 0.52) // front door window
+  glass(0.68, 1.52) // rear door window
+  glass(1.64, 2.0) // quarter window
+  // chrome belt line
+  g.fillStyle = '#c9ced6'; g.fillRect(0, belt - 5, W, 6)
+  // door shut lines
+  g.fillStyle = '#050506'
+  for (const z of [-0.62, 0.6, 1.58]) g.fillRect(Z(z) - 2, paintTop, 4, Y(0.5) - paintTop)
+  // door handles
+  const handle = (z: number) => {
+    g.fillStyle = '#d7dbe2'; g.fillRect(Z(z), Y(0.9), 70, 16)
+    g.fillStyle = '#6d727b'; g.fillRect(Z(z), Y(0.9) + 12, 70, 4)
+  }
+  handle(0.28); handle(1.18)
+  // rear wheel and arch
+  const wz = 1.42, wr = 0.4
+  g.fillStyle = '#020203'
+  g.beginPath(); g.ellipse(Z(wz), Y(0.42), (wr + 0.05) / 3.15 * W, (wr + 0.02) / 1.03 * H, 0, Math.PI, 0); g.fill()
+  g.fillStyle = '#16171a'
+  g.beginPath(); g.ellipse(Z(wz), Y(0.42), wr / 3.15 * W, wr / 1.03 * H, 0, Math.PI, 0); g.fill()
+  g.fillStyle = '#9aa1ab'
+  g.beginPath(); g.ellipse(Z(wz), Y(0.42), 0.24 / 3.15 * W, 0.24 / 1.03 * H, 0, Math.PI, 0); g.fill()
+  g.fillStyle = '#3a3e45'
+  g.beginPath(); g.ellipse(Z(wz), Y(0.42), 0.1 / 3.15 * W, 0.1 / 1.03 * H, 0, Math.PI, 0); g.fill()
+  // tail lamp and bumper at the back
+  g.fillStyle = '#d4222a'; g.beginPath(); g.moveTo(Z(2.22), Y(0.92)); g.lineTo(Z(2.45), Y(0.88)); g.lineTo(Z(2.45), Y(0.7)); g.lineTo(Z(2.22), Y(0.72)); g.closePath(); g.fill()
+  g.fillStyle = '#101012'; g.fillRect(Z(2.2), Y(0.58), Z(2.45) - Z(2.2), Y(0.42) - Y(0.58))
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  t.anisotropy = 8
+  return t
+}
+
+function BodySide({ sd }: { sd: -1 | 1 }) {
+  const tex = useMemo(() => sideTexture(sd === 1), [sd])
+  useEffect(() => () => tex.dispose(), [tex])
+  return (
+    <mesh position={[sd * 0.965, 0.935, 0.875]} rotation={[0, (sd * Math.PI) / 2, 0]} userData={{ exterior: true }}>
+      <planeGeometry args={[3.15, 1.03]} />
+      <meshStandardMaterial map={tex} roughness={0.42} metalness={0.25} />
+    </mesh>
   )
 }
 
@@ -302,10 +409,13 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[1.9, 0.4, 0.05]} />
       </mesh>
       <Displays />
+      <MapScreen />
+      <BodySide sd={-1} />
+      <BodySide sd={1} />
 
       {/* mirror arms from the door to the mirror housings */}
-      <Beam from={[-0.92, 0.9, -0.74]} to={[-1.03, 0.98, -0.62]} t={0.045} />
-      <Beam from={[0.92, 0.9, -0.78]} to={[0.99, 0.98, -0.66]} t={0.045} />
+      <Beam from={[-0.92, 0.9, -0.74]} to={[-1.17, 1.0, -0.57]} t={0.045} />
+      <Beam from={[0.92, 0.9, -0.78]} to={[1.19, 1.0, -0.62]} t={0.045} />
 
     </group>
   )

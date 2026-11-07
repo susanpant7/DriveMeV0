@@ -220,3 +220,40 @@ canvas { touch-action: none; }
 @media (max-width: 760px) { .tbtn.look small { display: none; } .tbtn { padding: 0 8px; } }
 
 .hud.touch .kb-only { display: none; }
+
+/* ================= navigation banner and practice picker ================= */
+.navbanner {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; min-width: min(420px, 62vw); max-width: 84vw;
+  padding: 8px 16px 8px 8px; border-radius: 16px; background: var(--glass-strong); border: 1px solid var(--stroke);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 8px 26px rgba(0,0,0,.4);
+}
+.nav-icon { position: relative; display: grid; place-items: center; width: 52px; height: 52px; flex: none; border-radius: 12px; background: #1f6fe0; font-size: 34px; line-height: 1; }
+.nav-icon sub { position: absolute; right: 5px; bottom: 3px; font-size: 14px; font-weight: 800; }
+.nav-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.nav-text b { font-size: 18px; line-height: 1.15; }
+.nav-text span { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nav-dist { font-size: 22px; font-weight: 800; white-space: nowrap; }
+.hud.touch .navbanner { top: 8px; min-width: 0; padding: 5px 12px 5px 5px; gap: 9px; }
+.hud.touch .nav-icon { width: 40px; height: 40px; font-size: 26px; }
+.hud.touch .nav-text b { font-size: 14px; }
+.hud.touch .nav-text span { font-size: 11px; }
+.hud.touch .nav-dist { font-size: 16px; }
+
+.practice { margin-top: 16px; }
+.modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.mode { display: flex; flex-direction: column; gap: 5px; text-align: left; padding: 11px 13px; border-radius: 12px; background: rgba(255,255,255,.05); border: 1.5px solid var(--stroke); transition: background .15s, border-color .15s, transform .12s; }
+.mode:hover { background: rgba(255,255,255,.09); }
+.mode b { font-size: 14.5px; }
+.mode span { font-size: 12px; line-height: 1.35; color: var(--muted); }
+.mode.on { background: rgba(59,130,246,.22); border-color: var(--accent-2); box-shadow: 0 0 0 1px var(--accent-2) inset; }
+.panel p.sub { margin: -6px 0 10px; font-size: 14px; }
+@media (max-width: 760px) { .modes { grid-template-columns: repeat(2, 1fr); } }
+@media (max-height: 560px) { .modes { gap: 7px; grid-template-columns: repeat(4, 1fr); } .mode { padding: 8px 9px; } .mode b { font-size: 12.5px; } .mode span { display: none; } .practice { margin-top: 10px; } }
+
+/* navigation banner sits in the top-left column (never over the traffic lights at the top-centre) */
+.tl .navbanner { position: static; transform: none; min-width: 0; width: min(330px, 46vw); max-width: none; padding: 6px 12px 6px 6px; }
+.tl .nav-icon { width: 42px; height: 42px; font-size: 28px; }
+.tl .nav-text b { font-size: 15px; }
+.tl .nav-text span { font-size: 11.5px; }
+.tl .nav-dist { font-size: 17px; }
+.hud.touch .tl .navbanner { width: min(280px, 44vw); }

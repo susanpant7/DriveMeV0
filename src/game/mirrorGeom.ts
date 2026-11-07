@@ -78,6 +78,7 @@ const FRAG = /* glsl */ `
   uniform float uM0;
   uniform float uM1;
   uniform float uInner;
+  uniform float uOwn;
   varying vec2 vLocal;
 
   // Your own car as seen in a door mirror: window glass on top, door panel below,
@@ -113,8 +114,8 @@ const FRAG = /* glsl */ `
     float m = mix( uM0, uM1, rr * rr );       // convex: more compression toward the edges
     vec3 col = texture2D( tDiffuse, 0.5 + ( p - 0.5 ) * m ).rgb;
     vec2 q = vLocal / ( 2.0 * uHalf ) + 0.5;
-    if ( uInner != 0.0 ) col = ownCar( q, col );
-    else {
+    if ( uOwn > 0.5 ) col = ownCar( q, col );
+    else if ( uInner == 0.0 ) {
       // rear window pillars / head restraints at the bottom corners of the rear-view mirror
       float c1 = 1.0 - smoothstep( 0.17, 0.21, length( ( q - vec2( 0.03, 0.0 ) ) * vec2( 1.0, 2.6 ) ) );
       float c2 = 1.0 - smoothstep( 0.17, 0.21, length( ( q - vec2( 0.97, 0.0 ) ) * vec2( 1.0, 2.6 ) ) );
@@ -140,6 +141,8 @@ export interface MirrorGlassOpts {
   shift?: [number, number]
   /** which side of the glass faces your car: +1 right (left mirror), -1 left (right mirror), 0 none */
   inner?: 1 | -1 | 0
+  /** draw the flat painted overlay of your own car (off: the real 3D body panel is used instead) */
+  own?: boolean
 }
 
 const _C = new THREE.Vector3()
@@ -176,6 +179,7 @@ export class MirrorGlass extends THREE.Mesh {
         uM0: { value: o.m0 ?? 1 / wide },
         uM1: { value: o.m1 ?? 1 / wide },
         uInner: { value: o.inner ?? 0 },
+        uOwn: { value: o.own ? 1 : 0 },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,

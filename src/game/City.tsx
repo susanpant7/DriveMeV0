@@ -44,9 +44,44 @@ function foliageTexture() {
   return t
 }
 const lampGeo = new THREE.CircleGeometry(0.22, 18)
+// left-turn arrow lamp: points to the viewer's left (local -x)
+const arrowGeo = (() => {
+  const sh = new THREE.Shape()
+  sh.moveTo(-0.24, 0)
+  sh.lineTo(-0.03, 0.2)
+  sh.lineTo(-0.03, 0.075)
+  sh.lineTo(0.22, 0.075)
+  sh.lineTo(0.22, -0.075)
+  sh.lineTo(-0.03, -0.075)
+  sh.lineTo(-0.03, -0.2)
+  sh.closePath()
+  return new THREE.ShapeGeometry(sh)
+})()
 const trunkMat = new THREE.MeshStandardMaterial({ color: '#5a4030', roughness: 1 })
 const leafMat = new THREE.MeshStandardMaterial({ map: foliageTexture(), alphaTest: 0.5, side: THREE.DoubleSide, roughness: 1 })
-const lampMat = new THREE.MeshBasicMaterial({ toneMapped: false, side: THREE.DoubleSide })
+// A traffic-light lens is only bright when you look at it from roughly in front (like a real signal with a visor):
+// from other roads or from behind you see only a dark lens, so you only ever read the lights meant for you.
+const lampMat = new THREE.ShaderMaterial({
+  vertexShader: /* glsl */ `
+    varying vec3 vCol;
+    varying float vBeam;
+    void main() {
+      mat4 m = modelMatrix * instanceMatrix;
+      vec4 wp = m * vec4( position, 1.0 );
+      vec3 n = normalize( ( m * vec4( 0.0, 0.0, 1.0, 0.0 ) ).xyz );
+      vec3 v = normalize( cameraPosition - wp.xyz );
+      vBeam = smoothstep( 0.82, 0.975, dot( n, v ) );
+      vCol = instanceColor;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }`,
+  fragmentShader: /* glsl */ `
+    varying vec3 vCol;
+    varying float vBeam;
+    void main() {
+      gl_FragColor = vec4( mix( vec3( 0.025 ), vCol, vBeam ), 1.0 );
+      #include <colorspace_fragment>
+    }`,
+})
 
 const ON: Record<number, [number, number, number]> = { 0: [1.6, 0.18, 0.12], 1: [1.7, 1.1, 0.1], 2: [0.15, 1.8, 0.5] } // lamp l -> colour when lit (red, amber, green)
 const OFF: [number, number, number] = [0.07, 0.07, 0.08]
@@ -93,6 +128,8 @@ export function City() {
   const trunks = useRef<Array<THREE.InstancedMesh | null>>([])
   const leaves = useRef<Array<THREE.InstancedMesh | null>>([])
   const lampMeshes = useRef<Array<THREE.InstancedMesh | null>>([])
+  const arrowMeshes = useRef<Array<THREE.InstancedMesh | null>>([])
+  const lampColors = useMemo(() => new Float32Array(data.lamps.length * 3), [data])
   const state = useRef({ ci: NaN, cj: NaN, lampT: 0, units: useGame.getState().units })
 
   useLayoutEffect(() => {
@@ -102,8 +139,8 @@ export function City() {
     const sc = new THREE.Vector3()
     const col = new THREE.Color()
     for (let c = 0; c < COPIES.length; c++) {
-      const tm = trunks.current[c], lm = leaves.current[c], lamp = lampMeshes.current[c]
-      if (!tm || !lm || !lamp) continue
+      const tm = trunks.current[c], lm = leaves.current[c], lamp = lampMeshes.current[c], arrow = arrowMeshes.current[c]
+      if (!tm || !lm || !lamp || !arrow) continue
       data.trees.forEach((t, i) => {
         p.set(t.x, 0, t.z)
         sc.set(t.s * (0.9 + hashN(t.z, t.x, 4) * 0.3), t.s * (0.9 + hashN(t.x, t.z, 7) * 0.35), t.s * (0.9 + hashN(t.z, t.x, 8) * 0.3))
@@ -119,12 +156,18 @@ export function City() {
       data.lamps.forEach((l, i) => {
         p.set(l.x, l.y, l.z)
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), l.yaw)
-        sc.set(1, 1, 1)
+        // every lamp has a round and an arrow instance; the unused one is scaled to nothing
+        sc.set(l.arrow ? 0 : 1, l.arrow ? 0 : 1, 1)
         m.compose(p, q, sc)
         lamp.setMatrixAt(i, m)
         lamp.setColorAt(i, col.setRGB(...OFF))
+        sc.set(l.arrow ? 1 : 0, l.arrow ? 1 : 0, 1)
+        m.compose(p, q, sc)
+        arrow.setMatrixAt(i, m)
+        arrow.setColorAt(i, col.setRGB(...OFF))
       })
       lamp.instanceMatrix.needsUpdate = true
+      arrow.instanceMatrix.needsUpdate = true
     }
   }, [data])
 
@@ -157,21 +200,19 @@ export function City() {
     if (st.lampT > 0.2) {
       st.lampT = 0
       const t = useGame.getState().status === 'menu' ? 0 : sim.t
-      const first = lampMeshes.current[0]
-      if (!first) return
-      const arr = first.instanceColor!.array as Float32Array
+      const arr = lampColors
       data.lamps.forEach((l, i) => {
-        const s = signalColor(l.node, l.axis, t)
-        const lit = (l.l === 0 && s === 2) || (l.l === 1 && s === 1) || (l.l === 2 && s === 0)
+        const sg = signalColor(l.node, l.axis, t, l.arrow ? 'L' : 'T')
+        const lit = (l.l === 0 && sg === 2) || (l.l === 1 && sg === 1) || (l.l === 2 && sg === 0)
         const c = lit ? ON[l.l] : OFF
         arr[i * 3] = c[0]; arr[i * 3 + 1] = c[1]; arr[i * 3 + 2] = c[2]
       })
-      first.instanceColor!.needsUpdate = true
-      for (let k = 1; k < COPIES.length; k++) {
-        const m = lampMeshes.current[k]
-        if (!m?.instanceColor) continue
-        ;(m.instanceColor.array as Float32Array).set(arr)
-        m.instanceColor.needsUpdate = true
+      for (let k = 0; k < COPIES.length; k++) {
+        for (const m of [lampMeshes.current[k], arrowMeshes.current[k]]) {
+          if (!m?.instanceColor) continue
+          ;(m.instanceColor.array as Float32Array).set(arr)
+          m.instanceColor.needsUpdate = true
+        }
       }
     }
   }, -2)
@@ -188,6 +229,7 @@ export function City() {
           <instancedMesh ref={(m) => { trunks.current[k] = m }} args={[trunkGeo, trunkMat, data.trees.length]} frustumCulled={false} />
           <instancedMesh ref={(m) => { leaves.current[k] = m }} args={[leafGeo, leafMat, data.trees.length]} frustumCulled={false} />
           <instancedMesh ref={(m) => { lampMeshes.current[k] = m }} args={[lampGeo, lampMat, data.lamps.length]} frustumCulled={false} />
+          <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, lampMat, data.lamps.length]} frustumCulled={false} />
         </group>
       ))}
     </>
