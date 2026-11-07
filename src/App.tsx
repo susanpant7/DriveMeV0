@@ -9,15 +9,17 @@ import { City } from './game/City'
 import { HORIZON, Sky, SunLight } from './game/Scenery'
 import { Traffic } from './game/Traffic'
 import { Ground, Simulation } from './game/World'
+import { IS_COARSE } from './game/device'
 import { Hud } from './ui/Hud'
 
-const LOWFX = typeof location !== 'undefined' && new URLSearchParams(location.search).has('lowfx')
+// ?lowfx forces the light renderer; phones and tablets use it automatically
+const LOWFX = IS_COARSE || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('lowfx'))
 
 export default function App() {
   useEffect(() => installInput(), [])
   return (
     <>
-      <Canvas flat shadows dpr={[1, 1.5]} gl={{ antialias: false }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
+      <Canvas flat shadows dpr={IS_COARSE ? [1, 1.25] : [1, 1.5]} gl={{ antialias: LOWFX }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
         <color attach="background" args={[HORIZON]} />
         <fog attach="fog" args={[HORIZON, 120, 400]} />
         <Sky />

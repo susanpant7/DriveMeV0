@@ -464,20 +464,30 @@ export function buildCity() {
       if (kind === 'signal') side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows)
 
       if (kind === 'signal') {
-        // Signals sit on the FAR side of the junction (as on US roads), on low poles at both far corners,
-        // facing the traffic that is waiting at the stop line, so you can see them from your seat.
+        // Signals hang ACROSS the road on the FAR side of the junction, facing the waiting traffic:
+        // a mast arm over the lanes with one head per lane, plus a pole head at the far-left corner.
         const uf = -(clr + 1.5)
-        for (const q of [HALF_ROAD + 1.7, -(HALF_ROAD + 1.7)]) {
+        const qEdge = HALF_ROAD + 1.7
+        const [px, pz] = P(uf, qEdge)
+        post(px, pz, 5.7, 0.3)
+        const armLen = qEdge - 0.2
+        const [mx, mz] = P(uf, (qEdge + 0.2) / 2)
+        solid.box(mx, 5.4, mz, armLen, 0.22, 0.22, Math.atan2(-rz, rx), POLE)
+        for (const q of [laneOff(0), laneOff(1), laneOff(2)]) {
           const [hx, hz] = P(uf, q)
-          post(hx, hz, 4.4, 0.22)
-          solid.box(hx, 3.2, hz, 0.8, 2.0, 0.1, yaw, DARK) // backplate
-          solid.box(hx, 3.2, hz, 0.62, 1.75, 0.3, yaw, DARK) // housing
-          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.17, y: 3.7 - l * 0.5, z: hz + oz * 0.17, yaw, node: n, axis: a % 2 === 0 ? 0 : 1, l })
+          solid.box(hx, 4.3, hz, 0.8, 2.0, 0.1, yaw, DARK) // backplate
+          solid.box(hx, 4.3, hz, 0.62, 1.75, 0.3, yaw, DARK) // housing
+          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.17, y: 4.8 - l * 0.5, z: hz + oz * 0.17, yaw, node: n, axis: a % 2 === 0 ? 0 : 1, l })
         }
-        // street-name plate above the far-right signal
-        const [nx, nz] = P(uf, HALF_ROAD + 1.7)
-        post(nx, nz, 5.4, 0.12)
-        signQuad(nx + ox * 0.15, 5.7, nz + oz * 0.15, 2.4, 1.2, face, PLATE(crossIdx))
+        // far-left corner pole: a second set, seen from the right-hand lanes too
+        const [lx, lz] = P(uf, -qEdge)
+        post(lx, lz, 4.4, 0.22)
+        solid.box(lx, 3.2, lz, 0.8, 2.0, 0.1, yaw, DARK)
+        solid.box(lx, 3.2, lz, 0.62, 1.75, 0.3, yaw, DARK)
+        for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * 0.17, y: 3.7 - l * 0.5, z: lz + oz * 0.17, yaw, node: n, axis: a % 2 === 0 ? 0 : 1, l })
+        // street-name plate on top of the arm
+        const [nx, nz] = P(uf, qEdge * 0.55)
+        signQuad(nx + ox * 0.15, 6.3, nz + oz * 0.15, 2.4, 1.2, face, PLATE(crossIdx))
       } else {
         // give way + roundabout signs at the entry, chevrons on the island
         const [yx, yz] = P(clr + 2.5, HALF_ROAD + 1.7)

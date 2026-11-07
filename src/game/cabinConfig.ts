@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { IS_COARSE } from './device'
 import type { Look } from './store'
 
 /** Driver's eye position, relative to the car origin (car faces -z, left-hand drive). */
@@ -26,13 +27,16 @@ function mirror(id: MirrorCfg['id'], pos: THREE.Vector3, size: [number, number],
 }
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
+// mirror reflection textures: half size on phones / tablets
+const RES_SIDE: [number, number] = IS_COARSE ? [640, 432] : [1300, 880]
+const RES_REAR: [number, number] = IS_COARSE ? [512, 154] : [1024, 310]
 
 // Side mirrors are aimed almost straight back so the inner edge catches your own car's
 // flank, exactly as a properly adjusted door mirror does.
 export const MIRRORS: MirrorCfg[] = [
-  mirror('left', V(-1.08, 1.05, -0.55), [0.4, 0.27], [1300, 880], V(-0.27, -0.07, 1), 1),
-  mirror('center', V(-0.3, 1.42, -0.62), [0.38, 0.115], [1024, 310], V(0, 0.03, 1), 0),
-  mirror('right', V(1.03, 1.05, -0.6), [0.46, 0.31], [1300, 880], V(0.27, -0.07, 1), -1),
+  mirror('left', V(-1.08, 1.05, -0.55), [0.4, 0.27], RES_SIDE, V(-0.27, -0.07, 1), 1),
+  mirror('center', V(-0.3, 1.42, -0.62), [0.38, 0.115], RES_REAR, V(0, 0.03, 1), 0),
+  mirror('right', V(1.03, 1.05, -0.6), [0.46, 0.31], RES_SIDE, V(0.27, -0.07, 1), -1),
 ]
 
 export interface LookTarget {

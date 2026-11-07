@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react'
-import { LIMIT, pauseGame, resumeGame, startGame } from '../game/sim'
-import { setTraffic, setUnits, useGame } from '../game/store'
+import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
+import { LIMIT, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
+import { setTraffic, setUnits, useGame, type Look } from '../game/store'
+import { useViewport } from './useViewport'
 
 const Key = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>
 
@@ -25,7 +26,7 @@ function Settings() {
         <div className="setting-head">
           <span>Traffic</span>
           <span className="muted">{TRAFFIC_LABELS[traffic - 1]}</span>
-          <Key>1</Key>–<Key>5</Key>
+          <Key>1</Key><span className="kb-only">–</span><Key>5</Key>
         </div>
         <div className="seg" role="group" aria-label="Traffic level">
           {([1, 2, 3, 4, 5] as const).map((n) => (
@@ -57,10 +58,82 @@ const MirrorIcon = () => (
   </svg>
 )
 
+/** A button that stays "pressed" while a finger is on it (works with several fingers at once). */
+function HoldButton({ label, onDown, onUp, className = '', active = false, children }: { label: string; onDown: () => void; onUp: () => void; className?: string; active?: boolean; children: ReactNode }) {
+  const down = (e: PointerEvent<HTMLButtonElement>) => {
+    e.preventDefault()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    onDown()
+  }
+  const up = () => onUp()
+  return (
+    <button
+      className={`tbtn ${className}${active ? ' on' : ''}`}
+      aria-label={label}
+      onPointerDown={down}
+      onPointerUp={up}
+      onPointerCancel={up}
+      onLostPointerCapture={up}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {children}
+    </button>
+  )
+}
+
+const Arrow = ({ dir }: { dir: 'left' | 'right' | 'up' | 'down' }) => (
+  <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" style={{ transform: `rotate(${{ right: 0, down: 90, left: 180, up: 270 }[dir]}deg)` }}>
+    <path d="M9 5l8 7-8 7" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** On-screen controls at the bottom of the page for phones and tablets. */
+function TouchControls() {
+  const signal = useGame((s) => s.hud.signal)
+  const look = useGame((s) => s.hud.look)
+  const hold = (key: 'up' | 'down' | 'left' | 'right') => ({ onDown: () => { input[key] = true }, onUp: () => { input[key] = false } })
+  const glance = (l: Exclude<Look, 'front'>) => ({ onDown: () => { input.look = l }, onUp: () => { if (input.look === l) input.look = 'front' } })
+  return (
+    <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
+      <div className="tgroup">
+        <HoldButton label="Steer left" className="steer" {...hold('left')}><Arrow dir="left" /></HoldButton>
+        <HoldButton label="Steer right" className="steer" {...hold('right')}><Arrow dir="right" /></HoldButton>
+      </div>
+
+      <div className="tgroup center">
+        <div className="trow">
+          <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}>◀</HoldButton>
+          <HoldButton label="Look at left mirror" className="look" active={look === 'left'} {...glance('left')}>Left<small>mirror</small></HoldButton>
+          <HoldButton label="Look at rear-view mirror" className="look" active={look === 'center'} {...glance('center')}>Rear<small>mirror</small></HoldButton>
+          <HoldButton label="Look at right mirror" className="look" active={look === 'right'} {...glance('right')}>Right<small>mirror</small></HoldButton>
+          <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
+        </div>
+      </div>
+
+      <div className="tgroup">
+        <HoldButton label="Brake" className="pedal brake" {...hold('down')}>Brake</HoldButton>
+        <HoldButton label="Accelerator" className="pedal gas" {...hold('up')}>Gas</HoldButton>
+      </div>
+    </div>
+  )
+}
+
+function TouchHelp() {
+  return (
+    <ul className="controls">
+      <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
+      <li><span><b>◀ ▶</b></span> Steering buttons at the bottom left</li>
+      <li><span><b>◀ ▶</b></span> Centre: left and right indicators (tap to switch on or off)</li>
+      <li><span><b>Left / Rear / Right</b></span> Hold to look at that mirror</li>
+    </ul>
+  )
+}
+
 function PlayingHud() {
   const hud = useGame((s) => s.hud)
   const messages = useGame((s) => s.messages)
   const units = useGame((s) => s.units)
+  const { touch } = useViewport()
   const [help, setHelp] = useState(true)
   useEffect(() => {
     const t = setTimeout(() => setHelp(false), 15000)
@@ -91,12 +164,14 @@ function PlayingHud() {
         </button>
       </div>
 
-      <div className={`limit${speeding ? ' over' : ''}`} title="Speed limit">
+      <div className={`limit${speeding ? ' over' : ''}${touch ? ' top' : ''}`} title="Speed limit">
         <small>SPEED<br />LIMIT</small>
         <b>{units === 'kmh' ? 50 : 30}</b>
       </div>
 
-      <div className={`helpbar${help ? ' show' : ''}`}>
+      {touch && <TouchControls />}
+
+      <div className={`helpbar${help && !touch ? ' show' : ''}`}>
         <span><Key>↑</Key> go</span>
         <span><Key>↓</Key> brake</span>
         <span><Key>←</Key><Key>→</Key> steer</span>
@@ -114,10 +189,25 @@ export function Hud() {
   const pauseReason = useGame((s) => s.pauseReason)
   const tips = useGame((s) => s.crashTips)
   const start = startGame
+  const { touch, portrait } = useViewport()
+
+  // phones and tablets play in landscape: pause and ask for a rotation
+  useEffect(() => {
+    if (touch && portrait && status === 'playing') pauseGame()
+  }, [touch, portrait, status])
 
   return (
-    <div className="hud">
+    <div className={`hud${touch ? ' touch' : ''}`}>
       {status === 'playing' && <PlayingHud />}
+      {touch && portrait && (
+        <div className="overlay rotate">
+          <div className="panel">
+            <svg viewBox="0 0 64 64" width="72" height="72" aria-hidden="true"><rect x="22" y="8" width="20" height="36" rx="4" fill="none" stroke="currentColor" strokeWidth="3" /><path d="M14 48c6 8 22 10 36 0m0 0l-8-1m8 1l1-8" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <h2>Rotate your device</h2>
+            <p>DriveMe is played in landscape. Turn your phone or tablet sideways to continue.</p>
+          </div>
+        </div>
+      )}
 
       {status === 'menu' && (
         <div className="overlay">
@@ -129,7 +219,7 @@ export function Hud() {
             <div className="cols">
               <section>
                 <h3>Controls</h3>
-                <ControlsList />
+                {touch ? <TouchHelp /> : <ControlsList />}
               </section>
               <section>
                 <h3>Settings</h3>

@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { IS_COARSE } from './device'
 
 /**
  * Outline of a side-mirror glass: a rounded shape with the lower corner nearest the
@@ -167,7 +168,7 @@ export class MirrorGlass extends THREE.Mesh {
 
   constructor(geometry: THREE.BufferGeometry, o: MirrorGlassOpts) {
     const wide = o.wide ?? 1
-    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], { samples: 4, type: THREE.HalfFloatType })
+    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], { samples: IS_COARSE ? 0 : 4, type: THREE.HalfFloatType })
     const material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: rt.texture },

@@ -23,6 +23,11 @@ npm run dev
 
 Add `?lowfx` to the URL to switch the post-processing off on slower machines.
 
+## Phones and tablets
+On touch screens (and narrow windows) on-screen buttons appear along the bottom: steer left / right (bottom left), indicators and
+look-at-mirror buttons (centre, hold to look), brake and gas (bottom right). Play in landscape; portrait pauses the game and asks you to rotate.
+Touch devices automatically use the lighter renderer (no post-processing, half-size mirror textures).
+
 ## The city
 A 4x4 grid of junctions repeats forever (800 m period): 12 signalled junctions and 4 roundabouts, three lanes each way,
 right-hand traffic. Overhead gantry signs, street-name plates, speed-limit / pedestrian / signal / roundabout / give-way

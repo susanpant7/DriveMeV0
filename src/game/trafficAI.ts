@@ -163,11 +163,12 @@ export function setActiveCount(n: number, player: Obstacle | null) {
 }
 
 /* ---------------- routing ---------------- */
-function chooseNext(c: AiCar, p: Piece): number | undefined {
+/** The piece this car will drive onto next (no side effects, so it can be used to look ahead). */
+function nextPiece(c: AiCar, p: Piece): number | undefined {
   const L = LINKS
   if (p.kind === 'edge') {
+    const key = `${p.node}:${p.arm}:${p.lane}`
     if (p.toKind === 'signal') {
-      const key = `${p.node}:${p.arm}:${p.lane}`
       const m = maneuver(c, p)
       if (m === 'L') return L.connL.get(key)
       if (m === 'R') {
@@ -176,19 +177,22 @@ function chooseNext(c: AiCar, p: Piece): number | undefined {
       }
       return L.connS.get(key)
     }
-    c.exitArm = (p.arm + 1 + Math.floor(Math.random() * 3)) % 4
-    return L.entryC.get(`${p.node}:${p.arm}:${p.lane}`)
+    return L.entryC.get(key)
   }
   if (p.kind === 'conn') {
     if (p.entry) return L.ringBetween.get(`${p.node}:${p.arm}`)
     return L.edgeOut.get(`${p.node}:${p.arm}:${p.lane}`)
   }
-  // ring
   if (p.ringType === 'between') {
     if (c.exitArm === p.arm) return L.exitC.get(`${p.node}:${p.arm}:2`)
     return L.ringPass.get(`${p.node}:${p.arm}`)
   }
   return L.ringBetween.get(`${p.node}:${p.arm}`)
+}
+
+function chooseNext(c: AiCar, p: Piece): number | undefined {
+  if (p.kind === 'edge' && p.toKind !== 'signal') c.exitArm = (p.arm + 1 + Math.floor(Math.random() * 3)) % 4
+  return nextPiece(c, p)
 }
 
 /** Is any vehicle circulating just upstream of this roundabout entry? */
@@ -204,7 +208,7 @@ export function ringBusy(node: number, arm: number, player: Obstacle | null): bo
     if (r > RING_R + 6 || r < RING_R - 8) return false
     const ang = Math.atan2(-dz, dx)
     const d = mod(entryAng - ang, Math.PI * 2)
-    return d < 1.2 || d > Math.PI * 2 - 0.1
+    return d < 1.7 || d > Math.PI * 2 - 0.15
   }
   for (const c of cars) {
     if (!c.active) continue
@@ -295,6 +299,29 @@ function decideLane(c: AiCar, p: Piece, gap: number, lv: number) {
   } else c.cool = 0.5
 }
 
+
+/** Don't enter a junction if the road beyond it is jammed (keep the box clear). */
+function exitBlocked(c: AiCar, p: Piece): boolean {
+  const m = maneuver(c, p)
+  const key = `${p.node}:${p.arm}:${p.lane}`
+  const conn = PIECES[(m === 'L' ? LINKS.connL.get(key) : m === 'R' ? LINKS.connR.get(key) : LINKS.connS.get(key)) ?? -1]
+  if (!conn) return false
+  const exitId = LINKS.edgeOut.get(`${conn.node}:${conn.arm}:${conn.lane}`)
+  if (exitId === undefined) return false
+  const [ji, jj] = nodeIJ(p.node)
+  const gx = Math.floor((ji * B) / CELL)
+  const gz = Math.floor((jj * B) / CELL)
+  for (let ix = -1; ix <= 1; ix++) {
+    for (let iz = -1; iz <= 1; iz++) {
+      for (const oi of grid[mod(gx + ix, CN) * CN + mod(gz + iz, CN)]) {
+        const o = cars[oi]
+        if (o !== c && o.piece === exitId && o.s < 16 && o.speed < 2.5) return true
+      }
+    }
+  }
+  return false
+}
+
 /** Would a left-turner at the stop line cut across oncoming traffic? */
 function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle): boolean {
   const [ji, jj] = nodeIJ(p.node)
@@ -313,7 +340,8 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle): boolean 
         const op = PIECES[o.piece]
         if (op.kind === 'edge' && op.node === p.node && op.arm === opp) {
           // oncoming and about to enter, with a light that isn't red, and not turning left itself
-          if (op.len - o.s < 42 && signalColor(p.node, op.axis as 0 | 1, t) !== 2 && maneuver(o, op) !== 'L') return true
+          const left = op.len - o.s
+          if (left < 75 && left / Math.max(o.speed, 2.5) < 5 && signalColor(p.node, op.axis as 0 | 1, t) !== 2 && maneuver(o, op) !== 'L') return true
         } else if (op.kind === 'conn' && op.node === p.node && o.speed > 0.8) {
           const ofx = -Math.sin(o.h)
           const ofz = -Math.cos(o.h)
@@ -343,7 +371,8 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
     c.behindPlayer = false
 
     // 1. vehicle ahead (cone test, works for crossing traffic and the player too)
-    if (c.ghost <= 0) {
+    const np = nextPiece(c, p)
+    {
       const consider = (ox: number, oz: number, speed: number, isPlayer = false) => {
         const rx = wrapD(ox - c.x)
         const rz = wrapD(oz - c.z)
@@ -370,11 +399,19 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
               const op = PIECES[o.piece]
               if (op.kind === 'conn' && op.entry) continue
             }
-            consider(o.x, o.z, o.speed)
+            if (c.ghost <= 0) consider(o.x, o.z, o.speed) // a 'ghost' ignores crossing traffic, never the queue ahead
+            // follow along the path, not just straight ahead: this keeps cars apart in turns
+            if (o.piece === c.piece && o.s > c.s) {
+              const g = o.s - c.s - CAR_L
+              if (g < gap) { gap = g; lv = o.speed }
+            } else if (np !== undefined && o.piece === np) {
+              const g = p.len - c.s + o.s - CAR_L
+              if (g < gap) { gap = g; lv = o.speed }
+            }
           }
         }
       }
-      consider(player.x, player.z, player.speed, true)
+      if (c.ghost <= 0) consider(player.x, player.z, player.speed, true)
     }
 
     // 2. red / amber light at the end of this road
@@ -414,6 +451,13 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
     if (p.kind === 'edge' && p.toKind === 'signal') {
       const m = maneuver(c, p)
       if (m !== 'S' && toEnd < 32) vcap = Math.min(vcap, 8)
+      if (toEnd < 28 && toEnd - 3.9 > -0.5 && exitBlocked(c, p)) {
+        const dist = toEnd - 3.9
+        if (dist < gap) {
+          gap = Math.max(dist, 0.05)
+          lv = 0
+        }
+      }
       if (m === 'L' && toEnd < 40) {
         const dist = toEnd - 3.9
         if (dist > -2 && c.waitL < 12 && leftConflict(c, p, t, player)) {
