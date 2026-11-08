@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import { input } from '../game/sim'
 
 const MAX_YAW = 1.5 // rad: how far the head can turn (a bit more than 85 degrees, to see out of the side window)
-const MAX_UP = 0.75
+const MAX_UP = 0.9
 const REACH = 64 // px of thumb travel for the full turn
 
 /**
@@ -33,6 +33,7 @@ export function EyeControl() {
   const up = () => {
     input.free = false
     input.yaw = input.pitch = 0
+    input.look = 'front' // eyes straight back on the road
     setD({ x: 0, y: 0, on: false })
   }
   useEffect(() => up, [])
@@ -102,7 +103,7 @@ export function SteerWheel() {
     // spring back to centre, quickly at first
     let last = performance.now()
     const back = (now: number) => {
-      const dt = Math.min(0.05, (now - last) / 1000)
+      const dt = Math.min(0.25, (now - last) / 1000)
       last = now
       const a = st.current.ang * Math.exp(-9 * dt)
       if (Math.abs(a) < 0.015) { st.current.ang = 0; setAng(0); input.analog = null; return }

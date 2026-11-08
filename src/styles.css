@@ -320,3 +320,10 @@ button.primary:disabled { opacity: .6; cursor: wait; transform: none; }
 
 /* the Start button stays visible while the (now taller) menu scrolls, which matters on short phone screens */
 .overlay .panel.wide > button.primary { position: sticky; bottom: 4px; z-index: 3; box-shadow: 0 -14px 18px -8px rgba(10,13,20,.95), 0 10px 26px rgba(47,111,224,.45); }
+
+/* ---- phone: smaller pedals, lower on the screen, so the map can sit lower and not cover the road ---- */
+.hud.touch .touch-controls { --btn: clamp(44px, 12vh, 62px); --pedal: clamp(38px, 10.5vh, 52px); padding-bottom: calc(3px + env(safe-area-inset-bottom)); }
+.hud.touch .tbtn.pedal { min-width: calc(var(--pedal) * 1.3); height: var(--pedal); font-size: 12px; border-radius: 13px; padding: 0 8px; }
+.hud.touch .tbtn.pedal.gas { height: calc(var(--pedal) * 1.28); }
+.hud.touch .tbtn.sig { font-size: 15px; }
+.hud.touch .mapscreen { bottom: calc(clamp(38px, 10.5vh, 52px) * 1.28 + 8px + env(safe-area-inset-bottom)); }

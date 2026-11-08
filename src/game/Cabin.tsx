@@ -279,6 +279,8 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[1.72, 0.07, 0.1]} />
       </mesh>
       <Windshield />
+      {/* the rear-view mirror hangs from the middle of the windshield header */}
+      <Beam from={[0.02, 1.62, -0.62]} to={[0.02, 1.6, -0.6]} t={0.035} material={plastic} />
       <CenterStack />
       <mesh position={[0, 1.65, 0.4]} material={headliner}>
         <boxGeometry args={[1.9, 0.05, 2.0]} />

@@ -14,7 +14,8 @@ npm run dev
 | **↓** | brake |
 | **←** / **→** | steer (hold) |
 | **Q** / **E** | left / right indicator |
-| hold **A** / **W** / **D** | look at left mirror / rear-view / right mirror |
+| press and drag the mouse, or swipe with two fingers on a trackpad | turn your head. Aim at a side mirror or the rear-view mirror to check it; let go and your view returns to the road. (Holding **C** or the right mouse button works too.) |
+| hold **A** / **W** / **D** | optional shortcut: snap to the left mirror / rear-view / right mirror |
 | **Esc** or **P** | pause (also pauses when the tab loses focus) |
 | **U** | switch km/h <-> mph (menu / pause screen) |
 | **1**-**5** | traffic level: 1 = about 20 cars, 5 = about 400 cars in the city (menu / pause screen) |
@@ -38,6 +39,11 @@ recalculated; reaching the destination starts a new leg. No highway mode yet.
 A 4x4 grid of junctions repeats forever (800 m period): 12 signalled junctions and 4 roundabouts, two lanes each way (a third, right-turn lane is added on the approach to each signalised junction),
 right-hand traffic. Overhead gantry signs, street-name plates, speed-limit / pedestrian / signal / roundabout / give-way
 signs, painted lane arrows, a lane-use sign, zebra crossings, stop lines and mast-arm traffic lights.
+
+## Left turns: arrow or yield
+Six junctions have a protected left-turn arrow (through green, then a green arrow for left turns). The other six are
+"left turn yield on green": the left lane turns left on the ordinary green light and must give way to oncoming traffic (a
+"LEFT TURN YIELD ON GREEN" sign hangs over the left lane). Cars and the rules check follow the same split.
 
 ## Traffic signals
 Four-phase signals with protected left turns, on a 54 s cycle: north-south through + right (left turns red), north-south left arrow

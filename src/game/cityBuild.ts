@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
+import { hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -125,7 +125,7 @@ export const ATLAS_W = 2048
 export const ATLAS_H = 1280
 const cell = (i: number): Rect => ({ x: i * 256, y: 0, w: 256, h: 256 })
 const cell2 = (i: number): Rect => ({ x: i * 256, y: 896, w: 256, h: 256 })
-export const SIGN = { stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2) }
+export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2) }
 export const PLATE = (i: number): Rect => ({ x: i * 256, y: 256, w: 256, h: 128 })
 export const PANEL = (i: number): Rect => ({ x: (i % 4) * 512, y: 384 + Math.floor(i / 4) * 256, w: 512, h: 256 })
 
@@ -272,6 +272,19 @@ export function makeAtlas(units: 'kmh' | 'mph') {
     g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 38px Arial, sans-serif'
     ;['RIGHT', 'LANE', 'MUST', 'TURN', 'RIGHT'].forEach((t, i) => g.fillText(t, r.x + 128, r.y + 50 + i * 40))
   }
+  // R10-12 "LEFT TURN YIELD ON GREEN": white sign, black left-turn arrow and red legend
+  {
+    const r = SIGN.leftYield
+    g.fillStyle = '#fff'; roundRect(g, r.x + 30, r.y + 8, 196, 240, 14); g.fill()
+    g.strokeStyle = '#111'; g.lineWidth = 7; roundRect(g, r.x + 38, r.y + 16, 180, 224, 9); g.stroke()
+    // green disc with a left-turn arrow
+    g.fillStyle = '#1b9a3f'; g.beginPath(); g.arc(r.x + 128, r.y + 82, 40, 0, 7); g.fill()
+    g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineWidth = 11; g.lineCap = 'butt'
+    g.beginPath(); g.moveTo(r.x + 138, r.y + 104); g.lineTo(r.x + 138, r.y + 74); g.lineTo(r.x + 118, r.y + 74); g.stroke()
+    g.beginPath(); g.moveTo(r.x + 118, r.y + 60); g.lineTo(r.x + 100, r.y + 74); g.lineTo(r.x + 118, r.y + 88); g.closePath(); g.fill()
+    g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 31px Arial, sans-serif'
+    ;['LEFT TURN', 'YIELD', 'ON GREEN'].forEach((t, i) => g.fillText(t, r.x + 128, r.y + 150 + i * 32, 170))
+  }
   // "STOP HERE ON RED"
   {
     const r = SIGN.stopHere
@@ -358,6 +371,8 @@ const ARROW_SHAPES: Record<'L' | 'S' | 'R' | 'SR' | 'SL', Pt2[][]> = (() => {
 
 /** every sign / signal post placed (for checking that none stands on the road) */
 export const DEBUG_POSTS: Array<[number, number, number]> = []
+/** every tree placed (for the same check) */
+export const DEBUG_TREES: Array<{ x: number; z: number }> = []
 
 export function buildCity() {
   const asphalt = new MB(), marks = new MB(), solid = new MB(), buildings = new MB(), signs = new MB(), wear = new Wear()
@@ -389,9 +404,9 @@ export function buildCity() {
     g.translate((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, (p0[2] + p1[2]) / 2)
     solid.addGeometry(g, color)
   }
-  const HOUSING: V3 = [0.05, 0.05, 0.055]
-  const headShape = (() => {
-    const w = 0.46, h = 1.52, r = 0.08
+  const HOUSING: V3 = [0.055, 0.056, 0.062]
+  const sectionShape = (() => {
+    const w = 0.44, h = 0.47, r = 0.1
     const sh = new THREE.Shape()
     sh.moveTo(-w / 2 + r, -h / 2); sh.lineTo(w / 2 - r, -h / 2); sh.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r)
     sh.lineTo(w / 2, h / 2 - r); sh.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2); sh.lineTo(-w / 2 + r, h / 2)
@@ -410,20 +425,35 @@ export function buildCity() {
       g.translate(hx, yc, hz)
       solid.addGeometry(g, color)
     }
-    const body = new THREE.ExtrudeGeometry(headShape, { depth: 0.3, bevelEnabled: true, bevelSize: 0.012, bevelThickness: 0.012, bevelSegments: 2, curveSegments: 6 })
-    body.translate(0, 0, -0.15)
-    place(body, HOUSING)
-    // backplate with a yellow reflective border
-    solid.box(hx - ox * 0.12, yc, hz - oz * 0.12, 0.86, 1.92, 0.04, yaw, HOUSING)
-    for (const [dx, dy, w, hh] of [[0, 0.95, 0.86, 0.045], [0, -0.95, 0.86, 0.045], [-0.4, 0, 0.045, 1.92], [0.4, 0, 0.045, 1.92]]) {
-      solid.box(hx - ox * 0.098 + rxv * dx, yc + dy, hz - oz * 0.098 + rzv * dx, w, hh, 0.012, yaw, YELLOW)
-    }
-    // tunnel visors (open at the bottom)
+    // three separate housing sections with a hairline gap between them, like a real modular head
     for (let l = 0; l < 3; l++) {
-      const v = new THREE.CylinderGeometry(0.2, 0.2, 0.34, 18, 1, true, Math.PI / 2 - 0.4, Math.PI + 0.8)
+      const sec = new THREE.ExtrudeGeometry(sectionShape, { depth: 0.27, bevelEnabled: true, bevelSize: 0.014, bevelThickness: 0.016, bevelSegments: 3, curveSegments: 8 })
+      sec.translate(0, 0.5 - l * 0.5, -0.135)
+      place(sec, HOUSING)
+      // the ring (bezel) around each lens and a small hinge on the side of the section
+      const bez = new THREE.TorusGeometry(0.178, 0.016, 8, 28)
+      bez.translate(0, 0.5 - l * 0.5, 0.158)
+      place(bez, [0.1, 0.1, 0.11])
+      solid.box(hx + rxv * 0.235, yc + 0.5 - l * 0.5, hz + rzv * 0.235, 0.025, 0.1, 0.05, yaw, [0.12, 0.12, 0.13])
+    }
+    // slim brackets joining the sections, top and bottom caps
+    for (const yy of [0.75, -0.75]) solid.box(hx - ox * 0.0, yc + yy, hz - oz * 0.0, 0.34, 0.05, 0.3, yaw, HOUSING)
+    // backplate with a yellow reflective border
+    solid.box(hx - ox * 0.14, yc, hz - oz * 0.14, 0.88, 1.95, 0.035, yaw, HOUSING)
+    for (const [dx, dy, w, hh] of [[0, 0.96, 0.88, 0.05], [0, -0.96, 0.88, 0.05], [-0.415, 0, 0.05, 1.95], [0.415, 0, 0.05, 1.95]]) {
+      solid.box(hx - ox * 0.117 + rxv * dx, yc + dy, hz - oz * 0.117 + rzv * dx, w, hh, 0.012, yaw, YELLOW)
+    }
+    // long tunnel visors over every lens (open at the bottom), a touch lighter than the housing so they read
+    for (let l = 0; l < 3; l++) {
+      const v = new THREE.CylinderGeometry(0.215, 0.215, 0.42, 20, 1, true, Math.PI / 2 - 0.62, Math.PI + 1.24)
       v.rotateX(Math.PI / 2)
-      v.translate(0, 0.5 - l * 0.5, 0.32)
-      place(v, HOUSING)
+      v.translate(0, 0.5 - l * 0.5, 0.36)
+      place(v, [0.075, 0.078, 0.085])
+      // inside of the visor is matte black
+      const inner = new THREE.CylinderGeometry(0.205, 0.205, 0.4, 20, 1, true, Math.PI / 2 - 0.58, Math.PI + 1.16)
+      inner.rotateX(Math.PI / 2)
+      inner.translate(0, 0.5 - l * 0.5, 0.36)
+      place(inner, [0.012, 0.012, 0.014])
     }
   }
   const post = (x: number, z: number, h: number, t = 0.09, color = POLE) => {
@@ -631,7 +661,8 @@ export function buildCity() {
         const uPlus = Math.max(S0 + 36, kB === 'signal' ? S1 - FLARE - TAPER - 8 : mid) // right side: widens before node B
         const uMinus = Math.min(S1 - 36, kA === 'signal' ? S0 + FLARE + TAPER + 8 : mid) // left side: widens after node A
         for (const sgv of [1, -1] as const) {
-          const [sx, sz] = at(ax, az, d, sgv === 1 ? uPlus : uMinus, sgv * (HALF_MID + 1.7))
+          const uSign = sgv === 1 ? uPlus : uMinus
+          const [sx, sz] = at(ax, az, d, uSign, sgv * ((sgv === 1 ? sgh(uSign).right : sgh(uSign).left) + 1.7)) // beside the road as wide as it is right there
           post(sx, sz, 2.4)
           signQuad(sx - fdv[0] * sgv * 0.08, 2.15, sz - fdv[1] * sgv * 0.08, 0.85, 1.05, [-fdv[0] * sgv, -fdv[1] * sgv], SIGN.speed)
         }
@@ -688,6 +719,7 @@ export function buildCity() {
         const off = (sg === 1 ? sgh(u).right : sgh(u).left) + 2.4
         const [lx, lz] = at(ax, az, d, u, sg * off)
         const horizontal = dz === 0
+        DEBUG_POSTS.push([lx, lz, 8.5])
         solid.box(lx, 0, lz, 0.26, 0.5, 0.26, 0, [0.35, 0.36, 0.38]) // base
         solid.box(lx, 0.5, lz, 0.18, 8.1, 0.18, 0, [0.5, 0.52, 0.55]) // pole
         const [ax2, az2] = at(ax, az, d, u, sg * (off - 1.5))
@@ -700,6 +732,7 @@ export function buildCity() {
       for (let u = S0 + 40; u < S1 - 30; u += 90) {
         const sg: 1 | -1 = hashN(ax + u, az, 20) < 0.5 ? 1 : -1
         const [hx3, hz3] = at(ax, az, d, u, sg * ((sg === 1 ? sgh(u).right : sgh(u).left) + 1.0))
+        DEBUG_POSTS.push([hx3, hz3, 0.7])
         solid.box(hx3, 0, hz3, 0.28, 0.7, 0.28, 0, [0.75, 0.12, 0.1]) // hydrant body
         solid.box(hx3, 0.7, hz3, 0.34, 0.12, 0.34, 0, [0.8, 0.14, 0.12]) // cap
         solid.box(hx3, 0.35, hz3, 0.55, 0.14, 0.14, 0, [0.7, 0.1, 0.09]) // side nozzles
@@ -716,9 +749,9 @@ export function buildCity() {
 
     if (kind === 'signal') {
       // dashed turn-guide lines through the junction box: they show the path of a left turn (left lane) and a right turn
-      const guide = (E: V2, ctrl: V2, X: V2) => {
-        const pts: V2[] = []
-        for (let t = 0; t <= 1.0001; t += 1 / 26) {
+      const guide = (S: V2, E: V2, ctrl: V2, X: V2) => {
+        const pts: V2[] = [S, E]
+        for (let t = 1 / 26; t <= 1.0001; t += 1 / 26) {
           const u = 1 - t
           pts.push([u * u * E[0] + 2 * u * t * ctrl[0] + t * t * X[0], u * u * E[1] + 2 * u * t * ctrl[1] + t * t * X[1]])
         }
@@ -742,10 +775,12 @@ export function buildCity() {
           const E: V2 = [cx + aox * BOX + alx * o, cz + aoz * BOX + alz * o]
           const [eox, eoz] = dirv(e), [erx, erz] = dirv(e - 1)
           const X: V2 = [cx + eox * BOX + erx * laneOff(exitLane), cz + eoz * BOX + erz * laneOff(exitLane)]
-          guide(E, stz === 0 ? [X[0], E[1]] : [E[0], X[1]], X)
+          // start at the stop line (where the lane ends), run straight to the box edge, then curve into the exit lane
+          const S: V2 = [E[0] + aox * 1.6, E[1] + aoz * 1.6]
+          guide(S, E, stz === 0 ? [X[0], E[1]] : [E[0], X[1]], X)
         }
       }
-      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) solid.box(cx + sx * (HALF_ROAD + 7.2), 0, cz + sz * (HALF_ROAD + 7.2), 14, 0.15, 14, 0, CONC)
+      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) solid.box(cx + sx * (BOX + 7.2), 0, cz + sz * (BOX + 7.2), 14, 0.15, 14, 0, CONC)
     } else {
       const spec = rbSpec(i, j)!
       const L = spec.laneR.length
@@ -879,11 +914,18 @@ export function buildCity() {
         const lensY = [0.5, 0, -0.5]
         const [px, pz] = P(uf, qEdge)
         const top = 5.45
-        tube([px, 0, pz], [px, top, pz], 0.24, 0.13, POLE, 12)
+        tube([px, 0.35, pz], [px, top, pz], 0.25, 0.14, POLE, 14)
+        // base plate with bolts, a hand-hole cover and a pedestrian push-button
+        tube([px, 0, pz], [px, 0.4, pz], 0.4, 0.3, [0.4, 0.41, 0.44], 14)
+        for (const [bx, bz] of [[0.3, 0.3], [-0.3, 0.3], [0.3, -0.3], [-0.3, -0.3]]) solid.box(px + bx, 0.4, pz + bz, 0.06, 0.07, 0.06, 0, [0.7, 0.72, 0.75])
+        solid.box(px - rx * 0.21, 1.15, pz - rz * 0.21, 0.1, 0.16, 0.1, yaw, [0.95, 0.78, 0.1])
+        solid.box(px - rx * 0.26, 1.15, pz - rz * 0.26, 0.05, 0.1, 0.1, yaw, [0.1, 0.1, 0.1])
         const midQ = qEdge * 0.5, endQ = 0.4
         const [m1x, m1z] = P(uf, midQ), [m2x, m2z] = P(uf, endQ)
-        tube([px, top - 0.1, pz], [m1x, top - 0.28, m1z], 0.12, 0.09, POLE)
-        tube([m1x, top - 0.28, m1z], [m2x, top - 0.12, m2z], 0.09, 0.07, POLE)
+        tube([px, top - 0.05, pz], [m1x, top - 0.3, m1z], 0.17, 0.12, POLE, 12)
+        tube([m1x, top - 0.3, m1z], [m2x, top - 0.14, m2z], 0.12, 0.085, POLE, 12)
+        // gusset where the arm meets the pole
+        tube([px, top - 1.0, pz], [m1x * 0.15 + px * 0.85, top - 0.45, m1z * 0.15 + pz * 0.85], 0.05, 0.05, POLE, 6)
         ;[laneOff(0), laneOff(1), laneOff(2)].forEach((q, lane) => {
           const [hx, hz] = P(uf, q)
           const yc = 3.9
@@ -892,13 +934,19 @@ export function buildCity() {
           tube([hx, armY, hz], [hx, yc + 0.78, hz], 0.04, 0.04, POLE, 6)
           signalHead(hx, hz, yc, ox, oz)
           // the left lane has its own left-turn ARROW signal; the other lanes show the through signal
-          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.165, y: yc + lensY[l], z: hz + oz * 0.165, yaw, node: n, axis, l, arrow: lane === 0 })
+          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.165, y: yc + lensY[l], z: hz + oz * 0.165, yaw, node: n, axis, l, arrow: lane === 0 && hasLeftArrow(n) })
         })
         // far-left corner pole: a second head, seen from the right-hand lanes too
         const [lx, lz] = P(uf, -qEdge)
-        tube([lx, 0, lz], [lx, 4.4, lz], 0.2, 0.12, POLE, 10)
+        tube([lx, 0.3, lz], [lx, 4.4, lz], 0.2, 0.12, POLE, 12)
+        tube([lx, 0, lz], [lx, 0.35, lz], 0.34, 0.26, [0.4, 0.41, 0.44], 12)
         signalHead(lx, lz, 3.1, ox, oz)
         for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * 0.165, y: 3.1 + lensY[l], z: lz + oz * 0.165, yaw, node: n, axis, l, arrow: false })
+        // junctions without a left arrow: "LEFT TURN YIELD ON GREEN" on the mast arm over the left lane
+        if (!hasLeftArrow(n)) {
+          const [ysx, ysz] = P(uf, laneOff(0))
+          signQuad(ysx + ox * 0.16, 6.15, ysz + oz * 0.16, 0.8, 0.98, face, SIGN.leftYield)
+        }
         // street-name blade on the mast arm
         const [nx, nz] = P(uf, qEdge * 0.62)
         signQuad(nx + ox * 0.15, 5.85, nz + oz * 0.15, 2.2, 1.1, face, PLATE(crossIdx))
@@ -946,6 +994,12 @@ export function buildCity() {
     solid.box(bcx, 0.08 + l.h + (l.h > 26 ? l.h * 0.28 : 0), bcz, bw * 0.3, 2.2, bd * 0.3, 0, [0.42, 0.43, 0.45]) // roof plant
   }
 
+  // no tree may stand on the road (or touch its edge): test each against the real road surface and drop the ones that do
+  for (let k = trees.length - 1; k >= 0; k--) {
+    const t = trees[k]
+    if ([[0, 0], [2.2, 0], [-2.2, 0], [0, 2.2], [0, -2.2]].some(([dx, dz]) => onAsphalt(t.x + dx, t.z + dz))) trees.splice(k, 1)
+  }
+  trees.forEach((t) => DEBUG_TREES.push({ x: t.x, z: t.z }))
   return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build(), buildings: buildings.build(), signs: signs.build(), wear: wear.build(), lamps, trees }
 }
 export { BOX }

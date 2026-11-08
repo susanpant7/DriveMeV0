@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Cabin } from './Cabin'
-import { EYE, LOOK_TARGETS, MIRRORS, type MirrorCfg } from './cabinConfig'
+import { EYE, FRONT_PITCH, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
 import { useGame } from './store'
@@ -74,7 +74,29 @@ export function PlayerRig() {
 
     // touch free-look turns the head to wherever the thumb points; the keys snap to a mirror. The lens never zooms.
     const front = LOOK_TARGETS.front
-    const t = input.free ? { yaw: input.yaw, pitch: front.pitch + input.pitch, fov: front.fov, lean: LOOK_TARGETS.front.lean.clone().set(-input.yaw * 0.08, 0, -Math.abs(input.yaw) * 0.03) } : LOOK_TARGETS[sim.look]
+    let t: { yaw: number; pitch: number; fov: number; lean: THREE.Vector3 } = LOOK_TARGETS[sim.look]
+    if (input.free) {
+      // Free look: the head goes where the thumb / mouse points. Close to a mirror, a gentle magnet pulls the view onto it
+      // and the head leans toward it (like a real driver), so the mirror is centred and larger on screen. The lens never zooms.
+      const gy = input.yaw, gp = FRONT_PITCH + input.pitch
+      let best: 'left' | 'center' | 'right' | null = null
+      let bd = 0.55
+      for (const kk of ['left', 'center', 'right'] as const) {
+        const dd = Math.hypot(gy - MIRROR_AIM[kk].yaw, gp - MIRROR_AIM[kk].pitch)
+        if (dd < bd) { bd = dd; best = kk }
+      }
+      const lean = new THREE.Vector3(-gy * 0.06, 0, -Math.abs(gy) * 0.02)
+      let yaw = gy, pitch = front.pitch + input.pitch
+      if (best) {
+        const w = 1 - bd / 0.55
+        const a = MIRROR_AIM[best]
+        yaw = gy + (a.yaw - gy) * 0.75 * w
+        pitch = gp + (a.pitch - gp) * 0.75 * w
+        const m = MIRRORS[best === 'left' ? 0 : best === 'center' ? 1 : 2].pos
+        lean.add(new THREE.Vector3(m.x - EYE.x, (m.y - EYE.y) * 0.3, m.z - EYE.z).normalize().multiplyScalar(0.28 * w))
+      }
+      t = { yaw, pitch, fov: front.fov, lean }
+    }
     const k = 1 - Math.exp(-14 * dt)
     const v = view.current
     v.yaw += (t.yaw - v.yaw) * k

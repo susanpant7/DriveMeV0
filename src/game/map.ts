@@ -7,7 +7,7 @@
 export const B = 200 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
 export const P = B * G // period of the world
-export const LANE_W = 3.7 // 12 ft, the US standard lane width
+export const LANE_W = 4.1 // 13.5 ft: a generous arterial lane (US standard is 11-12 ft)
 export const LANES = 3 // lanes in each direction at a signalised junction approach
 export const LANES_MID = 2 // lanes in each direction on an ordinary stretch of road
 export const HALF_MID = LANES_MID * LANE_W // half the width of the ordinary 2-lane road
@@ -33,7 +33,7 @@ export function rbShift(d: number) {
 }
 export const RB_SHIFT = RB_ISLAND[0][1]
 export const flare = (d: number) => (d <= FLARE ? 1 : d >= FLARE + TAPER ? 0 : 1 - (d - FLARE) / TAPER)
-export const BOX = 12 // half size of a signalled junction
+export const BOX = 15 // half size of a signalled junction
 export const DELTA = (15 * Math.PI) / 180
 export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
 
@@ -66,10 +66,10 @@ export interface RbSpec {
   domed: boolean // a mountable domed island (mini roundabout)
 }
 export const RB_SPECS: Record<RbVariant, RbSpec> = {
-  two: { variant: 'two', label: 'Two-lane roundabout', outer: 42, island: 26, apron: 31.5, laneR: [34.1, 39.4], signals: false, splitter: true, aiLanes: [0, 1], domed: false },
-  signal: { variant: 'signal', label: 'Signalised roundabout', outer: 46, island: 28, apron: 34, laneR: [37, 43], signals: true, splitter: true, aiLanes: [0, 1], domed: false },
-  single: { variant: 'single', label: 'Single-lane roundabout', outer: 27, island: 15.5, apron: 19.5, laneR: [23.2], signals: false, splitter: true, aiLanes: [1], domed: false },
-  mini: { variant: 'mini', label: 'Mini roundabout', outer: 16, island: 4, apron: 5, laneR: [10.5], signals: false, splitter: false, aiLanes: [1], domed: true },
+  two: { variant: 'two', label: 'Two-lane roundabout', outer: 46, island: 26.5, apron: 33.5, laneR: [36.5, 42.7], signals: false, splitter: true, aiLanes: [0, 1], domed: false },
+  signal: { variant: 'signal', label: 'Signalised roundabout', outer: 50, island: 28, apron: 36.5, laneR: [39.5, 46], signals: true, splitter: true, aiLanes: [0, 1], domed: false },
+  single: { variant: 'single', label: 'Single-lane roundabout', outer: 31, island: 17, apron: 21.5, laneR: [26.7], signals: false, splitter: true, aiLanes: [1], domed: false },
+  mini: { variant: 'mini', label: 'Mini roundabout', outer: 19, island: 4.5, apron: 5.5, laneR: [12.4], signals: false, splitter: false, aiLanes: [1], domed: true },
 }
 const RB_AT: Record<string, RbVariant> = { '0,0': 'two', '2,0': 'signal', '0,2': 'mini', '2,2': 'single' }
 export function rbSpec(i: number, j: number): RbSpec | undefined {
@@ -335,6 +335,13 @@ export function pieceAt(p: Piece, s: number, out: { x: number; z: number; dx: nu
  *   4. east-west left turns green (arrow), through traffic RED
  * Each green is followed by amber and a short all-red.
  */
+/**
+ * Which signalised junctions have a protected left-turn arrow. The rest are "yield on green": the left lane
+ * turns left on the ordinary green light, giving way to oncoming traffic (like most junctions in real cities).
+ */
+const ARROW_AT: Array<[number, number]> = [[1, 1], [3, 3], [1, 2], [0, 3], [3, 0], [2, 1]]
+export const LEFT_ARROW = new Set(ARROW_AT.map(([i, j]) => mod(i, G) * G + mod(j, G)))
+export const hasLeftArrow = (node: number) => LEFT_ARROW.has(node)
 export const CYCLE = 54
 const nodeOffsets: number[] = Array.from({ length: 64 }, (_, n) => ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE)
 const nodeOffset = (n: number) => nodeOffsets[n] ?? ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE
@@ -342,8 +349,12 @@ const nodeOffset = (n: number) => nodeOffsets[n] ?? ((((Math.sin(n * 91.7) * 437
 export function signalColor(node: number, axis: 0 | 1, t: number, move: 'T' | 'L' = 'T'): 0 | 1 | 2 {
   const ph = mod(t + nodeOffset(node), CYCLE)
   const a = axis === 1 ? ph : mod(ph - 27, CYCLE) // east-west runs 27 s after north-south
+  // Junctions WITHOUT a left-turn arrow: one long green for the whole approach, left turns allowed on the round green
+  // light but they must yield to oncoming traffic. Junctions WITH an arrow: through first, then a protected left arrow.
+  if (!LEFT_ARROW.has(node)) move = 'T'
+  const permissive = !LEFT_ARROW.has(node)
   const g0 = move === 'T' ? 0 : 17
-  const g1 = move === 'T' ? 13 : 23
+  const g1 = permissive ? 23 : move === 'T' ? 13 : 23
   if (a >= g0 && a < g1) return 0
   if (a >= g1 && a < g1 + 3) return 1
   return 2
@@ -378,6 +389,7 @@ const PALETTE: Array<[number, number, number]> = [
   [0.66, 0.5, 0.44], [0.55, 0.6, 0.55], [0.85, 0.82, 0.72], [0.5, 0.55, 0.65],
 ]
 
+const LOT_PITCH = (B - 2 * (HALF_ROAD + 5)) / 3 // three lots across a block, whatever the road width
 function buildLots(): Lot[] {
   const lots: Lot[] = []
   for (let i = 0; i < G; i++) {
@@ -386,10 +398,10 @@ function buildLots(): Lot[] {
       const bz0 = j * B + HALF_ROAD + 5
       for (let a = 0; a < 3; a++) {
         for (let b = 0; b < 3; b++) {
-          const x0 = bx0 + a * 56 + 3.5
-          const z0 = bz0 + b * 56 + 3.5
-          const x1 = x0 + 50
-          const z1 = z0 + 50
+          const x0 = bx0 + a * LOT_PITCH + 3
+          const z0 = bz0 + b * LOT_PITCH + 3
+          const x1 = x0 + LOT_PITCH - 6
+          const z1 = z0 + LOT_PITCH - 6
           let park = hash(i * 3 + a, j * 3 + b) < 0.16
           for (const [ci, cj] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) {
             if (nodeKind(ci, cj) !== 'round') continue

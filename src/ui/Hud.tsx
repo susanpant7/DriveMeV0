@@ -49,7 +49,8 @@ function ControlsList() {
       <li><span><Key>↓</Key></span> Brake</li>
       <li><span><Key>←</Key><Key>→</Key></span> Steer</li>
       <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator</li>
-      <li><span><Key>A</Key><Key>W</Key><Key>D</Key></span> Look: left mirror / rear-view / right mirror <em>(hold)</em></li>
+      <li><span>Drag</span> Look around <em>press and drag with the mouse, or swipe with two fingers on a trackpad (the view holds, tap to look ahead again); aim at a mirror to check it</em></li>
+      <li><span><Key>A</Key><Key>W</Key><Key>D</Key></span> Quick glance at a mirror <em>(optional shortcut)</em></li>
       <li><span><Key>Esc</Key></span> Pause <span className="gap" /><Key>M</Key> mute</li>
     </ul>
   )
@@ -190,7 +191,7 @@ function PlayingHud() {
         <span><Key>↓</Key> brake</span>
         <span><Key>←</Key><Key>→</Key> steer</span>
         <span><Key>Q</Key><Key>E</Key> indicators</span>
-        <span><Key>A</Key><Key>W</Key><Key>D</Key> mirrors</span>
+        <span>Drag / 2-finger swipe: look around · tap to look ahead</span>
         <span><Key>Esc</Key> pause</span>
       </div>
     </>

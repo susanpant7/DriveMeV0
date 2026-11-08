@@ -1,5 +1,6 @@
 import { crashSound, initAudio, tick } from './audio'
-import { LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { hasLeftArrow, LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { FRONT_PITCH, MIRROR_AIM } from './cabinConfig'
 import { nav, navJunctionExit, navUpdate, startRoute } from './nav'
 import { realNavUpdate, rnav, startRealRoute } from '../real/nav'
 import { locate } from '../real/player'
@@ -35,8 +36,8 @@ export const input = {
   /** touch steering wheel, -1 (full left) .. 1 (full right); null = use the arrow keys */
   analog: null as number | null,
 }
-const MIRROR_YAW = 0.3 // how far the head must turn before you are looking at a side mirror
-const MIRROR_UP = 0.3 // how far up before you are looking at the rear-view mirror
+let freeWas = false
+const GAZE_TOL = 0.42 // rad (about 24 degrees): how close the head must point to a mirror to count as looking at it
 
 interface Maneuver {
   dir: -1 | 1
@@ -260,7 +261,18 @@ export function stepSim(dt: number) {
 
   // ---- touch free-look: what the head is facing decides which mirror you are looking at ----
   if (input.free) {
-    input.look = input.pitch > MIRROR_UP && Math.abs(input.yaw) < 0.6 ? 'center' : input.yaw > MIRROR_YAW ? 'left' : input.yaw < -MIRROR_YAW ? 'right' : 'front'
+    const gy = input.yaw, gp = FRONT_PITCH + input.pitch
+    let best: Look = 'front'
+    let bd = GAZE_TOL
+    for (const k of ['left', 'center', 'right'] as const) {
+      const d = Math.hypot(gy - MIRROR_AIM[k].yaw, gp - MIRROR_AIM[k].pitch)
+      if (d < bd) { bd = d; best = k }
+    }
+    input.look = best
+    freeWas = true
+  } else if (freeWas) {
+    freeWas = false
+    input.look = 'front' // free-look ended (finger or key released): eyes back on the road
   }
   // ---- looking at mirrors: a glance only counts after a short dwell ----
   if (input.look !== sim.look) {
@@ -513,6 +525,17 @@ function trackStop() {
     const col = signalColor(nn.n, d % 2 === 0 ? 0 : 1, sim.t, laneInfo()?.k === 0 ? 'L' : 'T')
     if (!st.passed && st.prevU >= LINE && u < LINE) {
       st.passed = true
+      // turning left on a plain green (no arrow): you must give way to oncoming traffic
+      if (col === 0 && laneInfo()?.k === 0 && !hasLeftArrow(nn.n) && sim.signal === -1 && sim.speed > 0.5) {
+        const fxp = -Math.sin(sim.h), fzp = -Math.cos(sim.h)
+        const cxn = nn.cx, czn = nn.cz
+        for (const c of cars) {
+          if (!c.active) continue
+          const dx = wrapD(c.x - cxn), dz = wrapD(c.z - czn)
+          const away = -Math.sin(c.h) * fxp + -Math.cos(c.h) * fzp
+          if (Math.hypot(dx, dz) < 40 && c.speed > 2 && away < -0.7) { say('Yield to oncoming traffic when you turn left', 'warn'); break }
+        }
+      }
       if (col === 2 && sim.speed > 0.5) {
         say('You ran a red light!', 'warn')
       }

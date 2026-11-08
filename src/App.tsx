@@ -13,6 +13,7 @@ import { Traffic } from './game/Traffic'
 import { Ground, Simulation } from './game/World'
 import { IS_COARSE } from './game/device'
 import { Hud } from './ui/Hud'
+import { ContextLostNotice, GraphicsBoundary } from './ui/GraphicsGuard'
 
 // ?lowfx forces the light renderer; phones and tablets use it automatically
 const LOWFX = IS_COARSE || (typeof location !== 'undefined' && new URLSearchParams(location.search).has('lowfx'))
@@ -23,7 +24,8 @@ export default function App() {
   const realName = useGame((s) => s.realName)
   return (
     <>
-      <Canvas flat shadows dpr={IS_COARSE ? [1, 1.25] : [1, 1.5]} gl={{ antialias: LOWFX }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
+      <GraphicsBoundary>
+      <Canvas flat shadows dpr={IS_COARSE ? [1, 1.25] : [1, 1.5]} gl={{ antialias: LOWFX, powerPreference: 'high-performance' }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
         <color attach="background" args={[HORIZON]} />
         <fog attach="fog" args={[HORIZON, 120, 400]} />
         <Sky />
@@ -47,6 +49,8 @@ export default function App() {
         </EffectComposer>
         )}
       </Canvas>
+      </GraphicsBoundary>
+      <ContextLostNotice />
       <Hud />
     </>
   )

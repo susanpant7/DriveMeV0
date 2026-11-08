@@ -1,5 +1,4 @@
 import * as THREE from 'three'
-import { IS_COARSE } from './device'
 
 /**
  * Outline of a side-mirror glass: a rounded shape with the lower corner nearest the
@@ -116,10 +115,20 @@ const FRAG = /* glsl */ `
     vec2 q = vLocal / ( 2.0 * uHalf ) + 0.5;
     if ( uOwn > 0.5 ) col = ownCar( q, col );
     else if ( uInner == 0.0 ) {
-      // rear window pillars / head restraints at the bottom corners of the rear-view mirror
-      float c1 = 1.0 - smoothstep( 0.17, 0.21, length( ( q - vec2( 0.03, 0.0 ) ) * vec2( 1.0, 2.6 ) ) );
-      float c2 = 1.0 - smoothstep( 0.17, 0.21, length( ( q - vec2( 0.97, 0.0 ) ) * vec2( 1.0, 2.6 ) ) );
-      col = mix( col, vec3( 0.025 ), max( c1, c2 ) );
+      // the inside of the car's rear window: parcel shelf, C-pillars, head restraints and the window frame
+      vec3 trim = vec3( 0.045, 0.047, 0.055 );
+      float shelf = 1.0 - smoothstep( 0.1, 0.14, q.y + 0.02 * sin( q.x * 6.28 ) );
+      float pillarL = 1.0 - smoothstep( 0.0, 0.025, q.x - ( 0.045 + 0.11 * ( 1.0 - q.y ) ) );
+      float pillarR = 1.0 - smoothstep( 0.0, 0.025, ( 1.0 - q.x ) - ( 0.045 + 0.11 * ( 1.0 - q.y ) ) );
+      float top = smoothstep( 0.9, 0.96, q.y );
+      vec2 hl = ( q - vec2( 0.31, 0.2 ) ) * vec2( 1.0, 1.5 );
+      vec2 hr = ( q - vec2( 0.69, 0.2 ) ) * vec2( 1.0, 1.5 );
+      float rest = 1.0 - smoothstep( 0.075, 0.095, max( length( hl * vec2( 1.0, 1.0 ) ), 0.0 ) );
+      rest = max( rest, 1.0 - smoothstep( 0.075, 0.095, length( hr ) ) );
+      float frame = clamp( max( max( shelf, pillarL ), max( max( pillarR, top * 0.8 ), rest ) ), 0.0, 1.0 );
+      col = mix( col, trim, frame );
+      // a soft glint along the top of the parcel shelf
+      col += 0.05 * smoothstep( 0.02, 0.0, abs( q.y - 0.145 ) ) * shelf;
     }
     col *= vec3( 0.93, 0.96, 1.0 );           // faint cool tint of the glass
     col *= mix( 1.0, 0.82, smoothstep( 0.7, 1.15, rr ) );
@@ -171,7 +180,7 @@ export class MirrorGlass extends THREE.Mesh {
 
   constructor(geometry: THREE.BufferGeometry, o: MirrorGlassOpts) {
     const wide = o.wide ?? 1
-    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], { samples: IS_COARSE ? 0 : 4, type: THREE.HalfFloatType })
+    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], { samples: 2, type: THREE.HalfFloatType })
     const material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: rt.texture },

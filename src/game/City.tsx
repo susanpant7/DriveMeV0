@@ -72,7 +72,7 @@ export const glowMat = new THREE.ShaderMaterial({
       float r = length( vUv - 0.5 ) * 2.0;
       float a = pow( max( 0.0, 1.0 - r ), 2.6 );
       float lit = step( 0.35, max( vCol.r, max( vCol.g, vCol.b ) ) );
-      gl_FragColor = vec4( vCol * a * 0.55 * vBeam * lit, 1.0 );
+      gl_FragColor = vec4( vCol * a * 0.8 * vBeam * lit, 1.0 );
     }`,
 })
 // left-turn arrow lamp: points to the viewer's left (local -x)
@@ -93,9 +93,11 @@ export const leafMat = new THREE.MeshStandardMaterial({ map: foliageTexture(), a
 // A traffic-light lens is only bright when you look at it from roughly in front (like a real signal with a visor):
 // from other roads or from behind you see only a dark lens, so you only ever read the lights meant for you.
 export const lampMat = new THREE.ShaderMaterial({
+  uniforms: { uRound: { value: 1 } },
   vertexShader: /* glsl */ `
     varying vec3 vCol;
     varying float vBeam;
+    varying vec2 vP;
     void main() {
       mat4 m = modelMatrix * instanceMatrix;
       vec4 wp = m * vec4( position, 1.0 );
@@ -103,16 +105,39 @@ export const lampMat = new THREE.ShaderMaterial({
       vec3 v = normalize( cameraPosition - wp.xyz );
       vBeam = smoothstep( 0.82, 0.975, dot( n, v ) );
       vCol = instanceColor;
+      vP = position.xy / 0.165;
       gl_Position = projectionMatrix * viewMatrix * wp;
     }`,
   fragmentShader: /* glsl */ `
+    uniform float uRound;
     varying vec3 vCol;
     varying float vBeam;
+    varying vec2 vP;
     void main() {
-      gl_FragColor = vec4( mix( vec3( 0.025 ), vCol, vBeam ), 1.0 );
+      float lit = step( 0.35, max( vCol.r, max( vCol.g, vCol.b ) ) );
+      vec3 col;
+      if ( uRound > 0.5 ) {
+        float r = length( vP );
+        float dome = sqrt( max( 0.0, 1.0 - r * r * 0.9 ) );
+        // lit: a bright domed LED lens (rings of LEDs, hot centre, slightly darker rim)
+        float ang = atan( vP.y, vP.x );
+        float leds = 0.9 + 0.1 * sin( r * 46.0 ) * sin( ang * 18.0 );
+        vec3 on = vCol * ( 0.62 + 0.55 * dome ) * leds;
+        on += vCol * 0.5 * pow( max( 0.0, 1.0 - r ), 3.0 );
+        // off: dark glass with a soft window reflection
+        float spec = pow( max( 0.0, 1.0 - length( vP - vec2( -0.34, 0.4 ) ) * 1.6 ), 2.5 );
+        vec3 off = vec3( 0.022, 0.026, 0.03 ) + vec3( 0.16, 0.19, 0.24 ) * spec + vec3( 0.03 ) * pow( r, 4.0 );
+        col = mix( off, on, vBeam * lit );
+        col = mix( col, vec3( 0.012 ), smoothstep( 0.9, 0.97, r ) ); // the bezel ring around the lens
+      } else {
+        col = mix( vec3( 0.025 ), vCol, vBeam * lit );
+      }
+      gl_FragColor = vec4( col, 1.0 );
       #include <colorspace_fragment>
     }`,
 })
+export const arrowMat = lampMat.clone()
+arrowMat.uniforms = { uRound: { value: 0 } }
 
 export const ON: Record<number, [number, number, number]> = { 0: [1.6, 0.18, 0.12], 1: [1.7, 1.1, 0.1], 2: [0.15, 1.8, 0.5] } // lamp l -> colour when lit (red, amber, green)
 export const OFF: [number, number, number] = [0.07, 0.07, 0.08]
@@ -270,7 +295,7 @@ export function City() {
           <instancedMesh ref={(m) => { trunks.current[k] = m }} args={[trunkGeo, trunkMat, data.trees.length]} frustumCulled={false} />
           <instancedMesh ref={(m) => { leaves.current[k] = m }} args={[leafGeo, leafMat, data.trees.length]} frustumCulled={false} />
           <instancedMesh ref={(m) => { lampMeshes.current[k] = m }} args={[lampGeo, lampMat, data.lamps.length]} frustumCulled={false} />
-          <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, lampMat, data.lamps.length]} frustumCulled={false} />
+          <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, arrowMat, data.lamps.length]} frustumCulled={false} />
           <instancedMesh ref={(m) => { glowMeshes.current[k] = m }} args={[glowGeo, glowMat, data.lamps.length]} frustumCulled={false} renderOrder={4} />
         </group>
       ))}
