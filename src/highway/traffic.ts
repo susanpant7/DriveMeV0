@@ -3,12 +3,12 @@ import { NB_X as NBX, SB_X, Z_FINISH, Z_GORE, Z_END } from './layout'
 
 /** [length, width] of each vehicle kind drawn by Traffic.tsx (collision boxes for trucks). */
 const DIMS: Record<number, [number, number]> = {
-  0: [4.6, 1.9], 1: [5.3, 2.1], 2: [5.2, 2.0], 3: [5.0, 2.0], 4: [5.4, 2.1], 5: [4.7, 1.85], 6: [5.9, 2.2], 7: [5.4, 2.1],
-  8: [8.6, 2.5], 9: [21, 2.6], 10: [20, 2.6],
+  0: [4.6, 1.9], 1: [5.3, 2.1], 2: [5.2, 2.0], 3: [5.0, 2.0], 4: [5.4, 2.1], 5: [4.7, 1.85],
+  6: [8.6, 2.5], 7: [21, 2.6], 8: [20, 2.6],
 }
 const COLORS = ['#2e86de', '#f1c40f', '#ecf0f1', '#27ae60', '#8e44ad', '#e67e22', '#34495e', '#16a085', '#c0392b', '#95a5a6']
-const CAR_KINDS = [0, 0, 0, 0, 1, 1, 1, 2, 3, 4, 5, 6, 7, 7]
-const TRUCK_KINDS = [8, 8, 9, 9, 10]
+const CAR_KINDS = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 5]
+const TRUCK_KINDS = [6, 6, 7, 7, 8]
 
 interface Hw {
   dir: 1 | -1 // +1 northbound (towards -z), -1 southbound

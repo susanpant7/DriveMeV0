@@ -62,34 +62,6 @@
   ],
   "tint": false
  },
- "mclaren": {
-  "length": 4.6,
-  "width": 2.0291652064978694,
-  "height": 1.0890678576141795,
-  "wheels": [
-   {
-    "x": 0.82,
-    "z": -1.4,
-    "r": 0.35
-   },
-   {
-    "x": 0.82,
-    "z": 1.22,
-    "r": 0.35
-   },
-   {
-    "x": -0.82,
-    "z": -1.4,
-    "r": 0.35
-   },
-   {
-    "x": -0.82,
-    "z": 1.22,
-    "r": 0.35
-   }
-  ],
-  "tint": false
- },
  "tanker": {
   "length": 21,
   "width": 3.6456672191619877,
@@ -104,31 +76,10 @@
   "wheels": [],
   "tint": false
  },
- "lorry": {
-  "length": 7.8,
-  "width": 2.55,
-  "height": 3.5,
-  "wheels": [],
-  "tint": false
- },
  "dump": {
   "length": 8.6,
   "width": 3.1221180907348938,
   "height": 3.3245717167807967,
-  "wheels": [],
-  "tint": false
- },
- "ranger": {
-  "length": 5.4,
-  "width": 2.1754037567956956,
-  "height": 1.9429517775901135,
-  "wheels": [],
-  "tint": false
- },
- "raptor": {
-  "length": 5.9,
-  "width": 2.4176777851572973,
-  "height": 2.19425608264214,
   "wheels": [],
   "tint": false
  }
