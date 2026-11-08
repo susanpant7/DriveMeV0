@@ -1,11 +1,12 @@
 import { B, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
 
 /** Practice modes (no highway yet). */
-export type Mode = 'city' | 'roundabout' | 'junction' | 'lanes'
+export type Mode = 'city' | 'roundabout' | 'junction' | 'lanes' | 'highway'
 export const MODES: Array<{ id: Mode; title: string; blurb: string }> = [
   { id: 'city', title: 'City driving', blurb: 'Follow the map across town: junctions, roundabouts and lane changes together.' },
   { id: 'roundabout', title: 'Roundabouts', blurb: 'Give way, pick the right exit and signal out. Several in a row.' },
   { id: 'junction', title: 'Junctions & lights', blurb: 'Turn left and right at traffic lights: stop lines, arrows, mirrors and signals.' },
+  { id: 'highway', title: 'Highway merge', blurb: 'Take the ramp, signal, match speed and merge into highway traffic before the lane ends. Big trucks too.' },
   { id: 'lanes', title: 'Lane changes', blurb: 'A long multi-lane road. Mirror, signal, then move. Overtake slow traffic.' },
 ]
 

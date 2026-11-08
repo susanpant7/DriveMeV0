@@ -6,6 +6,8 @@ export const CAR_W = 1.82
 const COLORS = ['#2e86de', '#f1c40f', '#ecf0f1', '#27ae60', '#8e44ad', '#e67e22', '#34495e', '#16a085', '#c0392b', '#95a5a6']
 
 export interface AiCar {
+  len?: number // body length / width in metres when it is not an ordinary car (trucks on the highway)
+  wid?: number
   id: number
   active: boolean
   piece: number

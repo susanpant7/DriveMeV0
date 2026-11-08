@@ -179,6 +179,11 @@ function drawIcon(g: CanvasRenderingContext2D, icon: string, cx: number, cy: num
     const d = icon === 'L' ? -1 : 1
     g.beginPath(); g.moveTo(0, s * 0.45); g.lineTo(0, -s * 0.02); g.quadraticCurveTo(0, -s * 0.2, d * s * 0.18, -s * 0.2); g.lineTo(d * s * 0.2, -s * 0.2); g.stroke()
     head(d * s * 0.26, -s * 0.2, d < 0 ? Math.PI : 0)
+  } else if (icon === 'M') {
+    // merge: two lanes joining
+    g.beginPath(); g.moveTo(-s * 0.18, s * 0.45); g.lineTo(-s * 0.18, -s * 0.12); g.stroke()
+    g.beginPath(); g.moveTo(s * 0.2, s * 0.45); g.quadraticCurveTo(s * 0.2, s * 0.02, -s * 0.12, -s * 0.12); g.stroke()
+    head(-s * 0.18, -s * 0.2, -Math.PI / 2)
   } else if (icon === 'U') { g.beginPath(); g.moveTo(s * 0.2, s * 0.45); g.lineTo(s * 0.2, -s * 0.05); g.arc(0, -s * 0.05, s * 0.2, 0, Math.PI, true); g.lineTo(-s * 0.2, s * 0.15); g.stroke(); head(-s * 0.2, s * 0.2, Math.PI / 2) }
   else if (icon === 'F') {
     g.beginPath(); g.moveTo(-s * 0.2, s * 0.45); g.lineTo(-s * 0.2, -s * 0.4); g.stroke()

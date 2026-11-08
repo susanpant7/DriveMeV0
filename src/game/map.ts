@@ -7,7 +7,7 @@
 export const B = 200 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
 export const P = B * G // period of the world
-export const LANE_W = 4.1 // 13.5 ft: a generous arterial lane (US standard is 11-12 ft)
+export const LANE_W = 4.7 // 15.4 ft: a generous arterial lane (US standard is 11-12 ft)
 export const LANES = 3 // lanes in each direction at a signalised junction approach
 export const LANES_MID = 2 // lanes in each direction on an ordinary stretch of road
 export const HALF_MID = LANES_MID * LANE_W // half the width of the ordinary 2-lane road
@@ -33,7 +33,7 @@ export function rbShift(d: number) {
 }
 export const RB_SHIFT = RB_ISLAND[0][1]
 export const flare = (d: number) => (d <= FLARE ? 1 : d >= FLARE + TAPER ? 0 : 1 - (d - FLARE) / TAPER)
-export const BOX = 15 // half size of a signalled junction
+export const BOX = 17 // half size of a signalised junction
 export const DELTA = (15 * Math.PI) / 180
 export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
 

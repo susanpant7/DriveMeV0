@@ -4,6 +4,8 @@ import { buildGraph, RoadIndex, type CityData, type Graph } from './graph'
 /** Which world is being driven: the built-in grid city, or a real city loaded from OpenStreetMap. */
 export const WORLD = {
   real: false,
+  /** the highway-merge course (a flat world of its own) */
+  highway: false,
   city: null as CityData | null,
   graph: null as Graph | null,
   index: null as RoadIndex | null,

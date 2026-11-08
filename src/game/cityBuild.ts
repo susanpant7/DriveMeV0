@@ -639,8 +639,10 @@ export function buildCity() {
         const horizontal = dz === 0
         for (const sg of [1, -1] as const) {
           const runs: Array<[number, number, number]> = []
-          for (let u = S0; u < S1 - 0.01; u += 6) {
-            const um = Math.min(u + 6, S1)
+          // near a signalised junction the corner pavement (with its rounded kerb return) takes over, so the strip starts after it
+          const U0 = kA === 'signal' ? S0 + 5.8 : S0, U1 = kB === 'signal' ? S1 - 5.8 : S1
+          for (let u = U0; u < U1 - 0.01; u += 6) {
+            const um = Math.min(u + 6, U1)
             const h = sgh((u + um) / 2)
             const off = (sg === 1 ? h.right : h.left) + 0.5 + SW / 2
             const last = runs[runs.length - 1]
@@ -783,7 +785,28 @@ export function buildCity() {
           guide(S, E, stz === 0 ? [X[0], E[1]] : [E[0], X[1]], X)
         }
       }
-      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) solid.box(cx + sx * (BOX + 7.2), 0, cz + sz * (BOX + 7.2), 14, 0.15, 14, 0, CONC)
+      // the four corners of the junction: pavement with a rounded kerb return (like a real corner), instead of a square slab sticking out
+      {
+        const Ke = HALF_ROAD + 0.5 // kerb line along the widened approach roads
+        const R = 8 // kerb return radius
+        const Ln = BOX + 14.2 - Ke // out to where the old blocks ended
+        for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+          const W = (u: number, v: number): [number, number] => [cx + sx * u, -(cz + sz * v)]
+          const sh = new THREE.Shape()
+          sh.moveTo(...W(Ke + R, Ke))
+          sh.lineTo(...W(Ke + Ln, Ke))
+          sh.lineTo(...W(Ke + Ln, Ke + Ln))
+          sh.lineTo(...W(Ke, Ke + Ln))
+          sh.lineTo(...W(Ke, Ke + R))
+          for (let k = 1; k <= 10; k++) {
+            const a = Math.PI + (k / 10) * (Math.PI / 2) // quarter circle around the corner centre, from the v-side back to the u-side
+            sh.lineTo(...W(Ke + R + R * Math.cos(a), Ke + R + R * Math.sin(a)))
+          }
+          const g = new THREE.ExtrudeGeometry(sh, { depth: 0.15, bevelEnabled: false })
+          g.rotateX(-Math.PI / 2)
+          solid.addGeometry(g, CONC)
+        }
+      }
     } else {
       const spec = rbSpec(i, j)!
       const L = spec.laneR.length

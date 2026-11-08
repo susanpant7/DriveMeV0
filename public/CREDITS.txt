@@ -10,3 +10,4 @@ Car models (Sketchfab, standard licence; converted to GLB with reduced textures)
 - "Car Impala Chevy" by ElectroNick (CC-BY-4.0) - https://sketchfab.com/3d-models/car-impala-chevy
 - "1971 GAZ-24 Volga (LP)" by KrStolorz - https://sketchfab.com/3d-models/1971-gaz-24-volga-lp-784ffea507354f70adf94d7fe0fd4b2a
 - Traffic signal heads based on "Econolite 8-inch Dialight Arrow Signals" and "Econolite 8inch Left Turn Backplate Signals Pack" (CC-BY-4.0) - Sketchfab
+- Trucks: "Caminhão Genérico Peterbild Com Tanque", "Mercedes Actros com Semi Reboque Prancha Carrega", "Magirus 290 dump truck", "Lorry" (CC-BY-4.0, Sketchfab); Ford Ranger SuperCrew 2024 (Sketchfab standard). The Ford F-150 Raptor R model is CC-BY-NC-SA: non-commercial use only.

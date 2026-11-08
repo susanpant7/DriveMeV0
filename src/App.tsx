@@ -6,6 +6,7 @@ import { installInput } from './game/input'
 import { PlayerRig } from './game/PlayerRig'
 import { City } from './game/City'
 import { RealCity } from './real/RealCity'
+import { Highway } from './highway/Highway'
 import { useGame } from './game/store'
 import { HORIZON, Sky, SunLight } from './game/Scenery'
 import { Traffic } from './game/Traffic'
@@ -21,6 +22,7 @@ export default function App() {
   useEffect(() => installInput(), [])
   const world = useGame((s) => s.world)
   const realName = useGame((s) => s.realName)
+  const mode = useGame((s) => s.mode)
   return (
     <>
       <GraphicsBoundary>
@@ -31,7 +33,7 @@ export default function App() {
         <SunLight />
         <Simulation />
         <Ground />
-        {world === 'real' ? <RealCity key={realName} /> : <City />}
+        {world === 'real' ? <RealCity key={realName} /> : mode === 'highway' ? <Highway /> : <City />}
         <Traffic />
         <PlayerRig />
         {!LOWFX && (

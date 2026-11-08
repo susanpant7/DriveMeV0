@@ -243,6 +243,7 @@ canvas { touch-action: none; }
   background: #0e151e;
 }
 .hud:not(.touch) .mapscreen { right: auto; left: 16px; }
+.hud .mapscreen.banner { right: auto; left: 50%; transform: translateX(-50%); top: 8px; bottom: auto; border: 0; box-shadow: none; background: transparent; }
 .hud.touch .mapscreen { right: auto; left: 50%; transform: translateX(-50%); top: 8px; bottom: auto; border: 0; box-shadow: none; background: transparent; }
 
 /* ================= city picker ================= */

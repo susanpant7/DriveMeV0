@@ -11,8 +11,10 @@ export function MapOverlay() {
   const ref = useRef<HTMLCanvasElement>(null)
   const { touch } = useViewport()
   const look = useGame((g) => g.hud.look) // the map fades while you glance at a mirror, so it never covers one
-  const W = touch ? 250 : 360
-  const H = touch ? 54 : 236 // phones: just the turn instruction, no map
+  const hwy = useGame((g) => g.mode === 'highway' && g.world === 'grid')
+  const banner = touch || hwy // phones and the highway course: just the instruction, no map
+  const W = banner ? 250 : 360
+  const H = banner ? 54 : 236
 
   useEffect(() => {
     const cv = ref.current
@@ -30,9 +32,9 @@ export function MapOverlay() {
       const dt = Math.min(0.1, (now - last) / 1000)
       last = now
       acc += dt
-      if (acc < (touch ? 1 / 8 : 1 / 30)) return // a map needs 30 fps, the instruction banner far less
+      if (acc < (banner ? 1 / 8 : 1 / 30)) return // a map needs 30 fps, the instruction banner far less
       g.setTransform(dpr, 0, 0, dpr, 0, 0)
-      if (touch) {
+      if (banner) {
         g.clearRect(0, 0, W, H)
         drawBanner(g, W, useGame.getState().units, true)
       } else drawNavMap(g, W, H, acc, useGame.getState().units, false)
@@ -40,7 +42,7 @@ export function MapOverlay() {
     }
     raf = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(raf)
-  }, [W, H, touch])
+  }, [W, H, touch, banner])
 
-  return <canvas ref={ref} className={`mapscreen${touch ? ' small' : ''}${!touch && look !== 'front' ? ' dim' : ''}`} style={{ width: W, height: H }} aria-label="Navigation map" />
+  return <canvas ref={ref} className={`mapscreen${banner ? ' banner' : ''}${!banner && look !== 'front' ? ' dim' : ''}`} style={{ width: W, height: H }} aria-label="Navigation map" />
 }

@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { hasLeftArrow, LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM } from './cabinConfig'
 import { nav, navJunctionExit, navUpdate, startRoute } from './nav'
 import { realNavUpdate, rnav, startRealRoute } from '../real/nav'
@@ -8,6 +8,8 @@ import { realSignal, axisOf } from '../real/signals'
 import { initRealTraffic, setRealCount, stepRealTraffic } from '../real/traffic'
 import { edgeAt } from '../real/graph'
 import { WORLD, inRealBuilding } from '../real/world'
+import { NB_EDGE_R, Z_END, Z_GORE, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
+import { initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
@@ -97,13 +99,73 @@ export const sim = {
   errors: 0,
 }
 
+/* ---------- the highway merge course ---------- */
+/** Returns true when the run ended (game over). */
+function trackHighway(): boolean {
+  const x = sim.x, z = sim.z
+  const halfW = CAR_W / 2 + 0.05
+  // instructions (the same banner the city uses)
+  if (z > Z_GORE) {
+    nav.text = 'Follow the on-ramp'; nav.sub = 'Build up speed for the highway'; nav.icon = 'S'; nav.dist = Math.max(0, z - Z_GORE)
+  } else if (hw.stage !== 'merged') {
+    nav.text = 'Merge onto the highway'
+    nav.sub = sim.signal === -1 ? 'Check your mirror, then move over' : 'Signal left, check mirrors, match speed'
+    nav.icon = 'M'; nav.dist = Math.max(0, z - Z_END)
+  } else {
+    nav.text = 'You are on the highway'; nav.sub = 'Keep a safe distance'; nav.icon = 'S'; nav.dist = 0
+  }
+  if (hw.stage === 'ramp' && z <= Z_GORE) hw.stage = 'merge'
+  if (hw.stage === 'merge') {
+    // the moment the car starts to cross the dashed line toward the highway
+    if (!hw.crossed && x - halfW < NB_EDGE_R - 0.15 && z <= Z_GORE) {
+      hw.crossed = true
+      if (sim.signal !== -1) return fail('You moved onto the highway without signalling.', ['Switch on your left indicator (Q) a few seconds before you move over, so drivers know you are merging.'])
+      if (sim.t - sim.lastCheck.left > 6 && sim.t - sim.lastCheck.center > 6) say('Check your left mirror / blind spot before merging.', 'warn')
+      if (sim.speed < 17) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
+    }
+    // fully across: merged
+    if (hw.crossed && x + halfW <= NB_EDGE_R + 0.2) {
+      hw.stage = 'merged'
+      hw.mergedAt = sim.t
+      say('Merged onto the highway. Cancel your indicator.', 'good')
+    }
+    // the lane has run out
+    if (z <= Z_END && x > NB_EDGE_R - 0.3) return fail('The merge lane ended before you merged.', ['Start looking for a gap early: speed up along the merge lane, signal left and move over well before the lane ends.', 'If there is no gap, keep speed and look for the next one: do not stop in the merge lane.'])
+  }
+  if (hw.stage === 'merged') {
+    if (!hw.sigOffWarn && sim.signal !== 0 && sim.t - hw.mergedAt > 5) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
+    // well done: after a stretch on the highway a fresh attempt begins
+    if (z < Z_END - 420 && !hw.doneT) {
+      hw.doneT = sim.t
+      say('Well done: a clean merge. Starting another ramp.', 'good')
+    }
+    if (hw.doneT && sim.t - hw.doneT > 2.5) {
+      useGame.setState({ messages: [] })
+      resetSim()
+      return true
+    }
+  }
+  return false
+}
+function fail(reason: string, tips: string[]) {
+  crash(reason, tips)
+  return true
+}
+
+/** state of the highway merge attempt */
+const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false }
+
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 const normAngle = (a: number) => mod(a + Math.PI, Math.PI * 2) - Math.PI
-const playerObs = () => (WORLD.real ? { x: sim.x, z: sim.z, h: sim.h, speed: sim.speed } : { x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
+const playerObs = () => (WORLD.real || WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: sim.speed } : { x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
 
 /* ---------- lifecycle ---------- */
 export function resetSim() {
-  const pose = WORLD.real ? startRealRoute() : startRoute(useGame.getState().mode) // where the practice route starts
+  // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
+  WORLD.highway = !WORLD.real && useGame.getState().mode === 'highway'
+  if (!WORLD.real) WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
+  hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false
+  const pose = WORLD.real ? startRealRoute() : WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
@@ -116,11 +178,13 @@ export function resetSim() {
   input.yaw = input.pitch = 0
   input.analog = null
   if (WORLD.real) initRealTraffic()
+  else if (WORLD.highway) { setHighwayCount(useGame.getState().traffic); initHighwayTraffic(pose.z) }
   else initTraffic()
   applyTraffic()
 }
 export function applyTraffic() {
   const n = TRAFFIC_LEVELS[useGame.getState().traffic - 1]
+  if (WORLD.highway) return
   if (WORLD.real) setRealCount(Math.round(n * 0.55), playerObs()) // real streets are narrower: fewer cars than the grid city for the same feel
   else setActiveCount(n, playerObs())
 }
@@ -157,6 +221,12 @@ export function resumeGame() {
 
 /** Put the car back on the nearest road, in the right-hand lane, facing the way it was heading. */
 function recoverToRoad() {
+  if (WORLD.highway) {
+    const p = recoverPose(sim.x, sim.z)
+    Object.assign(sim, { x: p.x, z: p.z, h: p.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, signal: 0, man: null, offRoadT: 0, yawRate: 0 })
+    for (const c of cars) if (c.active && Math.hypot(c.x - p.x, c.z - p.z) < 30) c.active = false
+    return
+  }
   if (WORLD.real) {
     // nearest real road: the lane on its right, facing the way we were heading, at rest
     const n = WORLD.index!.nearest(sim.x, sim.z) ?? { edge: WORLD.graph!.edges[0], s: 5, d: 0, side: 0 }
@@ -228,7 +298,7 @@ export function stepSim(dt: number) {
   if (status !== 'playing') return
   sim.t += dt
 
-  const onRoad = WORLD.real ? WORLD.onRoad(sim.x, sim.z) : onAsphalt(sim.x, sim.z)
+  const onRoad = WORLD.real ? WORLD.onRoad(sim.x, sim.z) : WORLD.highway ? hwOnRoad(sim.x, sim.z) : onAsphalt(sim.x, sim.z)
 
   // ---- pedals and longitudinal dynamics ----
   const thrT = input.up ? 1 : 0
@@ -288,13 +358,14 @@ export function stepSim(dt: number) {
   if (sim.look !== 'front' && sim.t - sim.lookSince >= GLANCE_TIME) sim.lastCheck[sim.look === 'blindL' ? 'left' : sim.look === 'blindR' ? 'right' : sim.look] = sim.t
 
   // ---- hard obstacles ----
-  if (!WORLD.real && inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])
+  if (!WORLD.real && !WORLD.highway && inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
   const rx = Math.cos(sim.h)
   const rz = -Math.sin(sim.h)
   for (const [a, b] of [[2, 0.9], [2, -0.9], [-2, 0.9], [-2, -0.9], [0, 0]]) {
     const bx = sim.x + fx * a + rx * b, bz = sim.z + fz * a + rz * b
+    if (WORLD.highway) continue
     if (WORLD.real ? !WORLD.onRoad(bx, bz) && inRealBuilding(bx, bz) : insideBuilding(bx, bz)) return crash('You hit a building.', ['Stay on the road.'])
   }
   // leaving the road stops the game (resume puts you back on it)
@@ -303,13 +374,16 @@ export function stepSim(dt: number) {
 
   // ---- traffic ----
   if (WORLD.real) stepRealTraffic(dt, sim.t, playerObs())
+  else if (WORLD.highway) stepHighwayTraffic(dt, sim.t, playerObs())
   else stepTraffic(dt, sim.t, playerObs())
   for (const c of cars) {
     if (c.active && hits(c)) return crashInto(c)
   }
 
   // ---- navigation ----
-  if (WORLD.real) {
+  if (WORLD.highway) {
+    // (the highway course keeps its own instructions, see trackHighway)
+  } else if (WORLD.real) {
     const m = realNavUpdate(sim.x, sim.z, sim.h)
     if (m) say(m, m.startsWith('You have') ? 'good' : 'warn')
   } else {
@@ -318,7 +392,8 @@ export function stepSim(dt: number) {
   }
 
   // ---- rules ----
-  if (WORLD.real) trackRealRules()
+  if (WORLD.highway) { if (trackHighway()) return }
+  else if (WORLD.real) trackRealRules()
   else {
     trackLane()
     trackJunction()
@@ -349,17 +424,19 @@ function hits(c: AiCar) {
   const oz = sim.z + wrapD(c.z - sim.z)
   const dx = ox - sim.x
   const dz = oz - sim.z
-  if (dx * dx + dz * dz > 36) return false
+  if (dx * dx + dz * dz > ((c.len ?? 0) > 8 ? 400 : 36)) return false
   const axes: Array<[number, number]> = [
     [-Math.sin(sim.h), -Math.cos(sim.h)], [Math.cos(sim.h), -Math.sin(sim.h)],
     [-Math.sin(c.h), -Math.cos(c.h)], [Math.cos(c.h), -Math.sin(c.h)],
   ]
   const hl = CAR_L / 2 - 0.15
   const hw = CAR_W / 2 - 0.08
-  const radius = (h: number, ax: number, az: number) =>
-    Math.abs(-Math.sin(h) * ax - Math.cos(h) * az) * hl + Math.abs(Math.cos(h) * ax - Math.sin(h) * az) * hw
+  const ohl = (c.len ?? CAR_L) / 2 - 0.15 // trucks are longer and wider
+  const ohw = (c.wid ?? CAR_W) / 2 - 0.08
+  const radius = (h: number, ax: number, az: number, own = true) =>
+    Math.abs(-Math.sin(h) * ax - Math.cos(h) * az) * (own ? hl : ohl) + Math.abs(Math.cos(h) * ax - Math.sin(h) * az) * (own ? hw : ohw)
   for (const [ax, az] of axes) {
-    if (Math.abs(dx * ax + dz * az) > radius(sim.h, ax, az) + radius(c.h, ax, az)) return false
+    if (Math.abs(dx * ax + dz * az) > radius(sim.h, ax, az) + radius(c.h, ax, az, false)) return false
   }
   return true
 }
@@ -371,7 +448,10 @@ function crashInto(c: AiCar) {
   const headingDiff = Math.abs(normAngle(c.h - sim.h))
   const tips: string[] = []
   let reason: string
-  if (sim.man) {
+  if (WORLD.highway && sim.z < Z_GORE + 20) {
+    reason = along > 0 ? 'You ran into the vehicle ahead on the highway.' : 'You merged into another vehicle.'
+    tips.push('Check your left mirror and blind spot, match the speed of the traffic on the highway, then move into a gap.')
+  } else if (sim.man) {
     const side = sim.man.dir < 0 ? 'left' : 'right'
     reason = `You merged into a car in the ${side} lane.`
     tips.push(...sim.man.infractions)
@@ -582,6 +662,7 @@ function trackRealRules() {
 }
 
 function currentLimit() {
+  if (WORLD.highway) return sim.z > Z_GORE ? 22 : 29 // 50 mph on the ramp, 65 mph on the highway
   if (!WORLD.real) return LIMIT
   return locate(sim.x, sim.z, sim.h)?.e.speed ?? LIMIT
 }
