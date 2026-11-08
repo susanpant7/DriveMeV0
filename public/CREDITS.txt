@@ -9,3 +9,4 @@ Car models (Sketchfab, standard licence; converted to GLB with reduced textures)
 - "Dodge Challenger - Muscle Car - Low-Poly" by Allay Design - https://sketchfab.com/3d-models/dodge-challenger-muscle-car-low-poly-4c741c8d40c34ebe8b999e5a2823d80f
 - "Car Impala Chevy" by ElectroNick (CC-BY-4.0) - https://sketchfab.com/3d-models/car-impala-chevy
 - "1971 GAZ-24 Volga (LP)" by KrStolorz - https://sketchfab.com/3d-models/1971-gaz-24-volga-lp-784ffea507354f70adf94d7fe0fd4b2a
+- Traffic signal heads based on "Econolite 8-inch Dialight Arrow Signals" and "Econolite 8inch Left Turn Backplate Signals Pack" (CC-BY-4.0) - Sketchfab

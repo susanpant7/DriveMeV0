@@ -42,6 +42,21 @@ export const DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, -1], 
 export const dirv = (d: number) => DIRS[((d % 4) + 4) % 4]
 
 export const mod = (a: number, n: number) => ((a % n) + n) % n
+
+/**
+ * Roundabouts with fewer than four exits: the road between a roundabout and its signalised neighbour is removed (the neighbour becomes a
+ * T-junction). Each entry is (i, j, d) for a road leaving node (i, j) east (d = 0) or south (d = 3).
+ *   roundabout (0,0): 4 exits     (2,0): 3 exits     (0,2): 2 exits     (2,2): 1 exit
+ */
+const CLOSED_ROADS = new Set(['2,2,0', '2,1,3', '2,2,3', '0,1,3', '0,2,3', '1,0,0'])
+/** is the road leaving node (i, j) in direction d (an "arm") closed? */
+export function armClosed(i: number, j: number, d: number) {
+  const dd = mod(d, 4)
+  const [dx, dz] = DIRS[dd]
+  return dd === 0 || dd === 3 ? CLOSED_ROADS.has(`${mod(i, G)},${mod(j, G)},${dd}`) : CLOSED_ROADS.has(`${mod(i + dx, G)},${mod(j + dz, G)},${(dd + 2) % 4}`)
+}
+/** how many exits does the roundabout at (i, j) have? */
+export const rbExits = (i: number, j: number) => [0, 1, 2, 3].filter((d) => !armClosed(i, j, d)).length
 /** wrap a coordinate difference into [-P/2, P/2) so "nearest copy" maths works */
 /** the world repeats every `period` metres (the grid city); a real city does not repeat, so its period is effectively infinite */
 export const WORLD_PERIOD = { v: P }
@@ -185,6 +200,7 @@ function buildPieces() {
 
       // roads leaving this node in each direction
       for (let d = 0; d < 4; d++) {
+        if (armClosed(i, j, d)) continue
         const [dx, dz] = dirv(d)
         const [rx, rz] = dirv(d - 1)
         const ni = i + dx
@@ -224,6 +240,7 @@ function buildPieces() {
 
       if (kind === 'signal') {
         for (let a = 0; a < 4; a++) {
+          if (armClosed(i, j, a)) continue // no road arrives here
           const t = (a + 2) % 4 // travel direction of cars arriving via arm a
           const [ox, oz] = dirv(a)
           const [lx, lz] = dirv(a + 1)
@@ -241,12 +258,12 @@ function buildPieces() {
             const toLane = k === LANES - 1 || (k === 0 && oneLaneAhead) ? 1 : k
             const exitOff = aiOff(toLane)
             const Xs: Pt = [cx + sx * BOX + srx * exitOff, cz + sz * BOX + srz * exitOff]
-            if (k <= 1) {
+            if (k <= 1 && !armClosed(i, j, t)) {
               const shape: Pt[] = toLane !== k ? bez3(E, [E[0] + sx * BOX * 0.9, E[1] + sz * BOX * 0.9], [Xs[0] - sx * BOX * 0.9, Xs[1] - sz * BOX * 0.9], Xs, 12) : [E, Xs]
               LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', shape, toLane !== k ? 11 : 17, { node: n, arm: t, lane: toLane }))
             }
             // left turn (the left-most lane only turns left)
-            if (k === 0) {
+            if (k === 0 && !armClosed(i, j, (t + 1) % 4)) {
               const e = (t + 1) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
@@ -259,7 +276,7 @@ function buildPieces() {
               LINKS.connL.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xl, 16), 6.5, { node: n, arm: e, lane: lLane }))
             }
             // right turn (outer lane to outer lane)
-            if (k === LANES - 1) {
+            if (k === LANES - 1 && !armClosed(i, j, (t + 3) % 4)) {
               const e = (t + 3) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
@@ -280,9 +297,10 @@ function buildPieces() {
           const spec = rbSpec(i, j)!
           const L = spec.laneR.length
           const sh = spec.splitter ? RB_SHIFT : 0
+          const closed = armClosed(i, j, d)
           // entries: with two circulating lanes the left approach lane feeds the inner one and the right lane the outer one;
           // with a single circulating lane both approach lanes merge into it
-          for (let k = 0; k < 2; k++) {
+          for (let k = 0; k < 2 && !closed; k++) {
             const o = aiOff(k)
             const rl = L === 1 ? 0 : k
             const rr = spec.laneR[rl]
@@ -303,7 +321,7 @@ function buildPieces() {
             const tq = ringTan(th - dl)
             const Q3: Pt = [cx + ox * spec.outer + rx * (o + sh), cz + oz * spec.outer + rz * (o + sh)]
             const h = 0.45 * Math.hypot(Q3[0] - Q0[0], Q3[1] - Q0[1])
-            LINKS.exitC.set(`${n}:${d}:${r}`, addPiece('conn', bez3(Q0, [Q0[0] + tq[0] * h, Q0[1] + tq[1] * h], [Q3[0] - ox * h, Q3[1] - oz * h], Q3, 14), 6.5, { node: n, arm: d, lane: ko, exit: true }))
+            if (!closed) LINKS.exitC.set(`${n}:${d}:${r}`, addPiece('conn', bez3(Q0, [Q0[0] + tq[0] * h, Q0[1] + tq[1] * h], [Q3[0] - ox * h, Q3[1] - oz * h], Q3, 14), 6.5, { node: n, arm: d, lane: ko, exit: true }))
             // ring: pass arm d (exit_d -> entry_d), between d and d+1 (entry_d -> exit_{d+1})
             LINKS.ringPass.set(`${n}:${d}:${r}`, addPiece('ring', arc(cx, cz, th - dl, th + dl, rr), Math.min(7.6, Math.sqrt(2.4 * rr)), { node: n, arm: d, lane: r, ringType: 'pass' }))
             LINKS.ringBetween.set(`${n}:${d}:${r}`, addPiece('ring', arc(cx, cz, th + dl, th + Math.PI / 2 - dl, rr), Math.min(7.6, Math.sqrt(2.4 * rr)), { node: n, arm: (d + 1) % 4, lane: r, ringType: 'between' }))
@@ -314,6 +332,16 @@ function buildPieces() {
   }
 }
 buildPieces()
+// lanes that lead nowhere (T-junctions: no straight-on from the stem, no right turn into a closed road) are not used by traffic
+{
+  for (const p of PIECES) {
+    if (p.kind !== 'edge' || p.toKind !== 'signal') continue
+    const key = `${p.node}:${p.arm}:${p.lane}`
+    const can = p.lane === 0 ? LINKS.connL.has(key) || LINKS.connS.has(key) : p.lane === 1 ? LINKS.connS.has(key) : LINKS.connR.has(key)
+    if (!can) p.aiOk = false
+  }
+  for (let k = EDGE_IDS.length - 1; k >= 0; k--) if (!PIECES[EDGE_IDS[k]].aiOk) EDGE_IDS.splice(k, 1)
+}
 
 /** Position and unit direction at distance `s` along a piece. */
 export function pieceAt(p: Piece, s: number, out: { x: number; z: number; dx: number; dz: number }) {
@@ -493,7 +521,7 @@ export function onAsphalt(x: number, z: number) {
     const kB = nodeKind(i, jA + 1)
     const cA = clearance(i, jA)
     const cB = clearance(i, jA + 1)
-    if (u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
+    if (!armClosed(i, jA, 3) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
       const h = segHalves(kA, kB, cA, cB, u, flareOf(i, jA), flareOf(i, jA + 1))
       if (Math.abs(lat) < (lat < 0 ? h.right : h.left) + 0.2) return true
     }
@@ -508,7 +536,7 @@ export function onAsphalt(x: number, z: number) {
     const kB = nodeKind(iA + 1, j)
     const cA = clearance(iA, j)
     const cB = clearance(iA + 1, j)
-    if (u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
+    if (!armClosed(iA, j, 0) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
       const h = segHalves(kA, kB, cA, cB, u, flareOf(iA, j), flareOf(iA + 1, j))
       if (Math.abs(lat) < (lat > 0 ? h.right : h.left) + 0.2) return true
     }

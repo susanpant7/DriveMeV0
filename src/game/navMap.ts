@@ -1,4 +1,4 @@
-import { B, BOX, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
+import { armClosed, B, BOX, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
 import { fmtDist, nav, type Step } from './nav'
 import { sim } from './sim'
 import { drawRealWorld } from './navMapReal'
@@ -58,6 +58,7 @@ function buildPaths(): MapPaths {
       signals.rect(cx - 5, cz - 5, 10, 10)
     }
     for (const d of [0, 3]) {
+      if (armClosed(i, j, d)) continue
       const [dx, dz] = dirv(d)
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const cA = clearance(i, j), cB = clearance(i + dx, j + dz)

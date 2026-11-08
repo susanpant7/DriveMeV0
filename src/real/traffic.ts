@@ -255,7 +255,7 @@ export function stepRealTraffic(dt: number, t: number, player: Obs) {
         if (Math.hypot(px, pz) < 45 && player.speed > 1 && px * pf + pz * pg < 0 && fx * pf + fz * pg < -0.5) conflict = true
       }
       c.waitL = conflict ? c.waitL : 0
-      if (conflict && c.rbWait < 12) {
+      if (conflict && (node.signal || c.rbWait < 12)) { // at a light a left-turner waits for as long as it takes; elsewhere it eventually edges out
         const stop = toEnd - 6
         if (stop > -1 && stop < gap) { gap = Math.max(stop, 0.05); lv = 0 }
         if (c.speed < 0.3) c.rbWait += dt

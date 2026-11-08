@@ -102,12 +102,18 @@ function maneuver(_c: AiCar, p: Piece): 'L' | 'S' | 'R' {
   return 'S'
 }
 
+/** can a car at this junction go straight on / turn right at all? (not at a T-junction whose road does not continue / turn) */
+const canStraight = (p: Piece) => LINKS.connS.has(`${p.node}:${p.arm}:1`)
+const canRight = (p: Piece) => LINKS.connR.has(`${p.node}:${p.arm}:${LANES - 1}`)
+
 function planEdge(c: AiCar, p: Piece) {
   c.plan = 'S'
   if (p.kind !== 'edge' || p.toKind !== 'signal') return
   const r = Math.random()
   if (r < 0.18 && hasLeft(p)) c.plan = 'L'
-  else if (r < 0.4) c.plan = 'R'
+  else if (r < 0.4 && canRight(p)) c.plan = 'R'
+  // the stem of a T-junction has no straight on: it has to turn
+  if (c.plan === 'S' && !canStraight(p)) c.plan = hasLeft(p) && (!canRight(p) || Math.random() < 0.5) ? 'L' : canRight(p) ? 'R' : 'S'
 }
 
 function reqLane(c: AiCar, p: Piece) {
@@ -196,12 +202,17 @@ function nextPiece(c: AiCar, p: Piece): number | undefined {
     const key = `${p.node}:${p.arm}:${p.lane}`
     if (p.toKind === 'signal') {
       const m = maneuver(c, p)
-      if (m === 'L') return L.connL.get(key)
-      if (m === 'R') {
-        const right = L.connR.get(key)
-        if (right !== undefined) return right
+      let r: number | undefined
+      if (m === 'L') r = L.connL.get(key)
+      else if (m === 'R') r = L.connR.get(key) ?? L.connS.get(key)
+      else r = L.connS.get(key)
+      if (r !== undefined) return r
+      // that move does not exist here (T-junction): take whichever turn the road has
+      for (const alt of [L.connL, L.connR, L.connS]) {
+        const q = alt.get(key) ?? alt.get(`${p.node}:${p.arm}:${p.lane === 1 ? 0 : p.lane}`)
+        if (q !== undefined) return q
       }
-      return L.connS.get(key)
+      return undefined
     }
     return L.entryC.get(key)
   }
@@ -218,12 +229,13 @@ function nextPiece(c: AiCar, p: Piece): number | undefined {
 
 function chooseNext(c: AiCar, p: Piece): number | undefined {
   if (p.kind === 'edge' && p.toKind !== 'signal') {
-    if (rbSpecOfNode(p.node).laneR.length === 1) {
-      c.exitArm = (p.arm + 1 + Math.floor(Math.random() * 3)) % 4 // one circulating lane: any exit
-    } else {
-      // right lane: first exit (right turn) or straight on; left lane: straight on or the third exit (left turn)
-      c.exitArm = (p.arm + (p.lane === 1 ? 1 : 2) + Math.floor(Math.random() * 2)) % 4
-    }
+    // pick an exit among the roads this roundabout really has: with one circulating lane any exit; with two, the right lane
+    // takes the first exit or straight on and the left lane straight on or the third exit. A one-exit roundabout turns you round.
+    const open = (arm: number) => LINKS.exitC.has(`${p.node}:${arm}:0`)
+    const prefs = rbSpecOfNode(p.node).laneR.length === 1 ? [1, 2, 3] : p.lane === 1 ? [1, 2] : [2, 3]
+    let cand = prefs.map((o) => (p.arm + o) % 4).filter(open)
+    if (!cand.length) cand = [1, 2, 3, 0].map((o) => (p.arm + o) % 4).filter(open)
+    c.exitArm = cand.length ? cand[Math.floor(Math.random() * cand.length)] : p.arm
   }
   return nextPiece(c, p)
 }
@@ -381,7 +393,7 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle): boolean 
         if (op.kind === 'edge' && op.node === p.node && op.arm === opp) {
           // oncoming and about to enter, with a light that isn't red, and not turning left itself
           const left = op.len - o.s
-          if (left < 75 && left / Math.max(o.speed, 2.5) < 5 && signalColor(p.node, op.axis as 0 | 1, t, 'T') !== 2 && maneuver(o, op) !== 'L') return true
+          if (left < 110 && left / Math.max(o.speed, 2.5) < 7 && signalColor(p.node, op.axis as 0 | 1, t, 'T') !== 2 && maneuver(o, op) !== 'L') return true
         } else if (op.kind === 'conn' && op.node === p.node && o.speed > 0.8) {
           const ofx = -Math.sin(o.h)
           const ofz = -Math.cos(o.h)
@@ -394,7 +406,13 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle): boolean 
   const pdz = wrapD(player.z - cz)
   const pfx = -Math.sin(player.h)
   const pfz = -Math.cos(player.h)
-  return player.speed > 1 && pfx * fx + pfz * fz < -0.5 && Math.hypot(pdx, pdz) < 40
+  // The player coming the other way (still short of the junction centre) has right of way: wait for them, whether they are rolling or waiting at the line
+  if (pfx * fx + pfz * fz < -0.5) {
+    const d = Math.hypot(pdx, pdz)
+    const approaching = -(pdx * pfx + pdz * pfz) > -6 // the player is still before, or just at, the centre of the junction
+    if (approaching && d < 110 && (player.speed > 1 ? d / player.speed < 7 : d < 30)) return true
+  }
+  return false
 }
 
 let frameNo = 0
@@ -554,7 +572,8 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       }
       if (m === 'L' && toEnd < 40) {
         const dist = toEnd - 3.9
-        if (dist > -2 && c.waitL < 12 && leftConflict(c, p, t, player)) {
+        // yield for as long as oncoming traffic (or the player) is coming: a green ball is not a green arrow
+        if (dist > -2 && leftConflict(c, p, t, player)) {
           if (dist < gap) {
             gap = Math.max(dist, 0.05)
             lv = 0

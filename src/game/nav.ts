@@ -1,4 +1,4 @@
-import { B, DIRS, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
+import { B, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
 
 /** Practice modes (no highway yet). */
 export type Mode = 'city' | 'roundabout' | 'junction' | 'lanes'
@@ -55,6 +55,13 @@ export const headingOfDir = (d: number) => {
 /* ------------------------------------------------------------------ */
 /* Route generation                                                    */
 /* ------------------------------------------------------------------ */
+/** If the road we wanted is closed (a roundabout with fewer exits, a T-junction), take the nearest open one: straight, left, right, then back. */
+function openOut(i: number, j: number, din: number, want: number) {
+  if (!armClosed(i, j, want)) return want
+  const options = [din, mod(din + 1, 4), mod(din + 3, 4), mod(din + 2, 4)].filter((o) => !armClosed(i, j, o))
+  return options.length ? options[Math.floor(Math.random() * Math.min(options.length, 2))] : want
+}
+
 function walk(mode: Mode, i: number, j: number, d: number, count: number): Step[] {
   const steps: Step[] = []
   for (let n = 0; n < count; n++) {
@@ -69,6 +76,7 @@ function walk(mode: Mode, i: number, j: number, d: number, count: number): Step[
     } else if (mode === 'city') {
       if (r >= 0.5) out = turn()
     } // 'lanes': straight on
+    out = openOut(i, j, d, out)
     steps.push({ i, j, din: d, out, kind })
     d = out
     i += DIRS[d][0]
@@ -112,6 +120,7 @@ function pathTo(di: number, dj: number, i: number, j: number, d: number): Step[]
         if (dist < bd) { bd = dist; out = c }
       }
     }
+    out = openOut(i, j, d, out)
     steps.push({ i, j, din: d, out, kind })
     d = out
     i += DIRS[d][0]
@@ -124,11 +133,15 @@ function pathTo(di: number, dj: number, i: number, j: number, d: number): Step[]
 export function startRoute(mode: Mode) {
   nav.mode = mode
   nav.arrived = 0
-  const dir = rnd(2) === 0 ? 0 : 2 // east or west
-  let i0: number, j0: number
-  if (mode === 'roundabout') { i0 = 2 * rnd(2); j0 = 2 * rnd(2) }
-  else if (mode === 'junction') { i0 = 1 + 2 * rnd(2); j0 = 1 + 2 * rnd(2) }
-  else { i0 = rnd(4); j0 = 1 + 2 * rnd(2) }
+  let dir = 0
+  let i0 = 0, j0 = 0
+  for (let tries = 0; tries < 40; tries++) {
+    dir = rnd(2) === 0 ? 0 : 2 // east or west
+    if (mode === 'roundabout') { i0 = 2 * rnd(2); j0 = 2 * rnd(2) }
+    else if (mode === 'junction') { i0 = 1 + 2 * rnd(2); j0 = 1 + 2 * rnd(2) }
+    else { i0 = rnd(4); j0 = 1 + 2 * rnd(2) }
+    if (!armClosed(i0, j0, mod(dir + 2, 4))) break // the road we start on must exist
+  }
   setSteps(makeSteps(mode, i0, j0, dir))
   const [dx, dz] = dirv(dir)
   const [rx, rz] = dirv(dir - 1)
@@ -152,7 +165,9 @@ export function describe(step: Step | undefined, last: boolean) {
   const turn = mod(step.out - step.din, 4) // 0 straight, 1 left, 3 right, 2 U-turn
   const onto = roadName(step.i, step.j, step.out)
   if (step.kind === 'round') {
-    const exit = turn === 3 ? 1 : turn === 0 ? 2 : turn === 1 ? 3 : 4
+    // exits are counted anticlockwise from the entry (right, straight, left, back), skipping roads this roundabout does not have
+    const order = [mod(step.din + 3, 4), step.din, mod(step.din + 1, 4), mod(step.din + 2, 4)]
+    const exit = order.slice(0, order.indexOf(step.out) + 1).filter((o) => !armClosed(step.i, step.j, o)).length || 1
     return { text: `Roundabout: take exit ${exit}`, sub: `onto ${onto}`, icon: `O${exit}` }
   }
   if (turn === 1) return { text: 'Turn left', sub: `onto ${onto}`, icon: 'L' }

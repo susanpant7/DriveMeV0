@@ -242,7 +242,7 @@ export function Traffic() {
         _l.makeTranslation(sx * (hw / 0.89), gm ? -10 : lampY[0], -hl) // real models have painted headlights
         _w.multiplyMatrices(_m, _l)
         heads.current.setMatrixAt(nl, _w)
-        _l.makeTranslation(gm ? Math.sign(sx) * hw * 0.64 : sx * (hw / 0.89), lampY[1], gm ? hl - 0.1 : hl)
+        _l.makeTranslation(gm ? Math.sign(sx) * hw * 0.55 : sx * (hw / 0.89), lampY[1], gm ? hl - 0.2 : hl)
         _w.multiplyMatrices(_m, _l)
         tails.current.setMatrixAt(nl, _w)
         tails.current.setColorAt(nl, c.braking ? TAIL_ON : TAIL_DIM)
@@ -250,16 +250,28 @@ export function Traffic() {
       }
       // indicators: blink on the side the car is signalling (lane change or turn)
       if (c.sig !== 0 && (now / 380 + c.id * 0.37) % 2 < 1) {
-        const sx = c.sig * (hw - 0.13)
-        _l.makeTranslation(sx, lampY[0], -hl)
-        _w.multiplyMatrices(_m, _l)
-        blinkers.current.setMatrixAt(nb++, _w)
-        _l.makeTranslation(sx, lampY[1], hl)
-        _w.multiplyMatrices(_m, _l)
-        blinkers.current.setMatrixAt(nb++, _w)
-        _l.makeTranslation(c.sig * (hw + 0.012), lampY[1], -hl * 0.55)
-        _w.multiplyMatrices(_m, _l)
-        repeaters.current.setMatrixAt(nr++, _w)
+        if (gm) {
+          // real bodies: the measured width includes the door mirrors, so tuck the lights well inside the corners
+          const sx = c.sig * gm.halfW * 0.62
+          _l.makeScale(0.7, 0.7, 0.7)
+          _l.setPosition(sx, lampY[0], -(gm.halfLen - 0.2))
+          _w.multiplyMatrices(_m, _l)
+          blinkers.current.setMatrixAt(nb++, _w)
+          _l.setPosition(sx, lampY[1], gm.halfLen - 0.2)
+          _w.multiplyMatrices(_m, _l)
+          blinkers.current.setMatrixAt(nb++, _w)
+        } else {
+          const sx = c.sig * (hw - 0.13)
+          _l.makeTranslation(sx, lampY[0], -hl)
+          _w.multiplyMatrices(_m, _l)
+          blinkers.current.setMatrixAt(nb++, _w)
+          _l.makeTranslation(sx, lampY[1], hl)
+          _w.multiplyMatrices(_m, _l)
+          blinkers.current.setMatrixAt(nb++, _w)
+          _l.makeTranslation(c.sig * (hw + 0.012), lampY[1], -hl * 0.55)
+          _w.multiplyMatrices(_m, _l)
+          repeaters.current.setMatrixAt(nr++, _w)
+        }
       }
     }
     for (let k = 0; k < GLB_FILES.length; k++) {

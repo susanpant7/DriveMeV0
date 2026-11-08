@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
+import { SIGNAL_HEADS } from './signalHeads'
+import { armClosed, hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -346,6 +347,12 @@ export function facadeCanvases() {
 /* ------------------------------------------------------------------ */
 /* One period of the city                                              */
 /* ------------------------------------------------------------------ */
+/** spacing between the three lenses of a signal head (metres), and how far in front of the lens plane the lamp is drawn */
+export const HEAD_LENSY = [0.417, 0, -0.417]
+export const HEAD_LAMP = 0.04
+export const HEAD_LAMP_SCALE = 0.95
+const b64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)).buffer
+
 export interface LampDef { x: number; y: number; z: number; yaw: number; node: number; axis: 0 | 1; l: number; arrow: boolean }
 export interface TreeDef { x: number; z: number; s: number }
 
@@ -404,57 +411,26 @@ export function buildCity() {
     g.translate((p0[0] + p1[0]) / 2, (p0[1] + p1[1]) / 2, (p0[2] + p1[2]) / 2)
     solid.addGeometry(g, color)
   }
-  const HOUSING: V3 = [0.055, 0.056, 0.062]
-  const sectionShape = (() => {
-    const w = 0.44, h = 0.47, r = 0.1
-    const sh = new THREE.Shape()
-    sh.moveTo(-w / 2 + r, -h / 2); sh.lineTo(w / 2 - r, -h / 2); sh.quadraticCurveTo(w / 2, -h / 2, w / 2, -h / 2 + r)
-    sh.lineTo(w / 2, h / 2 - r); sh.quadraticCurveTo(w / 2, h / 2, w / 2 - r, h / 2); sh.lineTo(-w / 2 + r, h / 2)
-    sh.quadraticCurveTo(-w / 2, h / 2, -w / 2, h / 2 - r); sh.lineTo(-w / 2, -h / 2 + r); sh.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + r, -h / 2)
-    return sh
-  })()
-  /**
-   * A three-section traffic signal head facing (ox, oz): rounded black housing, a retroreflective-edged backplate and a
-   * tunnel visor over every lens. Returns the three lens positions (top, middle, bottom).
-   */
-  const signalHead = (hx: number, hz: number, yc: number, ox: number, oz: number) => {
+  // Signal heads are the Econolite models (simplified): housing, visors and, for the left-arrow head, the orange "LEFT TURN" plate.
+  // The lamps themselves are drawn separately (they change colour), one lens every HEAD_LENS metres.
+  const headGeos = (['through', 'left'] as const).map((k) => SIGNAL_HEADS[k].map((part) => {
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(b64(part.p)), 3))
+    g.setIndex(new THREE.BufferAttribute(new Uint16Array(b64(part.i)), 1))
+    g.computeVertexNormals()
+    return { g, color: part.c as V3 }
+  }))
+  const signalHead = (hx: number, hz: number, yc: number, ox: number, oz: number, leftArrow = false) => {
     const yaw = Math.atan2(ox, oz)
-    const rxv = oz, rzv = -ox
-    const place = (g: THREE.BufferGeometry, color: V3) => {
+    headGeos[leftArrow ? 1 : 0].forEach(({ g: base, color }, part) => {
+      const g = base.clone()
+      // thinner border: slimmer housing, and a smaller "LEFT TURN" plate around the lenses
+      if (leftArrow && part === 1) g.scale(0.62, 0.78, 1)
+      else g.scale(0.86, 1, 0.8)
       g.rotateY(yaw)
       g.translate(hx, yc, hz)
       solid.addGeometry(g, color)
-    }
-    // three separate housing sections with a hairline gap between them, like a real modular head
-    for (let l = 0; l < 3; l++) {
-      const sec = new THREE.ExtrudeGeometry(sectionShape, { depth: 0.27, bevelEnabled: true, bevelSize: 0.014, bevelThickness: 0.016, bevelSegments: 3, curveSegments: 8 })
-      sec.translate(0, 0.5 - l * 0.5, -0.135)
-      place(sec, HOUSING)
-      // the ring (bezel) around each lens and a small hinge on the side of the section
-      const bez = new THREE.TorusGeometry(0.178, 0.016, 8, 28)
-      bez.translate(0, 0.5 - l * 0.5, 0.158)
-      place(bez, [0.1, 0.1, 0.11])
-      solid.box(hx + rxv * 0.235, yc + 0.5 - l * 0.5, hz + rzv * 0.235, 0.025, 0.1, 0.05, yaw, [0.12, 0.12, 0.13])
-    }
-    // slim brackets joining the sections, top and bottom caps
-    for (const yy of [0.75, -0.75]) solid.box(hx - ox * 0.0, yc + yy, hz - oz * 0.0, 0.34, 0.05, 0.3, yaw, HOUSING)
-    // backplate with a yellow reflective border
-    solid.box(hx - ox * 0.14, yc, hz - oz * 0.14, 0.88, 1.95, 0.035, yaw, HOUSING)
-    for (const [dx, dy, w, hh] of [[0, 0.96, 0.88, 0.05], [0, -0.96, 0.88, 0.05], [-0.415, 0, 0.05, 1.95], [0.415, 0, 0.05, 1.95]]) {
-      solid.box(hx - ox * 0.117 + rxv * dx, yc + dy, hz - oz * 0.117 + rzv * dx, w, hh, 0.012, yaw, YELLOW)
-    }
-    // long tunnel visors over every lens (open at the bottom), a touch lighter than the housing so they read
-    for (let l = 0; l < 3; l++) {
-      const v = new THREE.CylinderGeometry(0.215, 0.215, 0.42, 20, 1, true, Math.PI / 2 - 0.62, Math.PI + 1.24)
-      v.rotateX(Math.PI / 2)
-      v.translate(0, 0.5 - l * 0.5, 0.36)
-      place(v, [0.075, 0.078, 0.085])
-      // inside of the visor is matte black
-      const inner = new THREE.CylinderGeometry(0.205, 0.205, 0.4, 20, 1, true, Math.PI / 2 - 0.58, Math.PI + 1.16)
-      inner.rotateX(Math.PI / 2)
-      inner.translate(0, 0.5 - l * 0.5, 0.36)
-      place(inner, [0.012, 0.012, 0.014])
-    }
+    })
   }
   const post = (x: number, z: number, h: number, t = 0.09, color = POLE) => {
     DEBUG_POSTS.push([x, z, h])
@@ -478,6 +454,7 @@ export function buildCity() {
       asphalt.addGeometry(ring, [1, 1, 1], 4)
     }
     for (const d of [0, 3]) {
+      if (armClosed(i, j, d)) continue // this road is closed (roundabouts with fewer exits)
       const [dx, dz] = dirv(d)
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const cA = clearance(i, j), cB = clearance(i + dx, j + dz)
@@ -520,6 +497,7 @@ export function buildCity() {
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
     const ax = i * B, az = j * B
     for (const d of [0, 3]) {
+      if (armClosed(i, j, d)) continue // this road is closed (roundabouts with fewer exits)
       const [dx, dz] = dirv(d)
       const clrA = clearance(i, j), clrB = clearance(i + dx, j + dz)
       const S0 = clrA, S1 = B - clrB
@@ -874,12 +852,24 @@ export function buildCity() {
               marks.upQuad([P(sArc, -0.14), P(e, -0.14), P(e, 0.14), P(sArc, 0.14)], 0.03, WHITE)
             }
             marks.upQuad([P(1.5, -0.66), P(1.5, 0.66), P(3.6, 0), P(3.6, 0)], 0.03, WHITE) // arrowhead
+            // lane-use branch off the shaft, so each lane reads "carry on round + exit": the inner lane also turns left (towards the island),
+            // the outer lane also turns right (out of the roundabout)
+            const innerLane = spec.laneR.length > 1 && lr === spec.laneR[0]
+            const dir = innerLane ? -1 : 1
+            const s0 = -2.2, s1 = 0.9, dEnd = dir * 1.7
+            const vl = Math.hypot(s1 - s0, dEnd), vs = (s1 - s0) / vl, vd = dEnd / vl
+            const w = 0.14
+            marks.upQuad([P(s0, 0 - w * 0.9), P(s0, 0 + w * 0.9), P(s1 + vd * -w, dEnd + vs * w), P(s1 + vd * w, dEnd - vs * w)], 0.03, WHITE)
+            marks.upQuad([P(s1 + vd * 0.6, dEnd - vs * 0.6), P(s1 - vd * 0.6, dEnd + vs * 0.6), P(s1 + vs * 1.3, dEnd + vd * 1.3), P(s1 + vs * 1.3, dEnd + vd * 1.3)], 0.03, WHITE) // arrowhead
           }
         }
       }
       // kerbed pavement around the outside, between the arms
-      for (let q = 0; q < 4; q++) {
-        const a0 = (q * Math.PI) / 2 + armHalf, a1 = ((q + 1) * Math.PI) / 2 - armHalf
+      // kerbed sections between the arms, plus a section across the mouth of every closed arm
+      const kerbSecs: Array<[number, number]> = []
+      for (let q = 0; q < 4; q++) kerbSecs.push([(q * Math.PI) / 2 + armHalf, ((q + 1) * Math.PI) / 2 - armHalf])
+      for (let d = 0; d < 4; d++) if (armClosed(i, j, d)) kerbSecs.push([(d * Math.PI) / 2 - armHalf - 0.02, (d * Math.PI) / 2 + armHalf + 0.02])
+      for (const [a0, a1] of kerbSecs) {
         const sh = new THREE.Shape()
         sh.absarc(cx, -cz, spec.outer + 4, a0, a1, false)
         sh.absarc(cx, -cz, spec.outer + 0.1, a1, a0, true)
@@ -897,6 +887,7 @@ export function buildCity() {
     }
 
     for (let a = 0; a < 4; a++) {
+      if (armClosed(i, j, a)) continue
       const [ox, oz] = dirv(a)
       const [rx, rz] = dirv(a + 1) // right of the inbound travel direction
       const P = (u: number, q: number): V2 => [cx + ox * u + rx * q, cz + oz * u + rz * q]
@@ -936,7 +927,7 @@ export function buildCity() {
         const uf = -(clr + 1.5)
         const qEdge = HALF_ROAD + 1.7
         const axis = a % 2 === 0 ? 0 : 1
-        const lensY = [0.5, 0, -0.5]
+        const lensY = HEAD_LENSY
         const [px, pz] = P(uf, qEdge)
         const top = 5.45
         tube([px, 0.35, pz], [px, top, pz], 0.25, 0.14, POLE, 14)
@@ -956,17 +947,17 @@ export function buildCity() {
           const yc = 3.9
           // hanger from the arm to the head
           const armY = top - 0.28 + ((midQ - q) / (midQ - endQ)) * 0.16
-          tube([hx, armY, hz], [hx, yc + 0.78, hz], 0.04, 0.04, POLE, 6)
-          signalHead(hx, hz, yc, ox, oz)
+          tube([hx, armY, hz], [hx, yc + 0.66, hz], 0.04, 0.04, POLE, 6)
+          signalHead(hx, hz, yc, ox, oz, lane === 0 && hasLeftArrow(n))
           // the left lane has its own left-turn ARROW signal; the other lanes show the through signal
-          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.165, y: yc + lensY[l], z: hz + oz * 0.165, yaw, node: n, axis, l, arrow: lane === 0 && hasLeftArrow(n) })
+          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: yc + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: lane === 0 && hasLeftArrow(n) })
         })
         // far-left corner pole: a second head, seen from the right-hand lanes too
         const [lx, lz] = P(uf, -qEdge)
         tube([lx, 0.3, lz], [lx, 4.4, lz], 0.2, 0.12, POLE, 12)
         tube([lx, 0, lz], [lx, 0.35, lz], 0.34, 0.26, [0.4, 0.41, 0.44], 12)
         signalHead(lx, lz, 3.1, ox, oz)
-        for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * 0.165, y: 3.1 + lensY[l], z: lz + oz * 0.165, yaw, node: n, axis, l, arrow: false })
+        for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * HEAD_LAMP, y: 3.1 + lensY[l], z: lz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
         // junctions without a left arrow: "LEFT TURN YIELD ON GREEN" on the mast arm over the left lane
         if (!hasLeftArrow(n)) {
           const [ysx, ysz] = P(uf, laneOff(0))
@@ -984,14 +975,14 @@ export function buildCity() {
         signQuad(yx + ox * 0.08, 3.75, yz + oz * 0.08, 0.95, 0.95, face, SIGN.rbMust)
         if (rsp.signals) {
           const axis = a % 2 === 0 ? 0 : 1
-          const lensY = [0.5, 0, -0.5]
+          const lensY = HEAD_LENSY
           const uh = clr + 18.5
           const sh = rbShift(18.5)
           for (const q of [HALF_MID + sh + 1.3, 0]) {
             const [hx, hz] = P(uh, q)
             tube([hx, 0, hz], [hx, 4.3, hz], 0.2, 0.12, POLE, 10)
             signalHead(hx, hz, 3.0, ox, oz)
-            for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * 0.165, y: 3.0 + lensY[l], z: hz + oz * 0.165, yaw, node: n, axis, l, arrow: false })
+            for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: 3.0 + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
           }
         }
         if (!rsp.domed) {

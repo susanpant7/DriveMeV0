@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { P, hashN, signalColor } from './map'
-import { ATLAS_H, ATLAS_W, buildCity, drawSpeedSign, facadeCanvases, makeAtlas } from './cityBuild'
+import { ATLAS_H, ATLAS_W, HEAD_LAMP_SCALE, buildCity, drawSpeedSign, facadeCanvases, makeAtlas } from './cityBuild'
 import { sim } from './sim'
 import { useGame } from './store'
 
@@ -139,8 +139,8 @@ export const lampMat = new THREE.ShaderMaterial({
 export const arrowMat = lampMat.clone()
 arrowMat.uniforms = { uRound: { value: 0 } }
 
-export const ON: Record<number, [number, number, number]> = { 0: [1.6, 0.18, 0.12], 1: [1.7, 1.1, 0.1], 2: [0.15, 1.8, 0.5] } // lamp l -> colour when lit (red, amber, green)
-export const OFF: [number, number, number] = [0.07, 0.07, 0.08]
+export const ON: Record<number, [number, number, number]> = { 0: [2.4, 0.03, 0.02], 1: [2.4, 1.45, 0.0], 2: [0.0, 1.9, 0.8] } // lamp l -> colour when lit (red, amber, green)
+export const OFF: [number, number, number] = [0.03, 0.03, 0.035]
 
 /** The whole city: one period of static geometry drawn 3x3 around the player, plus lights and trees. */
 export function City() {
@@ -215,17 +215,17 @@ export function City() {
         p.set(l.x, l.y, l.z)
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), l.yaw)
         // every lamp has a round and an arrow instance; the unused one is scaled to nothing
-        sc.set(l.arrow ? 0 : 1, l.arrow ? 0 : 1, 1)
+        sc.set(l.arrow ? 0 : HEAD_LAMP_SCALE, l.arrow ? 0 : HEAD_LAMP_SCALE, 1)
         m.compose(p, q, sc)
         lamp.setMatrixAt(i, m)
         lamp.setColorAt(i, col.setRGB(...OFF))
-        sc.set(l.arrow ? 1 : 0, l.arrow ? 1 : 0, 1)
+        sc.set(l.arrow ? HEAD_LAMP_SCALE : 0, l.arrow ? HEAD_LAMP_SCALE : 0, 1)
         m.compose(p, q, sc)
         arrow.setMatrixAt(i, m)
         arrow.setColorAt(i, col.setRGB(...OFF))
         // the glow sits a little in front of the lens
         p.set(l.x + Math.sin(l.yaw) * 0.04, l.y, l.z + Math.cos(l.yaw) * 0.04)
-        sc.set(1, 1, 1)
+        sc.set(HEAD_LAMP_SCALE, HEAD_LAMP_SCALE, 1)
         m.compose(p, q, sc)
         glow.setMatrixAt(i, m)
         glow.setColorAt(i, col.setRGB(0, 0, 0))
