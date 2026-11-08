@@ -557,9 +557,9 @@ export function buildCity() {
       if (rbA?.signals) mk(ax, az, d, S0 + 17.8, S0 + 18.4, -(HALF_MID + rbShift(18) - 0.1), -(rbShift(18) + 0.2), WHITE)
       // roundabout entries: a yield line of white triangles ("shark teeth") pointing at approaching drivers,
       // and a raised splitter island that separates entering from leaving traffic
-      const teeth = (uEnd: number, ds: 1 | -1, vSign: 1 | -1, flareEnd: boolean) => {
+      const teeth = (uEnd: number, ds: 1 | -1, vSign: 1 | -1, flareEnd: boolean, minV = 0) => {
         const sh = flareEnd ? rbShift(2.5) : 0
-        for (let v = sh + 0.3; v < HALF_MID + sh - 0.3; v += 0.9) {
+        for (let v = sh + 0.3 + minV; v < HALF_MID + sh - 0.3; v += 0.9) {
           const p0 = at(ax, az, d, uEnd - ds * 2.1, vSign * v)
           const p1 = at(ax, az, d, uEnd - ds * 2.1, vSign * (v + 0.6))
           const p2 = at(ax, az, d, uEnd - ds * 3.0, vSign * (v + 0.3)) // the tip points back at the approaching car
@@ -602,16 +602,38 @@ export function buildCity() {
         g.translate(0, 0.027, 0)
         marks.addGeometry(g, [0.82, 0.82, 0.78], 3)
       }
-      if (roundEnd1) { teeth(S1, 1, 1, fB); if (fB) island(S1, 1); else paintedIsland(S1, 1) }
-      if (roundEnd0) { teeth(S0, -1, -1, fA); if (fA) island(S0, -1); else paintedIsland(S0, -1) }
+      if (roundEnd1) { teeth(S1, 1, 1, fB, rbB && rbB.laneR.length === 1 ? LANE_W : 0); if (fB) island(S1, 1); else paintedIsland(S1, 1) }
+      if (roundEnd0) { teeth(S0, -1, -1, fA, rbA && rbA.laneR.length === 1 ? LANE_W : 0); if (fA) island(S0, -1); else paintedIsland(S0, -1) }
       // painted lane arrows: signal approach = left / straight / right-only; roundabout approach (2 lanes) = left lane straight + left, right lane straight + right.
-      const endKinds = (round: boolean, twoLane: boolean): Array<'L' | 'S' | 'R' | 'SL' | 'SR'> => (round ? (twoLane ? ['SL', 'SR'] : ['S', 'SR']) : ['L', 'S', 'R'])
+      // a one-lane roundabout has a one-lane entry: the left lane is closed (hatched) and only the right lane is open
+      const endKinds = (round: boolean, twoLane: boolean): Array<'L' | 'S' | 'R' | 'SL' | 'SR' | null> => (round ? (twoLane ? ['SL', 'SR'] : [null, 'S']) : ['L', 'S', 'R'])
       for (const [uEnd, ds, round, v0sign] of [[S1, 1, nodeKind(i + dx, j + dz) === 'round', 1], [S0, -1, nodeKind(i, j) === 'round', -1]] as Array<[number, 1 | -1, boolean, 1 | -1]>) {
         const rbE = uEnd === S1 ? rbB : rbA
         const flE = uEnd === S1 ? fB : fA
-        endKinds(round, (rbE?.laneR.length ?? 2) === 2).forEach((kind, k) => {
+        const twoLane = (rbE?.laneR.length ?? 2) === 2
+        endKinds(round, twoLane).forEach((kind, k) => {
+          if (!kind) return
           for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneOff(k) + (round && flE ? rbShift(back) : 0)), kind)
         })
+        if (round && !twoLane) {
+          // hatched "gore" over the closed left lane: edge lines and diagonal stripes, from 52 m out to the island
+          const sh = (back: number) => (flE ? rbShift(back) : 0)
+          const vIn = (back: number) => v0sign * (0.45 + sh(back))
+          const vOut = (back: number) => v0sign * (LANE_W - 0.05 + sh(back))
+          const SL = 52
+          for (let back = 1.2; back < SL; back += 3) {
+            const b1 = Math.min(back + 3, SL)
+            for (const vf of [vIn, vOut]) {
+              marks.upQuad([at(ax, az, d, uEnd - ds * back, vf(back) - 0.09 * v0sign), at(ax, az, d, uEnd - ds * b1, vf(b1) - 0.09 * v0sign), at(ax, az, d, uEnd - ds * b1, vf(b1) + 0.09 * v0sign), at(ax, az, d, uEnd - ds * back, vf(back) + 0.09 * v0sign)], 0.02, WHITE)
+            }
+          }
+          for (let back = 2; back < SL - 2; back += 2.6) {
+            const slope = 2.4 // how far along the road each stripe leans
+            marks.upQuad([at(ax, az, d, uEnd - ds * back, vIn(back)), at(ax, az, d, uEnd - ds * (back + 0.4), vIn(back)), at(ax, az, d, uEnd - ds * (back + 0.4 + slope), vOut(back + slope)), at(ax, az, d, uEnd - ds * (back + slope), vOut(back + slope))], 0.02, WHITE)
+          }
+          // a single-lane-ahead merge arrow well before the hatching
+          arrow(ax, az, d, uEnd - ds * 88, ds, v0sign * (laneOff(0) + sh(88)), 'R')
+        }
       }
       // "ONLY" on the turn-only lanes (left lane and the added right lane) of a signalised approach
       for (const [uEnd, ds, sig, v0sign] of [[S1, 1, kB === 'signal', 1], [S0, -1, kA === 'signal', -1]] as Array<[number, 1 | -1, boolean, 1 | -1]>) {
@@ -770,11 +792,14 @@ export function buildCity() {
         const tt = (ar + 2) % 4
         const [aox, aoz] = dirv(ar), [alx, alz] = dirv(ar + 1)
         const stz = dirv(tt)[1]
-        for (const [k, e, exitLane] of [[0, (tt + 1) % 4, 0], [2, (tt + 3) % 4, 1]] as Array<[number, number, number]>) {
-          const o = laneOff(k)
+        // Guides run along the lane EDGE on the side toward the other lanes, not down the lane's middle: a left turn starts on the
+        // line between the left lane and its neighbour (at the stop line) and sweeps in one wide curve onto the matching line of the
+        // lane it turns into; a right turn does the same from the line between the right-turn lane and its neighbour.
+        for (const [e, oEdge, xEdge] of [[(tt + 1) % 4, LANE_W, LANE_W], [(tt + 3) % 4, 2 * LANE_W, LANE_W]] as Array<[number, number, number]>) {
+          const o = oEdge
           const E: V2 = [cx + aox * BOX + alx * o, cz + aoz * BOX + alz * o]
           const [eox, eoz] = dirv(e), [erx, erz] = dirv(e - 1)
-          const X: V2 = [cx + eox * BOX + erx * laneOff(exitLane), cz + eoz * BOX + erz * laneOff(exitLane)]
+          const X: V2 = [cx + eox * BOX + erx * xEdge, cz + eoz * BOX + erz * xEdge]
           // start at the stop line (where the lane ends), run straight to the box edge, then curve into the exit lane
           const S: V2 = [E[0] + aox * 1.6, E[1] + aoz * 1.6]
           guide(S, E, stz === 0 ? [X[0], E[1]] : [E[0], X[1]], X)

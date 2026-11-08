@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Mode } from './nav'
 
 export type Status = 'menu' | 'playing' | 'paused' | 'crashed'
-export type Look = 'front' | 'left' | 'center' | 'right'
+export type Look = 'front' | 'left' | 'center' | 'right' | 'blindL' | 'blindR'
 export type Signal = -1 | 0 | 1
 export type Units = 'kmh' | 'mph'
 

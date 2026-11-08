@@ -50,6 +50,17 @@ function buildModel(d: ModelDef) {
     box(d.bodyW - 0.1, 0.2, 0.14, 0, 0.42, d.halfLen - 0.02), // rear bumper
     box(d.bodyW * 0.5, 0.16, 0.05, 0, 0.64, -d.halfLen - 0.005), // grille
     box(d.bodyW + 0.01, 0.05, d.halfLen * 2 - 0.4, 0, 0.36, 0), // sills
+    // wheel arches: a dark disc on each flank around every wheel, so the wheels sit in wells
+    ...[1, -1].flatMap((sx) => [-1, 1].map((sz) => {
+      const g = new THREE.CylinderGeometry(d.tyre + 0.07, d.tyre + 0.07, 0.03, 24)
+      g.rotateZ(Math.PI / 2)
+      g.translate(sx * (d.halfW + 0.004), d.tyre, sz * d.wheelZ)
+      return ni(g)
+    })),
+    // door seams and handles on both sides
+    ...[1, -1].flatMap((sx) => [-0.35, 0.55].map((z) => box(0.012, d.glass[2][1] > 1.6 ? 0.85 : 0.5, 0.014, sx * (d.halfW + 0.002), d.glass[0][1] - 0.2, z))),
+    ...[1, -1].map((sx) => box(0.02, 0.025, 0.16, sx * (d.halfW + 0.008), d.glass[0][1] - 0.06, 0.12)),
+    box(d.bodyW * 0.42, 0.012, 0.012, 0, d.body[3][1] + 0.002, -d.halfLen * 0.45), // hood shut-line
   ])!
   const wheels: Pt[] = [
     [d.halfW - 0.1, -d.wheelZ], [-(d.halfW - 0.1), -d.wheelZ], [d.halfW - 0.1, d.wheelZ], [-(d.halfW - 0.1), d.wheelZ],
@@ -79,7 +90,6 @@ const _l = new THREE.Matrix4()
 const _p = new THREE.Vector3()
 const _q = new THREE.Quaternion()
 const _s = new THREE.Vector3(1, 1, 1)
-const _y = new THREE.Vector3(0, 1, 0)
 const _c = new THREE.Color()
 const TAIL_DIM = new THREE.Color(0.45, 0.03, 0.03)
 const TAIL_ON = new THREE.Color(3, 0.15, 0.1)
@@ -89,6 +99,11 @@ const colorOf = (hex: string) => {
   if (!c) colorCache.set(hex, (c = new THREE.Color(hex)))
   return c
 }
+
+interface Motion { h: number; pitch: number; roll: number; speed: number; rawH: number; x: number; z: number; ok: boolean }
+const motion: Motion[] = Array.from({ length: MAX_CARS }, () => ({ h: 0, pitch: 0, roll: 0, speed: 0, rawH: 0, x: 0, z: 0, ok: false }))
+const _e = new THREE.Euler(0, 0, 0, 'YXZ')
+const angDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a))
 
 /** All AI traffic, drawn with instancing: any number of cars costs a handful of draw calls. */
 export function Traffic() {
@@ -104,7 +119,7 @@ export function Traffic() {
 
   useEffect(() => () => models.forEach((m) => { m.body.dispose(); m.dark.dispose() }), [models])
 
-  useFrame(() => {
+  useFrame((_, dt) => {
     const counts = [0, 0, 0]
     let nw = 0
     let nl = 0
@@ -117,7 +132,19 @@ export function Traffic() {
       const dz = wrapD(c.z - sim.z)
       if (dx * dx + dz * dz > 320 * 320) continue
       _p.set(sim.x + dx, 0, sim.z + dz)
-      _q.setFromAxisAngle(_y, c.h)
+      // smooth the car's motion for display: heading follows the road gently, the nose dips when it brakes, the body rolls in a turn
+      const mo = motion[c.id]
+      const step = Math.min(dt, 0.1) || 1 / 60
+      if (!mo.ok || Math.hypot(c.x - mo.x, c.z - mo.z) > 6) { mo.h = c.h; mo.pitch = 0; mo.roll = 0; mo.speed = c.speed; mo.rawH = c.h; mo.ok = true }
+      const accel = (c.speed - mo.speed) / step
+      const yaw = angDiff(mo.rawH, c.h) / step
+      mo.speed = c.speed; mo.rawH = c.h; mo.x = c.x; mo.z = c.z
+      mo.h += angDiff(mo.h, c.h) * (1 - Math.exp(-14 * step))
+      const kk = 1 - Math.exp(-6 * step)
+      mo.pitch += (Math.max(-9, Math.min(4, accel)) * 0.0045 - mo.pitch) * kk
+      mo.roll += (-Math.max(-1.2, Math.min(1.2, yaw)) * c.speed * 0.0032 - mo.roll) * kk
+      _e.set(mo.pitch, mo.h, mo.roll, 'YXZ')
+      _q.setFromEuler(_e)
       _m.compose(_p, _q, _s)
       const k = c.kind
       const i = counts[k]++

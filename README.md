@@ -58,7 +58,7 @@ lane-use sign match). Roundabout approaches stay 2 lanes; AI cars enter from the
 Four different designs, one per roundabout in the city:
 - **Two-lane** (big, 42 m radius, 5 m lanes): left lane straight / left (inner ring lane), right lane right / straight (outer lane).
 - **Signalised** two-lane (46 m): traffic lights and stop bars at every entry, plus the yield to circulating traffic.
-- **Single-lane** (27 m): one wide circulating lane, both approach lanes merge into it.
+- **Single-lane** (31 m): one wide circulating lane with a one-lane entry: the left approach lane is closed with hatching and traffic merges right before the entry.
 - **Mini** (16 m): a small domed island ringed with paint, painted splitters, no raised kerbs.
 
 Every arm has a splitter island (raised, with a keep-right sign, except at the mini roundabout), a crosswalk set back from a

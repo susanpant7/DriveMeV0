@@ -177,10 +177,10 @@ function PlayingHud() {
         </button>
       </div>
 
-      <div className={`limit${speeding ? ' over' : ''}${touch ? ' top' : ''}`} title="Speed limit">
+      {touch && <div className={`limit${speeding ? ' over' : ''}${touch ? ' top' : ''}`} title="Speed limit">
         <small>SPEED<br />LIMIT</small>
         <b>{Math.round((hud.limit * (units === 'kmh' ? 3.6 : 2.23694)) / 5) * 5}</b>
-      </div>
+      </div>}
 
       <MapOverlay />
 

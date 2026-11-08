@@ -2,7 +2,7 @@ import { toggleMute } from './audio'
 import { input, pauseGame, resumeGame, startGame, toggleSignal } from './sim'
 import { setTraffic, setUnits, useGame, type Look } from './store'
 
-const LOOK_KEYS: Record<string, Look> = { KeyA: 'left', KeyW: 'center', KeyD: 'right' }
+const LOOK_KEYS: Record<string, Look> = { KeyA: 'blindL', KeyW: 'center', KeyD: 'blindR' }
 
 const SENS = 0.0028 // rad of head turn per pixel of mouse movement
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))

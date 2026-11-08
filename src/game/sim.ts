@@ -91,6 +91,7 @@ export const sim = {
   stop: null as StopTrack | null,
   warnT: { off: -99, centre: -99, wrong: -99, speed: -99 },
   speedingFor: 0,
+  yawRate: 0,
   trip: 0,
   offRoadT: 0,
   errors: 0,
@@ -107,7 +108,7 @@ export function resetSim() {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
     score: 0, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
-    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0,
+    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0,
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
@@ -246,9 +247,14 @@ export function stepSim(dt: number) {
   // ---- steering (bicycle model) ----
   const target = input.analog ?? (input.right ? 1 : 0) - (input.left ? 1 : 0)
   const rate = target ? 2.2 : 3.5
-  sim.steerIn += clamp(target - sim.steerIn, -rate * dt, rate * dt)
+  // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
+  const err = target - sim.steerIn
+  sim.steerIn += clamp(err * Math.min(1, dt * (target ? 5 : 7)) + Math.sign(err) * Math.min(Math.abs(err), rate * dt * 0.25), -rate * dt, rate * dt)
   sim.steer = sim.steerIn * (0.55 / (1 + (sim.speed / 9) ** 2))
-  sim.h += -(sim.speed / WHEELBASE) * Math.tan(sim.steer) * dt
+  // the car's heading turns with a little inertia, so a turn starts and ends smoothly instead of snapping
+  const yawTarget = -(sim.speed / WHEELBASE) * Math.tan(sim.steer)
+  sim.yawRate += (yawTarget - sim.yawRate) * (1 - Math.exp(-9 * dt))
+  sim.h += sim.yawRate * dt
   sim.x += -Math.sin(sim.h) * sim.speed * dt
   sim.z += -Math.cos(sim.h) * sim.speed * dt
   sim.trip += sim.speed * dt
@@ -279,7 +285,7 @@ export function stepSim(dt: number) {
     sim.look = input.look
     sim.lookSince = sim.t
   }
-  if (sim.look !== 'front' && sim.t - sim.lookSince >= GLANCE_TIME) sim.lastCheck[sim.look] = sim.t
+  if (sim.look !== 'front' && sim.t - sim.lookSince >= GLANCE_TIME) sim.lastCheck[sim.look === 'blindL' ? 'left' : sim.look === 'blindR' ? 'right' : sim.look] = sim.t
 
   // ---- hard obstacles ----
   if (!WORLD.real && inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])

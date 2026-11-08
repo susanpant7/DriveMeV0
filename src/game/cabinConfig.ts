@@ -31,14 +31,15 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 const RES_SIDE: [number, number] = IS_COARSE ? [960, 648] : [1300, 880]
 const RES_REAR: [number, number] = IS_COARSE ? [768, 232] : [1024, 310]
 
+// The left mirror sits in the lower-left of the front view, just past the A-pillar; no key is needed to see it.
 // Side mirrors are aimed almost straight back so the inner edge catches your own car's
 // flank, exactly as a properly adjusted door mirror does.
 // on a phone the whole scene is small, so the mirrors are a little bigger (still a fixed size: they never grow or zoom)
 const K = IS_COARSE ? 1.3 : 1
 export const MIRRORS: MirrorCfg[] = [
-  mirror('left', V(-1.2, 1.05, -0.55), [0.3 * K, 0.2 * K], RES_SIDE, V(-0.17, -0.07, 1), 1),
-  // hung from the middle of the windshield header: up and to the driver's right, so it is out of sight until you glance up and across
-  mirror('center', V(0.02, 1.56, -0.6), [0.3, 0.095], RES_REAR, V(0, -0.075, 1), 0),
+  mirror('left', V(-1.2, 1.05, -0.85), [0.32 * K, 0.21 * K], RES_SIDE, V(-0.17, -0.07, 1), 1),
+  // hung from the windshield header at the upper right of the driver's view, so it is always visible in the front view
+  mirror('center', V(0.0, 1.42, -0.72), [0.27, 0.088], RES_REAR, V(0, -0.075, 1), 0),
   mirror('right', V(1.22, 1.05, -0.6), [0.33 * K, 0.22 * K], RES_SIDE, V(0.17, -0.07, 1), -1),
 ]
 
@@ -63,6 +64,9 @@ function glance(m: MirrorCfg, turn: number, pitchK: number, lean: THREE.Vector3)
   }
 }
 
+/** A repeater of the right door mirror, set into the dash at the lower right so it never blocks the view of the road. */
+export const REPEATER = { pos: V(0.08, 1.06, -0.66), size: 0.7 }
+
 /** The head direction that points straight at each mirror (yaw + = left, pitch + = up, absolute from the horizon). */
 export const MIRROR_AIM: Record<'left' | 'center' | 'right', { yaw: number; pitch: number }> = (() => {
   const aim = (m: MirrorCfg) => {
@@ -71,13 +75,18 @@ export const MIRROR_AIM: Record<'left' | 'center' | 'right', { yaw: number; pitc
   }
   return { left: aim(MIRRORS[0]), center: aim(MIRRORS[1]), right: aim(MIRRORS[2]) }
 })()
+/** The resting view is turned a little to the left so the whole left mirror sits on screen (the scene shifts right). */
+export const FRONT_YAW = 0.1
 export const FRONT_PITCH = -0.17 // the resting view: nearly level (about 10 degrees down), so the road fills most of the screen and the dash is a band at the bottom
 
 export const LOOK_TARGETS: Record<Look, LookTarget> = {
-  front: { yaw: 0, pitch: FRONT_PITCH, fov: 60.6, lean: V(0, 0, 0) },
+  front: { yaw: FRONT_YAW, pitch: FRONT_PITCH, fov: 60.6, lean: V(0, 0, 0) },
   left: glance(MIRRORS[0], 0.5, 0.45, V(-0.05, 0, -0.02)),
   center: glance(MIRRORS[1], 0.8, 0.85, V(0.05, 0.03, 0)),
   right: glance(MIRRORS[2], 0.6, 0.45, V(0.14, 0, -0.04)),
+  // A / D: a shoulder check over the left / right blind spot (head turned right round)
+  blindL: { yaw: 2.3, pitch: -0.1, fov: 60.6, lean: V(-0.06, 0.02, 0.06) },
+  blindR: { yaw: -2.3, pitch: -0.1, fov: 60.6, lean: V(0.1, 0.02, 0.06) },
 }
 
 /** Euler that makes a plane (normal +z) at `pos` face the driver's eye. */

@@ -11,87 +11,6 @@ export interface ClusterData {
   trip: number // metres
 }
 
-interface DialOpts {
-  max: number
-  major: number
-  minor: number
-  value: number
-  label: string
-  redFrom: number
-  fmt: (v: number) => string
-}
-
-function dial(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, o: DialOpts) {
-  // face
-  const face = g.createRadialGradient(cx, cy, r * 0.1, cx, cy, r)
-  face.addColorStop(0, '#11171f')
-  face.addColorStop(1, '#06090d')
-  g.fillStyle = face
-  g.beginPath()
-  g.arc(cx, cy, r, 0, Math.PI * 2)
-  g.fill()
-  g.strokeStyle = '#2b3542'
-  g.lineWidth = r * 0.04
-  g.stroke()
-
-  const a0 = 135
-  const sweep = 270
-  const ang = (v: number) => deg(a0 + (v / o.max) * sweep)
-
-  // red zone arc
-  if (o.redFrom < o.max) {
-    g.strokeStyle = 'rgba(255,60,50,0.9)'
-    g.lineWidth = r * 0.05
-    g.beginPath()
-    g.arc(cx, cy, r * 0.86, ang(o.redFrom), ang(o.max))
-    g.stroke()
-  }
-
-  // ticks + numbers
-  for (let v = 0; v <= o.max + 1e-6; v += o.minor) {
-    const isMajor = Math.abs(v / o.major - Math.round(v / o.major)) < 1e-6
-    const a = ang(v)
-    const r1 = r * 0.93
-    const r2 = r1 - r * (isMajor ? 0.12 : 0.06)
-    g.strokeStyle = v >= o.redFrom ? '#ff5a4d' : '#dfe8f2'
-    g.lineWidth = isMajor ? r * 0.025 : r * 0.012
-    g.beginPath()
-    g.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1)
-    g.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2)
-    g.stroke()
-    if (isMajor) {
-      g.fillStyle = v >= o.redFrom ? '#ff5a4d' : '#eef4fb'
-      g.font = `600 ${r * 0.13}px system-ui, sans-serif`
-      g.textAlign = 'center'
-      g.textBaseline = 'middle'
-      g.fillText(o.fmt(v), cx + Math.cos(a) * r * 0.66, cy + Math.sin(a) * r * 0.66)
-    }
-  }
-
-  g.fillStyle = '#8fa3b8'
-  g.font = `${r * 0.11}px system-ui, sans-serif`
-  g.textAlign = 'center'
-  g.fillText(o.label, cx, cy + r * 0.42)
-
-  // needle
-  const a = ang(Math.min(o.max, Math.max(0, o.value)))
-  g.save()
-  g.shadowColor = 'rgba(255,60,40,0.8)'
-  g.shadowBlur = r * 0.08
-  g.strokeStyle = '#ff3b30'
-  g.lineWidth = r * 0.035
-  g.lineCap = 'round'
-  g.beginPath()
-  g.moveTo(cx - Math.cos(a) * r * 0.12, cy - Math.sin(a) * r * 0.12)
-  g.lineTo(cx + Math.cos(a) * r * 0.86, cy + Math.sin(a) * r * 0.86)
-  g.stroke()
-  g.restore()
-  g.fillStyle = '#c9d2dc'
-  g.beginPath()
-  g.arc(cx, cy, r * 0.07, 0, Math.PI * 2)
-  g.fill()
-}
-
 function arrow(g: CanvasRenderingContext2D, x: number, y: number, dir: -1 | 1, on: boolean, s: number) {
   g.fillStyle = on ? '#3dff7a' : '#14221a'
   if (on) {
@@ -111,42 +30,108 @@ function arrow(g: CanvasRenderingContext2D, x: number, y: number, dir: -1 | 1, o
   g.shadowBlur = 0
 }
 
-export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d: ClusterData) {
-  // transparent background: only the round dials and a small centre plate are drawn
-  g.clearRect(0, 0, w, h)
-  g.fillStyle = 'rgba(4,7,11,0.92)'
-  g.beginPath()
-  const px = w * 0.385, py = h * 0.03, pw = w * 0.23, ph = h * 0.95, pr = 22
-  g.moveTo(px + pr, py); g.arcTo(px + pw, py, px + pw, py + ph, pr); g.arcTo(px + pw, py + ph, px, py + ph, pr)
-  g.arcTo(px, py + ph, px, py, pr); g.arcTo(px, py, px + pw, py, pr); g.closePath(); g.fill()
+/** Segmented arc gauge: lit segments up to `frac`, in a colour ramp. */
+function segArc(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, thick: number, a0: number, sweep: number, frac: number, n: number, lit: (t: number) => string, off = 'rgba(120,150,190,0.16)') {
+  const step = sweep / n
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n
+    const on = t <= frac
+    g.strokeStyle = on ? lit(t) : off
+    g.lineWidth = thick
+    g.beginPath()
+    g.arc(cx, cy, r, deg(a0 + i * step + step * 0.12), deg(a0 + (i + 1) * step - step * 0.12))
+    g.stroke()
+  }
+}
 
-  const r = h * 0.46
-  const cy = h * 0.53
+/** A modern all-digital instrument cluster: big speed readout inside a segmented arc, side gauges, gear and limit. */
+export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d: ClusterData) {
+  g.clearRect(0, 0, w, h)
   const mph = d.units === 'mph'
   const shown = d.speed * (mph ? 2.23694 : 3.6)
-  dial(g, w * 0.76, cy, r, mph
-    ? { max: 150, major: 10, minor: 5, value: shown, label: 'mph', redFrom: 1e9, fmt: (v) => String(v) }
-    : { max: 240, major: 20, minor: 10, value: shown, label: 'km/h', redFrom: 1e9, fmt: (v) => String(v) })
-  dial(g, w * 0.24, cy, r, { max: 8, major: 1, minor: 0.5, value: d.rpm / 1000, label: 'x1000 rpm', redFrom: 6.5, fmt: (v) => String(v) })
+  const max = mph ? 120 : 200
+  const limit = mph ? 30 : 50
+  const over = shown > limit * 1.1
+  const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 
-  // centre: digital speed, gear, indicators, trip
-  g.textAlign = 'center'
+  // deep glass background with a faint vignette
+  const bg = g.createRadialGradient(w * 0.5, h * 0.5, h * 0.1, w * 0.5, h * 0.5, w * 0.6)
+  bg.addColorStop(0, '#0b121c')
+  bg.addColorStop(1, '#020407')
+  g.fillStyle = bg
+  g.fillRect(0, 0, w, h)
+
   g.textBaseline = 'middle'
-  g.fillStyle = '#ffffff'
-  g.font = `700 ${h * 0.3}px system-ui, sans-serif`
-  g.fillText(String(Math.round(shown)), w * 0.5, h * 0.46)
-  g.fillStyle = '#8fa3b8'
-  g.font = `${h * 0.075}px system-ui, sans-serif`
-  g.fillText(mph ? 'mph' : 'km/h', w * 0.5, h * 0.66)
-  g.fillStyle = '#ffb84d'
-  g.font = `600 ${h * 0.1}px system-ui, sans-serif`
-  g.fillText(`D${d.gear}`, w * 0.5, h * 0.8)
-  g.fillStyle = '#8fa3b8'
-  g.font = `${h * 0.06}px system-ui, sans-serif`
-  g.fillText(`TRIP ${mph ? (d.trip / 1609.34).toFixed(1) + ' mi' : (d.trip / 1000).toFixed(1) + ' km'}`, w * 0.5, h * 0.92)
+  g.lineCap = 'butt'
+  const cx = w * 0.5, cy = h * 0.54, R = h * 0.44
 
-  arrow(g, w * 0.43, h * 0.14, -1, d.signal === -1 && d.blink, h * 0.07)
-  arrow(g, w * 0.57, h * 0.14, 1, d.signal === 1 && d.blink, h * 0.07)
+  // main speed arc
+  const cool = (t: number) => (t < 0.55 ? `hsl(${190 - t * 40},95%,${58 + t * 10}%)` : t < 0.8 ? '#ffd24a' : '#ff5a4d')
+  segArc(g, cx, cy, R, R * 0.12, 135, 270, Math.min(1, shown / max), 54, cool)
+  // speed-limit marker on the arc
+  const la = deg(135 + (limit / max) * 270)
+  g.strokeStyle = '#ff5a4d'
+  g.lineWidth = 4
+  g.beginPath(); g.moveTo(cx + Math.cos(la) * (R * 0.9), cy + Math.sin(la) * (R * 0.9)); g.lineTo(cx + Math.cos(la) * (R * 1.12), cy + Math.sin(la) * (R * 1.12)); g.stroke()
+  // scale numbers just inside the arc
+  g.fillStyle = 'rgba(200,220,245,0.55)'
+  g.font = `500 ${R * 0.1}px ${FONT}`
+  g.textAlign = 'center'
+  const stepN = mph ? 20 : 40
+  for (let v = 0; v <= max; v += stepN) {
+    const a = deg(135 + (v / max) * 270)
+    g.fillText(String(v), cx + Math.cos(a) * R * 0.76, cy + Math.sin(a) * R * 0.76)
+  }
+
+  // big speed number
+  g.shadowColor = over ? 'rgba(255,90,77,0.7)' : 'rgba(110,200,255,0.55)'
+  g.shadowBlur = R * 0.14
+  g.fillStyle = over ? '#ff7468' : '#f4f9ff'
+  g.font = `600 ${R * 0.78}px ${FONT}`
+  g.textAlign = 'center'
+  g.fillText(String(Math.round(shown)), cx, cy - R * 0.06)
+  g.shadowBlur = 0
+  g.fillStyle = '#7fa6cf'
+  g.font = `500 ${R * 0.14}px ${FONT}`
+  g.fillText(mph ? 'MPH' : 'KM/H', cx, cy + R * 0.42)
+
+  // gear selector (P R N D) under the speed
+  const gears = ['P', 'R', 'N', 'D']
+  const cur = 3
+  g.font = `600 ${R * 0.13}px ${FONT}`
+  for (let i = 0; i < 4; i++) {
+    g.fillStyle = i === cur ? '#5cff8d' : 'rgba(150,175,205,0.4)'
+    g.fillText(gears[i], cx + (i - 1.5) * R * 0.2, cy + R * 0.7)
+  }
+
+  // left: power / rev gauge as a vertical-feeling arc
+  const lx = w * 0.15, ly = cy
+  segArc(g, lx, ly, R * 0.62, R * 0.09, 150, 240, Math.min(1, d.rpm / 7000), 30, (t) => (t < 0.8 ? `hsl(${160 - t * 30},90%,58%)` : '#ff5a4d'))
+  g.fillStyle = '#eaf3ff'
+  g.textAlign = 'center'
+  g.font = `600 ${R * 0.3}px ${FONT}`
+  g.fillText((d.rpm / 1000).toFixed(1), lx, ly - R * 0.02)
+  g.fillStyle = '#7fa6cf'
+  g.font = `500 ${R * 0.11}px ${FONT}`
+  g.fillText('x1000 RPM', lx, ly + R * 0.27)
+
+  // right: speed-limit sign and trip
+  const rx = w * 0.85
+  g.fillStyle = '#fff'
+  g.beginPath(); g.arc(rx, cy - R * 0.2, R * 0.34, 0, Math.PI * 2); g.fill()
+  g.strokeStyle = '#d8281d'
+  g.lineWidth = R * 0.07
+  g.beginPath(); g.arc(rx, cy - R * 0.2, R * 0.3, 0, Math.PI * 2); g.stroke()
+  g.fillStyle = '#111'
+  g.font = `700 ${R * 0.32}px ${FONT}`
+  g.fillText(String(limit), rx, cy - R * 0.18)
+  g.fillStyle = '#9fc0e6'
+  g.font = `500 ${R * 0.14}px ${FONT}`
+  g.fillText(`TRIP ${mph ? (d.trip / 1609.34).toFixed(1) + ' mi' : (d.trip / 1000).toFixed(1) + ' km'}`, rx, cy + R * 0.38)
+
+  // turn signals at the top corners of the speed arc
+  arrow(g, cx - R * 1.15, h * 0.12, -1, d.signal === -1 && d.blink, h * 0.07)
+  arrow(g, cx + R * 1.15, h * 0.12, 1, d.signal === 1 && d.blink, h * 0.07)
 }
 
 export interface ScreenData {

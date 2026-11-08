@@ -35,7 +35,8 @@ function scaledShape(shape: THREE.Shape, sx: number, sy: number) {
 
 /** Slim glossy housing: a thin rim around the glass, plus a shell behind it. */
 export function housingGeometries(w: number, h: number, inner: 1 | -1 | 0) {
-  const rim = 0.016
+  const thin = inner === 0 // the rear-view mirror has a slim border
+  const rim = thin ? 0.006 : 0.016
   const sx = (w + rim * 2) / w
   const sy = (h + rim * 2) / h
   const base = mirrorShape(w, h, inner)
@@ -45,8 +46,8 @@ export function housingGeometries(w: number, h: number, inner: 1 | -1 | 0) {
   const ringGeo = new THREE.ExtrudeGeometry(ring, {
     depth: 0.006,
     bevelEnabled: true,
-    bevelSize: 0.006,
-    bevelThickness: 0.008,
+    bevelSize: thin ? 0.003 : 0.006,
+    bevelThickness: thin ? 0.004 : 0.008,
     bevelSegments: 3,
     curveSegments: 10,
   })
@@ -55,8 +56,8 @@ export function housingGeometries(w: number, h: number, inner: 1 | -1 | 0) {
   const shellGeo = new THREE.ExtrudeGeometry(scaledShape(base, sx * 1.01, sy * 1.01), {
     depth: 0.01,
     bevelEnabled: true,
-    bevelSize: 0.022,
-    bevelThickness: 0.026,
+    bevelSize: thin ? 0.007 : 0.022,
+    bevelThickness: thin ? 0.012 : 0.026,
     bevelSegments: 5,
     curveSegments: 10,
   })

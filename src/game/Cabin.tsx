@@ -86,6 +86,19 @@ function Displays() {
 
   useEffect(() => () => cluster.tex.dispose(), [cluster])
 
+  // turn-signal indicators: two green arrows on the dash above the dials
+  const arrowGeo = useMemo(() => {
+    const sh = new THREE.Shape()
+    sh.moveTo(1, 0); sh.lineTo(0.1, 0.8); sh.lineTo(0.1, 0.32); sh.lineTo(-1, 0.32); sh.lineTo(-1, -0.32); sh.lineTo(0.1, -0.32); sh.lineTo(0.1, -0.8); sh.closePath()
+    return new THREE.ShapeGeometry(sh)
+  }, [])
+  const mats = useMemo(() => [new THREE.MeshBasicMaterial({ color: '#16301f', toneMapped: false, side: THREE.DoubleSide }), new THREE.MeshBasicMaterial({ color: '#16301f', toneMapped: false, side: THREE.DoubleSide })], [])
+  useFrame(() => {
+    const blink = Math.floor(performance.now() / 350) % 2 === 0
+    mats[0].color.set(sim.signal === -1 && blink ? '#5cff8d' : '#16301f')
+    mats[1].color.set(sim.signal === 1 && blink ? '#5cff8d' : '#16301f')
+  }, -1)
+
   return (
     <group position={clusterPos} rotation={clusterRot} scale={0.64}>
       <mesh position={[0, 0, -0.012]} material={matteBlack}>
@@ -94,6 +107,8 @@ function Displays() {
       <mesh position={[0, 0.125, 0.02]} rotation={[-0.35, 0, 0]} material={plastic}>
         <boxGeometry args={[0.62, 0.014, 0.12]} />
       </mesh>
+      <mesh geometry={arrowGeo} material={mats[0]} position={[-0.3, 0.2, 0.03]} scale={[-0.045, 0.045, 1]} />
+      <mesh geometry={arrowGeo} material={mats[1]} position={[0.3, 0.2, 0.03]} scale={0.045} />
       <mesh>
         <planeGeometry args={[0.56, 0.22]} />
         <meshBasicMaterial map={cluster.tex} toneMapped={false} transparent depthWrite={false} />
@@ -260,6 +275,7 @@ function BodySide({ sd }: { sd: -1 | 1 }) {
   )
 }
 
+
 export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
   return (
     <group>
@@ -280,7 +296,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       </mesh>
       <Windshield />
       {/* the rear-view mirror hangs from the middle of the windshield header */}
-      <Beam from={[0.02, 1.62, -0.62]} to={[0.02, 1.6, -0.6]} t={0.035} material={plastic} />
+      <Beam from={[0.0, 1.61, -0.66]} to={[0.0, 1.48, -0.72]} t={0.035} material={plastic} />
       <CenterStack />
       <mesh position={[0, 1.65, 0.4]} material={headliner}>
         <boxGeometry args={[1.9, 0.05, 2.0]} />
@@ -322,7 +338,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       </mesh>
 
       {/* steering column + wheel (tilted like a real column) */}
-      <group position={[-0.4, 0.849, -0.337]} rotation={[-0.454, 0, 0]} scale={1.054}>
+      <group position={[-0.4, 0.89, -0.337]} rotation={[-0.454, 0, 0]} scale={1.054}>
         <mesh position={[0, 0, -0.1]} rotation={[Math.PI / 2, 0, 0]} material={plastic}>
           <cylinderGeometry args={[0.032, 0.04, 0.2, 14]} />
         </mesh>
@@ -383,8 +399,8 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       <BodySide sd={1} />
 
       {/* mirror arms from the door to the mirror housings */}
-      <Beam from={[-0.92, 0.9, -0.74]} to={[-1.17, 1.0, -0.57]} t={0.045} />
-      <Beam from={[0.92, 0.9, -0.78]} to={[1.19, 1.0, -0.62]} t={0.045} />
+      <Beam from={[-0.94, 0.92, -0.85]} to={[-1.16, 0.99, -0.85]} t={0.045} />
+      <Beam from={[0.92, 0.9, -0.58]} to={[1.17, 1.0, -0.6]} t={0.045} />
 
     </group>
   )

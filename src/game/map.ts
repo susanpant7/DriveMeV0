@@ -71,7 +71,7 @@ export const RB_SPECS: Record<RbVariant, RbSpec> = {
   single: { variant: 'single', label: 'Single-lane roundabout', outer: 31, island: 17, apron: 21.5, laneR: [26.7], signals: false, splitter: true, aiLanes: [1], domed: false },
   mini: { variant: 'mini', label: 'Mini roundabout', outer: 19, island: 4.5, apron: 5.5, laneR: [12.4], signals: false, splitter: false, aiLanes: [1], domed: true },
 }
-const RB_AT: Record<string, RbVariant> = { '0,0': 'two', '2,0': 'signal', '0,2': 'mini', '2,2': 'single' }
+const RB_AT: Record<string, RbVariant> = { '0,0': 'two', '2,0': 'signal', '0,2': 'two', '2,2': 'two' }
 export function rbSpec(i: number, j: number): RbSpec | undefined {
   return nodeKind(i, j) === 'round' ? RB_SPECS[RB_AT[`${mod(i, G)},${mod(j, G)}`] ?? 'two'] : undefined
 }
@@ -234,19 +234,29 @@ function buildPieces() {
             // lane (2) only turns right, but a driver who goes straight from it merges into lane 1
             const [sx, sz] = dirv(t)
             const [srx, srz] = dirv(t - 1)
-            const exitOff = k === LANES - 1 ? aiOff(1) : o
+            // a single-lane roundabout (or a mini one) has a ONE-lane entry: the left lane is closed there, so traffic in it
+            // merges into the right lane while still crossing the junction
+            const ahead = rbSpec(i + sx, j + sz)
+            const oneLaneAhead = !!ahead && ahead.laneR.length === 1
+            const toLane = k === LANES - 1 || (k === 0 && oneLaneAhead) ? 1 : k
+            const exitOff = aiOff(toLane)
             const Xs: Pt = [cx + sx * BOX + srx * exitOff, cz + sz * BOX + srz * exitOff]
             if (k <= 1) {
-              LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', [E, Xs], 17, { node: n, arm: t, lane: k }))
+              const shape: Pt[] = toLane !== k ? bez3(E, [E[0] + sx * BOX * 0.9, E[1] + sz * BOX * 0.9], [Xs[0] - sx * BOX * 0.9, Xs[1] - sz * BOX * 0.9], Xs, 12) : [E, Xs]
+              LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', shape, toLane !== k ? 11 : 17, { node: n, arm: t, lane: toLane }))
             }
             // left turn (the left-most lane only turns left)
             if (k === 0) {
               const e = (t + 1) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
-              const Xl: Pt = [cx + ex * BOX + erx * o, cz + ez * BOX + erz * o]
+              // if the road you turn onto leads to a one-lane roundabout, turn into its right lane (the left one is closed there)
+              const aheadL = rbSpec(i + ex, j + ez)
+              const lLane = aheadL && aheadL.laneR.length === 1 ? 1 : 0
+              const xo = aiOff(lLane)
+              const Xl: Pt = [cx + ex * BOX + erx * xo, cz + ez * BOX + erz * xo]
               const ctrl: Pt = sz === 0 ? [Xl[0], E[1]] : [E[0], Xl[1]]
-              LINKS.connL.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xl, 16), 6.5, { node: n, arm: e, lane: 0 }))
+              LINKS.connL.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xl, 16), 6.5, { node: n, arm: e, lane: lLane }))
             }
             // right turn (outer lane to outer lane)
             if (k === LANES - 1) {
