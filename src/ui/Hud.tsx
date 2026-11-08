@@ -4,7 +4,7 @@ import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '.
 import { setMode, setTraffic, setUnits, useGame } from '../game/store'
 import { CityPicker } from './CityPicker'
 import { MapOverlay } from './MapOverlay'
-import { EyeControl, SteerWheel } from './TouchPad'
+import { EyeControl } from './TouchPad'
 import { useViewport } from './useViewport'
 
 const Key = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>
@@ -94,7 +94,10 @@ function TouchControls() {
           <EyeControl />
           <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
         </div>
-        <SteerWheel />
+        <div className="steerrow">
+          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true }} onUp={() => { input.left = false }}>◀</HoldButton>
+          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true }} onUp={() => { input.right = false }}>▶</HoldButton>
+        </div>
       </div>
 
       <div className="tgroup center" />
@@ -111,7 +114,7 @@ function TouchHelp() {
   return (
     <ul className="controls">
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
-      <li><span><b>Wheel</b></span> Bottom left: turn the steering wheel with your thumb</li>
+      <li><span><b>Steer</b></span> Bottom left: hold the left or right arrow to steer</li>
       <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror)</li>
       <li><span><b>◀ ▶</b></span> Either side of the eye: left and right indicators (tap to switch on or off)</li>
     </ul>

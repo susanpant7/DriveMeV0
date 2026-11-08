@@ -27,6 +27,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       m1: side ? 1.0 : 1.0,
       shift: [0, 0],
       inner: cfg.inner,
+      alt: !side,
     })
     r.position.copy(cfg.pos)
     r.quaternion.copy(cfg.quat)

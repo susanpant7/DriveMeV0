@@ -121,7 +121,7 @@ function trackHighway(): boolean {
       hw.crossed = true
       if (sim.signal !== -1) return fail('You moved onto the highway without signalling.', ['Switch on your left indicator (Q) a few seconds before you move over, so drivers know you are merging.'])
       if (sim.t - sim.lastCheck.left > 6 && sim.t - sim.lastCheck.center > 6) say('Check your left mirror / blind spot before merging.', 'warn')
-      if (sim.speed < 17) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
+      if (sim.speed < 22) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
     }
     // fully across: merged
     if (hw.crossed && x + halfW <= NB_EDGE_R + 0.2) {
@@ -662,7 +662,7 @@ function trackRealRules() {
 }
 
 function currentLimit() {
-  if (WORLD.highway) return sim.z > Z_GORE ? 22 : 29 // 50 mph on the ramp, 65 mph on the highway
+  if (WORLD.highway) return sim.z > Z_GORE + 30 ? 40 : 31.3 // 70 mph on the highway; the ramp lets you build speed (no limit warning)
   if (!WORLD.real) return LIMIT
   return locate(sim.x, sim.z, sim.h)?.e.speed ?? LIMIT
 }

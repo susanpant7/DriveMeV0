@@ -1,5 +1,5 @@
 import { cars, type AiCar } from '../game/trafficAI'
-import { NB_X, SB_X, Z_FINISH, Z_GORE, Z_END } from './layout'
+import { NB_X as NBX, SB_X, Z_FINISH, Z_GORE, Z_END } from './layout'
 
 /** [length, width] of each vehicle kind drawn by Traffic.tsx (collision boxes for trucks). */
 const DIMS: Record<number, [number, number]> = {
@@ -23,25 +23,27 @@ let level = 1
 const DENSITY = [0.5, 0.8, 1, 1.4, 1.9]
 const WINDOW = 650 // cars live this far ahead of / behind the player
 
-const laneX = (dir: 1 | -1, lane: number) => (dir === 1 ? NB_X[lane] : SB_X[lane])
+const NB_N = NBX.length
+const laneX = (dir: 1 | -1, lane: number) => (dir === 1 ? NBX[lane] : SB_X[lane])
 const rnd = (a: number, b: number) => a + Math.random() * (b - a)
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
 
 /** per-lane share of the cars on the road (lane 0 is the fast one) and the chance a vehicle in it is a truck */
-const TRUCK_P = [0, 0.1, 0.3]
-const LANE_SPEED: Array<[number, number]> = [[29.5, 33], [26.5, 29.5], [23.5, 27]]
-const LANE_COUNT = [7, 9, 11] // vehicles per lane within the window at normal density
+const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
+// the limit is 70 mph (31.3 m/s): the fast lanes go a little over, the right lane trucks a little under
+const LANE_SPEED: Array<[number, number]> = [[33, 36], [31.5, 34], [30, 32.5], [28.5, 31], [27, 30]]
+const LANE_COUNT = [6, 7, 8, 9, 10] // vehicles per lane within the window at normal density
 
 function describe(c: AiCar, i: number) {
   const h = hw[i]
-  const truck = Math.random() < TRUCK_P[h.lane]
+  const truck = Math.random() < (h.dir === 1 ? TRUCK_P[h.lane] : TRUCK_P[h.lane + 2])
   c.kind = truck ? pick(TRUCK_KINDS) : pick(CAR_KINDS)
   const [l, w] = DIMS[c.kind] ?? DIMS[0]
   c.len = l
   c.wid = w
   c.color = pick(COLORS)
-  const [a, b] = LANE_SPEED[h.lane]
-  h.v0 = truck ? rnd(21.5, 24) : rnd(a, b)
+  const [a, b] = LANE_SPEED[h.dir === 1 ? h.lane : h.lane + 2]
+  h.v0 = truck ? rnd(24.5, 27.5) : rnd(a, b)
 }
 
 function spacingOk(dir: 1 | -1, lane: number, z: number, len: number, skip = -1) {
@@ -74,12 +76,12 @@ export function initHighwayTraffic(playerZ: number) {
   while (hw.length < cars.length) hw.push({ dir: 1, lane: 0, v0: 25, lat: 0, target: -1 })
   ncars = 0
   const dens = DENSITY[level - 1]
-  const lanes: Array<[1 | -1, number]> = [[1, 0], [1, 1], [1, 2], [-1, 0], [-1, 1], [-1, 2]]
+  const lanes: Array<[1 | -1, number]> = [...NBX.map((_, k) => [1, k] as [1 | -1, number]), [-1, 0], [-1, 1], [-1, 2]]
   for (const [dir, lane] of lanes) {
-    const n = Math.round((dir === 1 ? LANE_COUNT[lane] : LANE_COUNT[lane] * 0.7) * dens)
+    const n = Math.round((dir === 1 ? LANE_COUNT[lane] : LANE_COUNT[lane + 2] * 0.7) * dens)
     for (let k = 0; k < n; k++) {
       const i = ncars
-      if (i >= 90) break
+      if (i >= 140) break
       for (let tries = 0; tries < 12; tries++) {
         const z = playerZ + rnd(-WINDOW, WINDOW * 0.55)
         // nothing near the start of the ramp or the player's own space
@@ -101,7 +103,7 @@ export function setHighwayCount(l: number) {
 }
 
 export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; z: number; speed: number }) {
-  const mergeInPlay = player.x > 9.6 && player.z < Z_GORE + 40 && player.z > Z_END - 40
+  const mergeInPlay = player.x > 17 && player.z < Z_GORE + 40 && player.z > Z_END - 40
   const sig = (i: number) => (cars[i].sig = hw[i].target >= 0 ? -1 : 0)
   for (let i = 0; i < ncars; i++) {
     const c = cars[i]
@@ -122,9 +124,9 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
       if (d > -1 && d < gap) { gap = d; lv = player.speed }
     }
     // --- courtesy: a right-lane car moves left for a car merging from the ramp, if the next lane is clear ---
-    if (h.dir === 1 && h.lane === 2 && h.target < 0 && mergeInPlay && c.z - player.z > -70 && c.z - player.z < 90 && c.speed > 12) {
-      const clear = laneClear(1, c.z, myHalf)
-      if (clear) h.target = 1
+    if (h.dir === 1 && h.lane === NB_N - 1 && h.target < 0 && mergeInPlay && c.z - player.z > -70 && c.z - player.z < 90 && c.speed > 12) {
+      const clear = laneClear(NB_N - 2, c.z, myHalf)
+      if (clear) h.target = NB_N - 2
     }
     if (h.target >= 0) {
       const tx = laneX(h.dir, h.target)

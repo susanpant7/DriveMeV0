@@ -10,9 +10,9 @@
  */
 export const LANE = 3.7
 /** centres of the three northbound lanes (0 = left / fast, 2 = right / slow) */
-export const NB_X = [0, 3.7, 7.4]
+export const NB_X = [0, 3.7, 7.4, 11.1, 14.8]
 export const NB_EDGE_L = -1.85
-export const NB_EDGE_R = 9.25
+export const NB_EDGE_R = 16.65
 export const NB_SHOULDER_L = 1.2
 export const SHOULDER_R = 3.0
 /** southbound lanes (the other carriageway, across the median) */
@@ -21,16 +21,16 @@ export const SB_EDGE_IN = -9.15
 export const SB_EDGE_OUT = -20.25
 export const MEDIAN_X = -5.5
 
-export const Z_START = 1500
-export const Z_RAMP_BEND = 1000 // the ramp is straight until here, then bends toward the highway
+export const Z_START = 1220 // 0.5 mile of ramp (800 m) ahead of the gore
+export const Z_RAMP_BEND = 760 // the ramp is straight until here, then bends toward the highway
 export const Z_GORE = 420
 export const Z_TAPER = 120
 export const Z_END = 20
 export const Z_FINISH = -3300 // course end
 export const Z_BEGIN_NB = 520 // the northbound carriageway exists from here on (further back it is just the ramp)
-export const Z_BEGIN_SB = 1500
+export const Z_BEGIN_SB = 1300
 export const RAMP_X0 = 62 // where the ramp starts (x)
-export const ACC_X = NB_X[2] + LANE // centre of the merge lane at the gore
+export const ACC_X = NB_X[NB_X.length - 1] + LANE // centre of the merge lane at the gore
 export const ACC_EDGE_R = ACC_X + LANE / 2 // right edge line of the merge lane (full width)
 
 export const RAMP_SHOULDER_L = 1.2
@@ -90,8 +90,8 @@ export function onRoad(x: number, z: number): boolean {
 /** which lane of the northbound carriageway is x in? 0..2, 3 = the merge lane / right shoulder side, -1 = left of the lanes */
 export function nbLaneAt(x: number) {
   if (x < NB_EDGE_L) return -1
-  if (x > NB_EDGE_R) return 3
-  return Math.min(2, Math.floor((x - NB_EDGE_L) / LANE))
+  if (x > NB_EDGE_R) return NB_X.length
+  return Math.min(NB_X.length - 1, Math.floor((x - NB_EDGE_L) / LANE))
 }
 
 export function zoneAt(x: number, z: number): Zone {

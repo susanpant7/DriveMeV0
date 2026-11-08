@@ -153,6 +153,8 @@ export interface MirrorGlassOpts {
   inner?: 1 | -1 | 0
   /** draw the flat painted overlay of your own car (off: the real 3D body panel is used instead) */
   own?: boolean
+  /** refresh only every other frame (the rear-view mirror); side mirrors refresh every frame for a crisp, current picture */
+  alt?: boolean
 }
 
 const _C = new THREE.Vector3()
@@ -182,11 +184,12 @@ export class MirrorGlass extends THREE.Mesh {
   private static count = 0
   private readonly phase = MirrorGlass.count++ & 1
   private frame = 0
+  private readonly alt: boolean
   private primed = false
 
   constructor(geometry: THREE.BufferGeometry, o: MirrorGlassOpts) {
     const wide = o.wide ?? 1
-    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], { samples: 2, type: THREE.HalfFloatType })
+    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], { samples: 4, type: THREE.HalfFloatType })
     const material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: rt.texture },
@@ -201,6 +204,7 @@ export class MirrorGlass extends THREE.Mesh {
     })
     super(geometry, material)
     this.rt = rt
+    this.alt = !!o.alt
     this.half = new THREE.Vector2(o.w / 2, o.h / 2)
     this.wide = wide
     this.shift = o.shift ?? [0, 0]
@@ -210,7 +214,7 @@ export class MirrorGlass extends THREE.Mesh {
 
   private renderView(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
     this.frame++
-    if (this.primed && (this.frame & 1) !== this.phase) return
+    if (this.alt && this.primed && (this.frame & 1) !== this.phase) return
     const mw = this.matrixWorld
     _C.setFromMatrixPosition(mw)
     _N.set(0, 0, 1).transformDirection(mw)

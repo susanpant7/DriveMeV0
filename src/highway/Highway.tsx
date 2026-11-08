@@ -112,7 +112,7 @@ export function buildHighway() {
   // ---- markings ----
   // northbound: yellow left edge, dashed lane dividers, white right edge (broken beside the merge lane)
   line(marks, Z_BEGIN_NB, Z_FINISH, () => NB_EDGE_L, 0.18, YELLOW, undefined, 40)
-  for (const x of [NB_EDGE_L + LANE, NB_EDGE_L + 2 * LANE]) line(marks, Z_BEGIN_NB, Z_FINISH, () => x, 0.15, WHITE, [3, 9])
+  for (let k = 1; k < NB_X.length; k++) for (const x of [NB_EDGE_L + k * LANE]) line(marks, Z_BEGIN_NB, Z_FINISH, () => x, 0.15, WHITE, [3, 9])
   line(marks, Z_END, Z_FINISH, () => NB_EDGE_R, 0.18, WHITE, undefined, 40) // right edge line after the merge lane ends
   line(marks, Z_BEGIN_NB, Z_END, () => NB_EDGE_R, 0.18, WHITE, [3, 9]) // dashed boundary between the highway and the merge lane
   // merge lane right edge (follows the taper)
@@ -202,7 +202,7 @@ function signCanvas() {
   g.fillStyle = '#fff'; g.strokeStyle = '#111'; g.lineWidth = 8
   g.beginPath(); g.roundRect(530, 20, 220, 260, 16); g.fill(); g.stroke()
   g.fillStyle = '#111'; g.textAlign = 'center'; g.font = '700 46px system-ui, sans-serif'; g.fillText('SPEED', 640, 82); g.fillText('LIMIT', 640, 128)
-  g.font = '700 120px system-ui, sans-serif'; g.fillText('65', 640, 250)
+  g.font = '700 120px system-ui, sans-serif'; g.fillText('70', 640, 250)
   // 3: green guide sign (highway)
   g.fillStyle = '#0a6b3a'; g.strokeStyle = '#fff'; g.lineWidth = 8
   g.beginPath(); g.roundRect(780, 40, 230, 220, 18); g.fill(); g.stroke()
@@ -279,9 +279,9 @@ export function Highway() {
   const signs = useMemo(() => {
     const items: Array<{ x: number; z: number; cell: number; h: number; w: number; hh: number }> = []
     const rx = (z: number) => rampX(z) + LANE / 2 + RAMP_SHOULDER_R + 1.8
-    items.push({ x: rx(1380), z: 1380, cell: 3, h: 1.6, w: 2.6, hh: 2.5 })
-    items.push({ x: rx(1250), z: 1250, cell: 4, h: 1.6, w: 1.8, hh: 1.65 })
-    items.push({ x: rx(1000), z: 1000, cell: 0, h: 1.6, w: 1.9, hh: 1.9 })
+    items.push({ x: rx(1150), z: 1150, cell: 3, h: 1.6, w: 2.6, hh: 2.5 })
+    items.push({ x: rx(1040), z: 1040, cell: 4, h: 1.6, w: 1.8, hh: 1.65 })
+    items.push({ x: rx(880), z: 880, cell: 0, h: 1.6, w: 1.9, hh: 1.9 })
     items.push({ x: rx(700), z: 700, cell: 2, h: 1.6, w: 1.3, hh: 1.55 })
     items.push({ x: rx(520), z: 520, cell: 0, h: 1.6, w: 1.9, hh: 1.9 })
     // along the merge lane: lane-ends warnings (distance to the end) and the "merge lane ends" board
@@ -301,9 +301,13 @@ export function Highway() {
     let seed = 7
     const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647)
     for (let z = Z_START; z > Z_FINISH; z -= 14 + rnd() * 16) {
-      out.push([rampX(Math.max(z, Z_GORE)) + 12 + rnd() * 40, z, 0.8 + rnd() * 0.9])
-      out.push([nbPavementRight(z) + 9 + rnd() * 50, z + rnd() * 6, 0.8 + rnd() * 0.9])
-      out.push([SB_EDGE_OUT - SHOULDER_R - 8 - rnd() * 50, z + rnd() * 6, 0.8 + rnd() * 0.9])
+      // never on or beside the ramp: keep every tree well clear of the ramp's pavement
+      const clear = (tx: number, tz: number) => tz < Z_GORE - 40 || tz > Z_START + 30 || Math.abs(tx - rampX(tz)) > 12
+      const r1: [number, number, number] = [rampX(Math.max(z, Z_GORE)) + 14 + rnd() * 40, z, 0.8 + rnd() * 0.9]
+      const r2: [number, number, number] = [nbPavementRight(z) + 9 + rnd() * 50, z + rnd() * 6, 0.8 + rnd() * 0.9]
+      if (clear(r1[0], r1[1])) out.push(r1)
+      if (clear(r2[0], r2[1])) out.push(r2)
+      if (z < Z_BEGIN_SB) out.push([SB_EDGE_OUT - SHOULDER_R - 8 - rnd() * 50, z + rnd() * 6, 0.8 + rnd() * 0.9])
     }
     return out
   }, [])
