@@ -10,6 +10,7 @@ import { useViewport } from './useViewport'
 export function MapOverlay() {
   const ref = useRef<HTMLCanvasElement>(null)
   const { touch } = useViewport()
+  const look = useGame((g) => g.hud.look) // the map fades while you glance at a mirror, so it never covers one
   const W = touch ? 230 : 360
   const H = touch ? 150 : 236
 
@@ -38,5 +39,5 @@ export function MapOverlay() {
     return () => cancelAnimationFrame(raf)
   }, [W, H, touch])
 
-  return <canvas ref={ref} className={`mapscreen${touch ? ' small' : ''}`} style={{ width: W, height: H }} aria-label="Navigation map" />
+  return <canvas ref={ref} className={`mapscreen${touch ? ' small' : ''}${look !== 'front' ? ' dim' : ''}`} style={{ width: W, height: H }} aria-label="Navigation map" />
 }

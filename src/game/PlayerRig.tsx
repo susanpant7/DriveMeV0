@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { Cabin } from './Cabin'
 import { EYE, LOOK_TARGETS, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
-import { sim } from './sim'
+import { input, sim } from './sim'
 import { useGame } from './store'
 
 const UP = new THREE.Vector3(0, 1, 0)
@@ -21,9 +21,9 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       w,
       h,
       res: cfg.res,
-      // side mirrors are convex: they render a wider view and compress it toward the edges
-      wide: side ? 1.5 : 1.0,
-      m0: side ? 0.8 : 1.0,
+      // the driver's mirror is nearly flat; the passenger-side one is gently convex ("objects are closer than they appear")
+      wide: !side ? 1.0 : cfg.id === 'left' ? 1.08 : 1.3,
+      m0: !side ? 1.0 : cfg.id === 'left' ? 0.96 : 0.86,
       m1: side ? 1.0 : 1.0,
       shift: [0, 0],
       inner: cfg.inner,
@@ -34,21 +34,11 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
   }, [cfg, w, h, side])
   useEffect(() => () => glass.dispose(), [glass])
 
-  // door mirrors look smaller in your normal view and come up to full size when you glance at them
-  const housing = useRef<THREE.Group>(null!)
-  const k = useRef(side ? 0.6 : 1)
-  useFrame((_, dt) => {
-    if (!side) return
-    const target = sim.look === cfg.id ? (cfg.id === 'right' ? 1.3 : 1.08) : 0.6
-    k.current += (target - k.current) * (1 - Math.exp(-10 * dt))
-    glass.scale.setScalar(k.current)
-    housing.current.scale.setScalar(k.current)
-  }, -2.5)
-
+  // A mirror is a fixed object: it never changes size. It only looks bigger when your head moves closer or turns to face it.
   return (
     <>
       <primitive object={glass} />
-      <group ref={housing} position={cfg.pos} quaternion={cfg.quat}>
+      <group position={cfg.pos} quaternion={cfg.quat}>
         <mesh geometry={ringGeo} material={housingMat} />
         <mesh geometry={shellGeo} material={housingMat} />
       </group>
@@ -82,7 +72,9 @@ export function PlayerRig() {
     g.rotation.y = sim.h
     wheel.current.rotation.z = -sim.steerIn * 2.6
 
-    const t = LOOK_TARGETS[sim.look]
+    // touch free-look turns the head to wherever the thumb points; the keys snap to a mirror. The lens never zooms.
+    const front = LOOK_TARGETS.front
+    const t = input.free ? { yaw: input.yaw, pitch: front.pitch + input.pitch, fov: front.fov, lean: LOOK_TARGETS.front.lean.clone().set(-input.yaw * 0.08, 0, -Math.abs(input.yaw) * 0.03) } : LOOK_TARGETS[sim.look]
     const k = 1 - Math.exp(-14 * dt)
     const v = view.current
     v.yaw += (t.yaw - v.yaw) * k
@@ -101,6 +93,7 @@ export function PlayerRig() {
       v.yaw + sim.h + (shake ? (Math.random() - 0.5) * shake : 0),
       -sim.steer * 0.15,
     )
+    ;(window as unknown as { __view?: unknown }).__view = { yaw: v.yaw, pitch: v.pitch, fov: v.fov }
     // dev hook: window.__dbgCam = { p: [x, y, z], t: [x, y, z], fov } looks at the world from anywhere
     const dbg = (window as unknown as { __dbgCam?: { p: number[]; t: number[]; fov: number } }).__dbgCam
     if (dbg) {

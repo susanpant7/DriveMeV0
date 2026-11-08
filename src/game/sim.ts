@@ -22,7 +22,21 @@ const REAR_CHECK_WINDOW = 8 // rear-view glance must be this recent
 const GLANCE_TIME = 0.3 // a glance only counts after looking this long
 
 /* ---------- input & simulation state (read by r3f components each frame) ---------- */
-export const input = { look: 'front' as Look, up: false, down: false, left: false, right: false }
+export const input = {
+  look: 'front' as Look,
+  up: false,
+  down: false,
+  left: false,
+  right: false,
+  /** touch free-look: head turn (rad, + = left) and tilt (rad, + = up), used while `free` is true */
+  free: false,
+  yaw: 0,
+  pitch: 0,
+  /** touch steering wheel, -1 (full left) .. 1 (full right); null = use the arrow keys */
+  analog: null as number | null,
+}
+const MIRROR_YAW = 0.3 // how far the head must turn before you are looking at a side mirror
+const MIRROR_UP = 0.3 // how far up before you are looking at the rear-view mirror
 
 interface Maneuver {
   dir: -1 | 1
@@ -96,6 +110,9 @@ export function resetSim() {
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
+  input.free = false
+  input.yaw = input.pitch = 0
+  input.analog = null
   if (WORLD.real) initRealTraffic()
   else initTraffic()
   applyTraffic()
@@ -123,6 +140,9 @@ export function pauseGame() {
   if (useGame.getState().status !== 'playing') return
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
+  input.free = false
+  input.yaw = input.pitch = 0
+  input.analog = null
   useGame.setState({ status: 'paused', pauseReason: 'user' })
 }
 
@@ -223,7 +243,7 @@ export function stepSim(dt: number) {
   updateEngine(dt)
 
   // ---- steering (bicycle model) ----
-  const target = (input.right ? 1 : 0) - (input.left ? 1 : 0)
+  const target = input.analog ?? (input.right ? 1 : 0) - (input.left ? 1 : 0)
   const rate = target ? 2.2 : 3.5
   sim.steerIn += clamp(target - sim.steerIn, -rate * dt, rate * dt)
   sim.steer = sim.steerIn * (0.55 / (1 + (sim.speed / 9) ** 2))
@@ -238,6 +258,10 @@ export function stepSim(dt: number) {
     if (sim.tickT > 0.35) { sim.tickT = 0; tick() }
   } else sim.tickT = 0
 
+  // ---- touch free-look: what the head is facing decides which mirror you are looking at ----
+  if (input.free) {
+    input.look = input.pitch > MIRROR_UP && Math.abs(input.yaw) < 0.6 ? 'center' : input.yaw > MIRROR_YAW ? 'left' : input.yaw < -MIRROR_YAW ? 'right' : 'front'
+  }
   // ---- looking at mirrors: a glance only counts after a short dwell ----
   if (input.look !== sim.look) {
     sim.look = input.look

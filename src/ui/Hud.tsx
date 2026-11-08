@@ -1,9 +1,10 @@
 import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
 import { MODES, type Mode } from '../game/nav'
 import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
-import { setMode, setTraffic, setUnits, useGame, type Look } from '../game/store'
+import { setMode, setTraffic, setUnits, useGame } from '../game/store'
 import { CityPicker } from './CityPicker'
 import { MapOverlay } from './MapOverlay'
+import { EyeControl, SteerWheel } from './TouchPad'
 import { useViewport } from './useViewport'
 
 const Key = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>
@@ -84,31 +85,23 @@ function HoldButton({ label, onDown, onUp, className = '', active = false, child
   )
 }
 
-const Arrow = ({ dir }: { dir: 'left' | 'right' | 'up' | 'down' }) => (
-  <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" style={{ transform: `rotate(${{ right: 0, down: 90, left: 180, up: 270 }[dir]}deg)` }}>
-    <path d="M9 5l8 7-8 7" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-/** On-screen controls at the bottom of the page for phones and tablets. */
+/**
+ * On-screen controls for phones and tablets. Bottom left: an eye (slide to turn your head) with a steering wheel under it
+ * (turn it with your thumb). Bottom centre: the indicators. Bottom right: brake and gas.
+ */
 function TouchControls() {
   const signal = useGame((s) => s.hud.signal)
-  const look = useGame((s) => s.hud.look)
-  const hold = (key: 'up' | 'down' | 'left' | 'right') => ({ onDown: () => { input[key] = true }, onUp: () => { input[key] = false } })
-  const glance = (l: Exclude<Look, 'front'>) => ({ onDown: () => { input.look = l }, onUp: () => { if (input.look === l) input.look = 'front' } })
+  const hold = (key: 'up' | 'down') => ({ onDown: () => { input[key] = true }, onUp: () => { input[key] = false } })
   return (
     <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
-      <div className="tgroup">
-        <HoldButton label="Steer left" className="steer" {...hold('left')}><Arrow dir="left" /></HoldButton>
-        <HoldButton label="Steer right" className="steer" {...hold('right')}><Arrow dir="right" /></HoldButton>
+      <div className="tleft">
+        <EyeControl />
+        <SteerWheel />
       </div>
 
       <div className="tgroup center">
         <div className="trow">
           <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}>◀</HoldButton>
-          <HoldButton label="Look at left mirror" className="look" active={look === 'left'} {...glance('left')}>Left<small>mirror</small></HoldButton>
-          <HoldButton label="Look at rear-view mirror" className="look" active={look === 'center'} {...glance('center')}>Rear<small>mirror</small></HoldButton>
-          <HoldButton label="Look at right mirror" className="look" active={look === 'right'} {...glance('right')}>Right<small>mirror</small></HoldButton>
           <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
         </div>
       </div>
@@ -125,9 +118,9 @@ function TouchHelp() {
   return (
     <ul className="controls">
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
-      <li><span><b>◀ ▶</b></span> Steering buttons at the bottom left</li>
-      <li><span><b>◀ ▶</b></span> Centre: left and right indicators (tap to switch on or off)</li>
-      <li><span><b>Left / Rear / Right</b></span> Hold to look at that mirror</li>
+      <li><span><b>Wheel</b></span> Bottom left: turn the steering wheel with your thumb</li>
+      <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror)</li>
+      <li><span><b>◀ ▶</b></span> Bottom centre: left and right indicators (tap to switch on or off)</li>
     </ul>
   )
 }

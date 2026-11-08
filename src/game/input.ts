@@ -50,6 +50,9 @@ export function installInput() {
   const release = () => {
     input.look = 'front'
     input.up = input.down = input.left = input.right = false
+    input.free = false
+    input.yaw = input.pitch = 0
+    input.analog = null
   }
   const blur = () => { release(); pauseGame() }
   const hidden = () => { if (document.hidden) pauseGame() }

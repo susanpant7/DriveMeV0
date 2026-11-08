@@ -9,6 +9,27 @@ const CH = 4 // chunks per side (each B metres) so far-away parts of the city ca
 const chunkOf = (x: number, z: number) => Math.min(CH - 1, Math.max(0, Math.floor(x / B))) * CH + Math.min(CH - 1, Math.max(0, Math.floor(z / B)))
 
 interface Buf { pos: number[]; nor: number[]; uv: number[]; col: number[] }
+/** Transparent dark marks laid over the asphalt: tyre tracks, repair patches and cracks (RGBA vertex colours). */
+export class Wear {
+  bufs: Array<{ pos: number[]; col: number[] }> = Array.from({ length: CH * CH }, () => ({ pos: [], col: [] }))
+  quad(a: V2, b: V2, c: V2, d: V2, y: number, alpha: number, shade = 0) {
+    const buf = this.bufs[chunkOf((a[0] + c[0]) / 2, (a[1] + c[1]) / 2)]
+    for (const p of [a, b, c, a, c, d]) { buf.pos.push(p[0], y, p[1]); buf.col.push(shade, shade, shade, alpha) }
+  }
+  build(): THREE.BufferGeometry[] {
+    return this.bufs.filter((b) => b.pos.length).map((b) => {
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3))
+      g.setAttribute('color', new THREE.Float32BufferAttribute(b.col, 4))
+      const n = new Float32Array(b.pos.length)
+      for (let i = 1; i < n.length; i += 3) n[i] = 1
+      g.setAttribute('normal', new THREE.BufferAttribute(n, 3))
+      g.computeBoundingSphere()
+      return g
+    })
+  }
+}
+
 export class MB {
   bufs: Buf[] = Array.from({ length: CH * CH }, () => ({ pos: [], nor: [], uv: [], col: [] }))
 
@@ -339,11 +360,11 @@ const ARROW_SHAPES: Record<'L' | 'S' | 'R' | 'SR' | 'SL', Pt2[][]> = (() => {
 export const DEBUG_POSTS: Array<[number, number, number]> = []
 
 export function buildCity() {
-  const asphalt = new MB(), marks = new MB(), solid = new MB(), buildings = new MB(), signs = new MB()
+  const asphalt = new MB(), marks = new MB(), solid = new MB(), buildings = new MB(), signs = new MB(), wear = new Wear()
   const lamps: LampDef[] = []
   const trees: TreeDef[] = []
   const WHITE: V3 = [0.92, 0.92, 0.9], YELLOW: V3 = [0.95, 0.75, 0.1]
-  const CONC: V3 = [0.62, 0.63, 0.65], POLE: V3 = [0.45, 0.47, 0.5]
+  const CONC: V3 = [0.44, 0.45, 0.47], POLE: V3 = [0.45, 0.47, 0.5]
   const rectUV = (r: Rect): [V2, V2, V2, V2] => {
     const u0 = r.x / ATLAS_W, u1 = (r.x + r.w) / ATLAS_W
     const vT = 1 - r.y / ATLAS_H, vB = 1 - (r.y + r.h) / ATLAS_H
@@ -620,6 +641,69 @@ export function buildCity() {
         treeAlong(ax, az, d, u, HALF_ROAD + 5, 0.9 + hashN(ax + u, az, 5) * 0.4)
         treeAlong(ax, az, d, u + 13, -(HALF_ROAD + 5), 0.9 + hashN(ax + u, az, 6) * 0.4)
       }
+      // ---- realistic road surface: worn tyre tracks in every lane, repair patches, tar-filled cracks ----
+      {
+        const LIGHT: V3 = [0.5, 0.5, 0.52]
+        const track = (v: number, w: number, a: number) => {
+          for (let u = S0 + 6; u < S1 - 6; u += 5) {
+            const ue = Math.min(u + 5, S1 - 6)
+            wear.quad(at(ax, az, d, u, v - w / 2), at(ax, az, d, ue, v - w / 2), at(ax, az, d, ue, v + w / 2), at(ax, az, d, u, v + w / 2), 0.012, a)
+          }
+        }
+        for (const sg of [-1, 1] as const) {
+          for (let k = 0; k < 2; k++) {
+            const c = sg * laneOff(k)
+            track(c - 0.85, 0.72, 0.17) // left wheel track
+            track(c + 0.85, 0.72, 0.17) // right wheel track
+            track(c, 0.5, 0.06) // oil drip down the middle of the lane
+          }
+        }
+        // patches (a different, slightly darker or lighter square of asphalt) and cracks
+        for (let u = S0 + 12; u < S1 - 12; u += 17 + hashN(ax + u, az, 9) * 20) {
+          const r1 = hashN(ax + u, az + 3, 10), r2 = hashN(ax + u, az + 5, 11), r3 = hashN(ax + u, az + 7, 12)
+          const lane = (r1 < 0.5 ? -1 : 1) * (laneOff(r2 < 0.5 ? 0 : 1) + (r3 - 0.5) * 1.4)
+          const L = 1.6 + r2 * 3.4, W = 1.2 + r3 * 1.8
+          wear.quad(at(ax, az, d, u, lane - W / 2), at(ax, az, d, u + L, lane - W / 2), at(ax, az, d, u + L, lane + W / 2), at(ax, az, d, u, lane + W / 2), 0.013, 0.28 + r1 * 0.2, r2 < 0.35 ? 0.25 : 0)
+          // a hairline crack running across the patch
+          wear.quad(at(ax, az, d, u - 1, lane + W / 2 + 0.1), at(ax, az, d, u + L + 2, lane + W / 2 + 0.16), at(ax, az, d, u + L + 2, lane + W / 2 + 0.22), at(ax, az, d, u - 1, lane + W / 2 + 0.16), 0.014, 0.5)
+        }
+        // transverse tar seams every ~12 m across both directions
+        for (let u = S0 + 9; u < S1 - 8; u += 11.7) {
+          wear.quad(at(ax, az, d, u, -HALF_MID), at(ax, az, d, u + 0.09, -HALF_MID), at(ax, az, d, u + 0.09, HALF_MID), at(ax, az, d, u, HALF_MID), 0.014, 0.35)
+        }
+        void LIGHT
+        // concrete gutter along both kerbs (the strip of water channel between the asphalt and the kerb)
+        for (const sg of [-1, 1] as const) {
+          const e0 = (u: number) => (sg === 1 ? sgh(u).right : sgh(u).left)
+          for (let u = S0; u < S1 - 0.01; u += 4) {
+            const ue = Math.min(u + 4, S1)
+            const a0 = sg * (e0(u) + 0.02), a1 = sg * (e0(u) + 0.55), b0 = sg * (e0(ue) + 0.02), b1 = sg * (e0(ue) + 0.55)
+            marks.upQuad([at(ax, az, d, u, a0), at(ax, az, d, ue, b0), at(ax, az, d, ue, b1), at(ax, az, d, u, a1)], 0.016, [0.58, 0.58, 0.6])
+          }
+        }
+      }
+      // ---- street lamps (cobra-head on a curved arm), alternating sides every ~46 m ----
+      for (let u = S0 + 26; u < S1 - 26; u += 46) {
+        const sg: 1 | -1 = Math.floor((u - S0) / 46) % 2 ? 1 : -1
+        const off = (sg === 1 ? sgh(u).right : sgh(u).left) + 2.4
+        const [lx, lz] = at(ax, az, d, u, sg * off)
+        const horizontal = dz === 0
+        solid.box(lx, 0, lz, 0.26, 0.5, 0.26, 0, [0.35, 0.36, 0.38]) // base
+        solid.box(lx, 0.5, lz, 0.18, 8.1, 0.18, 0, [0.5, 0.52, 0.55]) // pole
+        const [ax2, az2] = at(ax, az, d, u, sg * (off - 1.5))
+        solid.box(ax2, 8.5, az2, horizontal ? 0.12 : 3.0, 0.12, horizontal ? 3.0 : 0.12, 0, [0.5, 0.52, 0.55]) // mast arm over the road
+        const [hx2, hz2] = at(ax, az, d, u, sg * (off - 2.9))
+        solid.box(hx2, 8.38, hz2, horizontal ? 0.5 : 1.0, 0.18, horizontal ? 1.0 : 0.5, 0, [0.62, 0.64, 0.66]) // luminaire housing
+        solid.box(hx2, 8.3, hz2, horizontal ? 0.42 : 0.86, 0.04, horizontal ? 0.86 : 0.42, 0, [0.95, 0.9, 0.7]) // lens
+      }
+      // ---- fire hydrants and kerbside furniture, one every ~90 m ----
+      for (let u = S0 + 40; u < S1 - 30; u += 90) {
+        const sg: 1 | -1 = hashN(ax + u, az, 20) < 0.5 ? 1 : -1
+        const [hx3, hz3] = at(ax, az, d, u, sg * ((sg === 1 ? sgh(u).right : sgh(u).left) + 1.0))
+        solid.box(hx3, 0, hz3, 0.28, 0.7, 0.28, 0, [0.75, 0.12, 0.1]) // hydrant body
+        solid.box(hx3, 0.7, hz3, 0.34, 0.12, 0.34, 0, [0.8, 0.14, 0.12]) // cap
+        solid.box(hx3, 0.35, hz3, 0.55, 0.14, 0.14, 0, [0.7, 0.1, 0.09]) // side nozzles
+      }
     }
   }
 
@@ -862,6 +946,6 @@ export function buildCity() {
     solid.box(bcx, 0.08 + l.h + (l.h > 26 ? l.h * 0.28 : 0), bcz, bw * 0.3, 2.2, bd * 0.3, 0, [0.42, 0.43, 0.45]) // roof plant
   }
 
-  return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build(), buildings: buildings.build(), signs: signs.build(), lamps, trees }
+  return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build(), buildings: buildings.build(), signs: signs.build(), wear: wear.build(), lamps, trees }
 }
 export { BOX }

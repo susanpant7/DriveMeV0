@@ -146,7 +146,8 @@ export function City() {
     return {
       atlasCanvas,
       atlas,
-      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#a4a4a4', normalScale: new THREE.Vector2(1.2, 1.2) }),
+      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#85858a', normalScale: new THREE.Vector2(1.3, 1.3) }),
+      wear: new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: false, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
       marks: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       solid: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.1 }),
       buildings: new THREE.MeshStandardMaterial({ map: facade, roughnessMap: tex(fc.rough, false), metalnessMap: tex(fc.metal, false), roughness: 1, metalness: 1, vertexColors: true, envMapIntensity: 1.3 }),
@@ -212,7 +213,7 @@ export function City() {
 
   useEffect(
     () => () => {
-      for (const list of [data.asphalt, data.marks, data.solid, data.buildings, data.signs]) list.forEach((g) => g.dispose())
+      for (const list of [data.asphalt, data.marks, data.solid, data.buildings, data.signs, data.wear]) list.forEach((g) => g.dispose())
       res.atlas.dispose()
     },
     [data, res],
@@ -261,6 +262,7 @@ export function City() {
       {COPIES.map(([di, dj], k) => (
         <group key={k} ref={(g) => { groups.current[k] = g }} position={[di * P, 0, dj * P]}>
           {data.asphalt.map((g, n) => <mesh key={'a' + n} geometry={g} material={res.asphalt} receiveShadow />)}
+          {data.wear.map((g, n) => <mesh key={'w' + n} geometry={g} material={res.wear} renderOrder={1} receiveShadow />)}
           {data.marks.map((g, n) => <mesh key={'m' + n} geometry={g} material={res.marks} receiveShadow />)}
           {data.solid.map((g, n) => <mesh key={'s' + n} geometry={g} material={res.solid} receiveShadow />)}
           {data.buildings.map((g, n) => <mesh key={'b' + n} geometry={g} material={res.buildings} />)}

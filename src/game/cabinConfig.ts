@@ -34,9 +34,9 @@ const RES_REAR: [number, number] = IS_COARSE ? [512, 154] : [1024, 310]
 // Side mirrors are aimed almost straight back so the inner edge catches your own car's
 // flank, exactly as a properly adjusted door mirror does.
 export const MIRRORS: MirrorCfg[] = [
-  mirror('left', V(-1.2, 1.05, -0.55), [0.4, 0.27], RES_SIDE, V(-0.17, -0.07, 1), 1),
+  mirror('left', V(-1.2, 1.05, -0.55), [0.3, 0.2], RES_SIDE, V(-0.17, -0.07, 1), 1),
   mirror('center', V(-0.3, 1.42, -0.62), [0.38, 0.115], RES_REAR, V(0, 0.03, 1), 0),
-  mirror('right', V(1.22, 1.05, -0.6), [0.46, 0.31], RES_SIDE, V(0.17, -0.07, 1), -1),
+  mirror('right', V(1.22, 1.05, -0.6), [0.33, 0.22], RES_SIDE, V(0.17, -0.07, 1), -1),
 ]
 
 export interface LookTarget {
@@ -47,24 +47,24 @@ export interface LookTarget {
 }
 
 /**
- * A glance turns the head only part of the way and the eyes do the rest, so the
- * mirror ends up off to the side of the view instead of filling it. No zoom.
+ * A glance at a mirror: the head turns only part of the way (about a third to a half) and the eyes do the rest, so the
+ * mirror sits off to the side of your view instead of filling it, and nothing zooms. The field of view stays constant.
  */
 function glance(m: MirrorCfg, turn: number, pitchK: number, lean: THREE.Vector3): LookTarget {
   const d = m.pos.clone().sub(EYE)
   return {
     yaw: Math.atan2(-d.x, -d.z) * turn,
     pitch: Math.atan2(d.y, Math.hypot(d.x, d.z)) * pitchK,
-    fov: 56,
+    fov: 60.6, // the lens never zooms: your field of view is the same whichever way you look
     lean,
   }
 }
 
 export const LOOK_TARGETS: Record<Look, LookTarget> = {
   front: { yaw: 0, pitch: -0.369, fov: 60.6, lean: V(0, 0, 0) },
-  left: glance(MIRRORS[0], 0.8, 0.6, V(-0.16, 0, -0.05)),
-  center: glance(MIRRORS[1], 0.5, 0.5, V(0.02, 0.03, 0)),
-  right: glance(MIRRORS[2], 0.92, 0.6, V(0.45, 0, -0.08)),
+  left: glance(MIRRORS[0], 0.5, 0.45, V(-0.05, 0, -0.02)),
+  center: glance(MIRRORS[1], 0.4, 0.4, V(0.02, 0.02, 0)),
+  right: glance(MIRRORS[2], 0.6, 0.45, V(0.14, 0, -0.04)),
 }
 
 /** Euler that makes a plane (normal +z) at `pos` face the driver's eye. */
