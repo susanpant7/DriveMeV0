@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Cabin } from './Cabin'
+import { CarPlay } from './CarPlay'
 import { EYE, FRONT_PITCH, FRONT_YAW, REPEATER, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
@@ -54,12 +55,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
         <mesh geometry={ringGeo} material={housingMat} />
         <mesh geometry={shellGeo} material={housingMat} />
       </group>
-      {repeater && (
-        <group position={REPEATER.pos} rotation={[-0.12, -0.12, 0]} scale={REPEATER.size}>
-          <primitive object={repeater.mesh} />
-          <mesh geometry={ringGeo} material={housingMat} />
-        </group>
-      )}
+      {repeater && <CarPlay feed={repeater.mesh} pos={REPEATER.pos} rot={[-0.15, 0.1, 0]} />}
     </>
   )
 }

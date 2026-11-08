@@ -22,27 +22,26 @@ export const SB_EDGE_OUT = -20.25
 export const MEDIAN_X = -5.5
 
 export const Z_START = 903 // 0.3 mile of ramp (483 m) ahead of the gore
-export const Z_RAMP_BEND = 690 // the ramp is straight until here, then bends toward the highway
+export const Z_RAMP_BEND = 520 // the ramp is dead straight until here, then a straight diagonal into the merge lane (no curves) // the ramp is straight until here, then bends toward the highway
 export const Z_GORE = 420
 export const Z_TAPER = 120
 export const Z_END = 20
 export const Z_FINISH = -3300 // course end
-export const Z_BEGIN_NB = 520 // the northbound carriageway exists from here on (further back it is just the ramp)
+export const Z_BEGIN_NB = 1000 // the northbound carriageway exists from here on (further back it is just the ramp)
 export const Z_BEGIN_SB = 1000
-export const RAMP_X0 = 62 // where the ramp starts (x)
+export const RAMP_X0 = 25.5 // the ramp runs straight, parallel to the highway, this far to the right (x)
 export const ACC_X = NB_X[NB_X.length - 1] + LANE // centre of the merge lane at the gore
 export const ACC_EDGE_R = ACC_X + LANE / 2 // right edge line of the merge lane (full width)
 
 export const RAMP_SHOULDER_L = 1.2
 export const RAMP_SHOULDER_R = 2.4
 
-const smooth = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t))
 
 /** x of the centre of the ramp lane at z (for z >= Z_GORE; below that it is the merge lane) */
 export function rampX(z: number) {
   if (z <= Z_GORE) return ACC_X
   if (z >= Z_RAMP_BEND) return RAMP_X0
-  return ACC_X + (RAMP_X0 - ACC_X) * smooth((z - Z_GORE) / (Z_RAMP_BEND - Z_GORE))
+  return ACC_X + (RAMP_X0 - ACC_X) * ((z - Z_GORE) / (Z_RAMP_BEND - Z_GORE))
 }
 /** heading (rad, 0 = north) of the ramp at z */
 export function rampHeading(z: number) {

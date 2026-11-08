@@ -127,7 +127,6 @@ const GLB_FILES: Array<{ name: string; meta: 'meta' | 'meta2'; tint: boolean }> 
   // highway vehicles (kinds 6-11)
   { name: 'raptor', meta: 'meta2', tint: false },
   { name: 'ranger', meta: 'meta2', tint: false },
-  { name: 'lorry', meta: 'meta2', tint: true },
   { name: 'dump', meta: 'meta2', tint: false },
   { name: 'tanker', meta: 'meta2', tint: false },
   { name: 'semi', meta: 'meta2', tint: false },

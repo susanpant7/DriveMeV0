@@ -300,7 +300,14 @@ function useCabinModel() {
             if (me.isMesh) {
               me.castShadow = false; me.receiveShadow = false
               const mats = Array.isArray(me.material) ? me.material : [me.material]
-              mats.forEach((mm) => { (mm as THREE.MeshStandardMaterial).envMapIntensity = 0.35 })
+              mats.forEach((mm) => {
+                const m = mm as THREE.MeshStandardMaterial
+                m.envMapIntensity = 0.35
+                // a richer two-tone cabin: soft-touch dark dash, light stitched leather seats, metal-look trim
+                const pal: Record<string, [string, number, number]> = { dash: ['#1b1d23', 0.5, 0.05], door: ['#2a2d35', 0.55, 0.05], seat: ['#a8845f', 0.42, 0.02], floor: ['#101114', 0.95, 0], trim: ['#b9bec6', 0.25, 0.9] }
+                const p = pal[m.name]
+                if (p) { m.color.set(p[0]); m.roughness = p[1]; m.metalness = p[2] }
+              })
             }
           })
           wheel.removeFromParent()
