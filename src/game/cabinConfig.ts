@@ -37,11 +37,22 @@ const RES_REAR: [number, number] = IS_COARSE ? [640, 195] : [800, 244]
 // on a phone the whole scene is small, so the mirrors are a little bigger (still a fixed size: they never grow or zoom)
 const K = IS_COARSE ? 1.3 : 1
 export const MIRRORS: MirrorCfg[] = [
-  mirror('left', V(-1.2, 1.05, -0.85), [0.32 * K, 0.21 * K], RES_SIDE, V(-0.17, -0.07, 1), 1),
+  mirror('left', V(-1.2, 1.05, -0.85), [0.32 * K, 0.21 * K], RES_SIDE, V(-0.17, 0.02, 1), 1),
   // hung from the windshield header at the upper right of the driver's view, so it is always visible in the front view
-  mirror('center', V(0.0, 1.42, -0.72), [0.27, 0.088], RES_REAR, V(0, -0.075, 1), 0),
-  mirror('right', V(1.22, 1.05, -0.6), [0.33 * K, 0.22 * K], RES_SIDE, V(0.17, -0.07, 1), -1),
+  mirror('center', V(0.0, 1.42, -0.72), [0.27, 0.088], RES_REAR, V(0, 0.0, 1), 0),
+  mirror('right', V(1.22, 1.05, -0.6), [0.33 * K, 0.22 * K], RES_SIDE, V(0.17, 0.02, 1), -1),
 ]
+
+/** The driver's own adjustment of each mirror (radians): click a mirror, then use the arrow keys. Saved between sessions. */
+export const mirrorAdj: Record<'left' | 'center' | 'right', { yaw: number; pitch: number }> = (() => {
+  const base = { left: { yaw: 0, pitch: 0 }, center: { yaw: 0, pitch: 0 }, right: { yaw: 0, pitch: 0 } }
+  try { const v = JSON.parse(localStorage.getItem('driveme.mirrors') || 'null'); if (v) return { ...base, ...v } } catch { /* ignore */ }
+  return base
+})()
+export const adjust = { sel: null as null | 'left' | 'center' | 'right' }
+export const saveMirrors = () => { try { localStorage.setItem('driveme.mirrors', JSON.stringify(mirrorAdj)) } catch { /* ignore */ } }
+/** where each mirror (and the dash screen) currently is on screen, in pixels; filled in every frame by the camera rig */
+export const mirrorScreen: Record<string, { x: number; y: number; r: number; ok: boolean }> = { left: { x: 0, y: 0, r: 0, ok: false }, center: { x: 0, y: 0, r: 0, ok: false }, carplay: { x: 0, y: 0, r: 0, ok: false } }
 
 export interface LookTarget {
   yaw: number

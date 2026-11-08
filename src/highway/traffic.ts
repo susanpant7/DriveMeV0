@@ -32,7 +32,7 @@ const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
 const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
 // the limit is 70 mph (31.3 m/s): nobody drives below it, the fast lanes go further over
 const LANE_SPEED: Array<[number, number]> = [[34.5, 38], [33.5, 36.5], [33, 35.5], [32.5, 35], [32, 34.5]]
-const LANE_COUNT = [6, 7, 8, 9, 10] // vehicles per lane within the window at normal density
+const LANE_COUNT = [6, 7, 8, 9, 22] // vehicles per lane within the window at normal density
 
 function describe(c: AiCar, i: number) {
   const h = hw[i]
@@ -112,12 +112,13 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
     const fwd = h.dir === 1 ? -1 : 1 // sign of z velocity
     const myHalf = (c.len ?? 4.6) / 2
     // --- the vehicle ahead in this lane (and the player, if they are in it) ---
-    let gap = 1e9, lv = h.v0
+    let gap = 1e9, lv = h.v0, gapCar = 1e9
     for (let j = 0; j < ncars; j++) {
       if (j === i || !cars[j].active || hw[j].dir !== h.dir) continue
       if (Math.abs(cars[j].x - h.lat) > 2.4) continue
       const d = (cars[j].z - c.z) * fwd - myHalf - (cars[j].len ?? 4.6) / 2
       if (d > -1 && d < gap) { gap = d; lv = cars[j].speed }
+      if (d > -1 && d < gapCar) gapCar = d
     }
     if (h.dir === 1 && Math.abs(player.x - h.lat) < 2.5) {
       const d = (player.z - c.z) * fwd - myHalf - 2.4
@@ -128,6 +129,8 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
       const clear = laneClear(NB_N - 2, c.z, myHalf)
       if (clear) h.target = NB_N - 2
     }
+    // a slower player ahead in my lane: pull out to the left if there is room, otherwise carry on (and hit them)
+    if (h.dir === 1 && h.target < 0 && h.lane > 0 && Math.abs(player.x - h.lat) < 2.5 && (player.z - c.z) * fwd > 0 && (player.z - c.z) * fwd < 55 && player.speed < c.speed - 2 && laneClear(h.lane - 1, c.z, myHalf)) h.target = h.lane - 1
     if (h.target >= 0) {
       const tx = laneX(h.dir, h.target)
       const step = Math.sign(tx - h.lat) * Math.min(Math.abs(tx - h.lat), 1.6 * dt)
@@ -148,8 +151,8 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
     c.braking = a < -1.2
     c.speed = Math.max(0, v + a * dt)
     // nobody on the highway crawls: below the limit only when really close behind something (e.g. the player)
-    if (gap > 14 && h.dir === 1) c.speed = Math.max(c.speed, 31.5)
-    else if (gap > 14) c.speed = Math.max(c.speed, 31.5)
+    // (only another vehicle in the way slows them; you in front of them never does)
+    if (gapCar > 14) c.speed = Math.max(c.speed, 31.5)
     c.z += fwd * c.speed * dt
     c.x = h.lat
     c.h = h.dir === 1 ? 0 : Math.PI

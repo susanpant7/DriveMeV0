@@ -23,7 +23,7 @@ export function CarPlay() {
   const mapMesh = useRef<THREE.Mesh>(null!)
   const last = useRef(0)
   useFrame(() => {
-    const showMap = sim.signal === 0
+    const showMap = sim.signal !== 1
     mapMesh.current.visible = showMap
     if (!showMap) return
     const now = performance.now()

@@ -1,4 +1,5 @@
 import { toggleMute } from './audio'
+import { adjust, mirrorAdj, saveMirrors } from './cabinConfig'
 import { input, pauseGame, resumeGame, startGame, toggleSignal } from './sim'
 import { setTraffic, setUnits, useGame, type Look } from './store'
 
@@ -104,6 +105,19 @@ export function installInput() {
     }
     if (e.code === 'KeyC' && !e.repeat) startLook(true)
     if (LOOK_KEYS[e.code] && !input.free) input.look = LOOK_KEYS[e.code]
+    if (adjust.sel) {
+      const a = mirrorAdj[adjust.sel]
+      const step = 0.012
+      if (e.code === 'ArrowLeft') a.yaw -= step
+      else if (e.code === 'ArrowRight') a.yaw += step
+      else if (e.code === 'ArrowUp') a.pitch += step
+      else if (e.code === 'ArrowDown') a.pitch -= step
+      else if (e.code === 'Enter' || e.code === 'Escape') { adjust.sel = null; saveMirrors() }
+      else return
+      a.yaw = Math.max(-0.6, Math.min(0.6, a.yaw)); a.pitch = Math.max(-0.6, Math.min(0.6, a.pitch))
+      saveMirrors()
+      return
+    }
     if (e.code === 'ArrowUp') input.up = true
     if (e.code === 'ArrowDown') input.down = true
     if (e.code === 'ArrowLeft') input.left = true

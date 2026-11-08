@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Cabin } from './Cabin'
 import { CarPlay } from './CarPlay'
-import { EYE, FRONT_PITCH, FRONT_YAW, CARPLAY, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
+import { EYE, FRONT_PITCH, FRONT_YAW, CARPLAY, adjust, mirrorAdj, mirrorScreen, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
 import { useGame } from './store'
@@ -11,6 +11,8 @@ import { useGame } from './store'
 const UP = new THREE.Vector3(0, 1, 0)
 
 const housingMat = new THREE.MeshPhysicalMaterial({ color: '#0d0f12', roughness: 0.3, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.08 })
+
+const selMat = new THREE.MeshBasicMaterial({ color: '#3b9dff' })
 
 /** A true planar mirror with a convex-style wide view, in a glossy shaped housing. */
 function Mirror({ cfg }: { cfg: MirrorCfg }) {
@@ -52,15 +54,31 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
     return { mesh, mat }
   }, [cfg, glass])
   useEffect(() => () => repeater?.mat.dispose(), [repeater])
+  // only the right indicator brings the right mirror onto the dash screen (the left indicator keeps the map)
   const feedGroup = useRef<THREE.Group>(null)
-  useFrame(() => { if (feedGroup.current) feedGroup.current.visible = sim.signal === (cfg.id === 'left' ? -1 : 1) })
+  const housing = useRef<THREE.Group>(null)
+  const ringMesh = useRef<THREE.Mesh>(null)
+  const AX = useMemo(() => new THREE.Vector3(1, 0, 0), [])
+  const AY = useMemo(() => new THREE.Vector3(0, 1, 0), [])
+  const qa = useMemo(() => new THREE.Quaternion(), [])
+  const qb = useMemo(() => new THREE.Quaternion(), [])
+  useFrame(() => {
+    if (feedGroup.current) feedGroup.current.visible = cfg.id === 'right' && sim.signal === 1
+    // the driver's own mirror adjustment turns the glass (and its housing) a little
+    const a = mirrorAdj[cfg.id as 'left' | 'center' | 'right']
+    qa.setFromAxisAngle(AY, a.yaw)
+    qb.setFromAxisAngle(AX, -a.pitch)
+    glass.quaternion.copy(qa).multiply(qb).multiply(cfg.quat)
+    if (housing.current) housing.current.quaternion.copy(glass.quaternion)
+    if (ringMesh.current) ringMesh.current.material = adjust.sel === cfg.id ? selMat : housingMat
+  })
 
   // A mirror is a fixed object: it never changes size. It only looks bigger when your head moves closer or turns to face it.
   return (
     <>
       <primitive object={glass} />
-      <group position={cfg.pos} quaternion={cfg.quat}>
-        <mesh geometry={ringGeo} material={housingMat} />
+      <group ref={housing} position={cfg.pos} quaternion={cfg.quat}>
+        <mesh ref={ringMesh} geometry={ringGeo} material={housingMat} />
         <mesh geometry={shellGeo} material={housingMat} />
       </group>
       {repeater && (
@@ -95,7 +113,43 @@ export function PlayerRig() {
     })
   }, [camera])
 
+  const size = useThree((st) => st.size)
+  const proj = useMemo(() => new THREE.Vector3(), [])
+  // clicking a mirror (or the dash screen while it shows the right mirror) selects it for adjusting; arrow keys then move it
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.tagName !== 'CANVAS' || useGame.getState().status !== 'playing') return
+      let best: 'left' | 'center' | 'right' | null = null
+      let bd = Infinity
+      for (const k of ['left', 'center', 'carplay'] as const) {
+        const m = mirrorScreen[k]
+        if (!m.ok || (k === 'carplay' && sim.signal !== 1)) continue
+        const d = Math.hypot(e.clientX - m.x, e.clientY - m.y)
+        if (d < m.r && d < bd) { bd = d; best = k === 'carplay' ? 'right' : k }
+      }
+      if (best && adjust.sel !== best) {
+        adjust.sel = best
+        sim.msgId++
+        const text = `Adjusting the ${best} mirror: arrow keys to move it, Enter to finish`
+        useGame.setState((s) => ({ messages: [...s.messages.slice(-3), { id: sim.msgId, text, kind: 'info' as const, until: sim.t + 6 }] }))
+      } else if (!best) adjust.sel = null
+    }
+    window.addEventListener('click', onClick)
+    return () => window.removeEventListener('click', onClick)
+  }, [])
+
   useFrame((_, dt) => {
+    // where the mirrors are on screen (for clicking)
+    for (const [k, p, rad] of [['left', MIRRORS[0].pos, 0.2], ['center', MIRRORS[1].pos, 0.16], ['carplay', CARPLAY.pos, 0.3]] as Array<[string, THREE.Vector3, number]>) {
+      const wp = p.clone().applyAxisAngle(UP, sim.h).add(rig.current.position)
+      const dist = camera.position.distanceTo(wp)
+      proj.copy(wp).project(camera)
+      const e = mirrorScreen[k]
+      e.ok = proj.z < 1 && Math.abs(proj.x) < 1.3 && Math.abs(proj.y) < 1.3
+      e.x = (proj.x * 0.5 + 0.5) * size.width
+      e.y = (-proj.y * 0.5 + 0.5) * size.height
+      e.r = Math.max(30, (rad * size.height * 1.3) / Math.max(0.3, dist))
+    }
     const crashed = useGame.getState().status === 'crashed'
     const g = rig.current
     g.position.set(sim.x, 0, sim.z)

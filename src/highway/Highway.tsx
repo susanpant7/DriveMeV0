@@ -163,8 +163,6 @@ export function buildHighway() {
   rail(0, Z_START, Z_GORE, (z) => rampX(z) + LANE / 2 + RAMP_SHOULDER_R + 0.4)
   rail(0, Z_GORE, Z_FINISH, (z) => (z > Z_END ? nbPavementRight(z) + 0.4 : NB_EDGE_R + SHOULDER_R + 0.4))
   rail(SB_EDGE_OUT - SHOULDER_R - 0.4, Z_BEGIN_SB, Z_FINISH)
-  // a crash cushion at the gore nose
-  solid.box(NB_EDGE_R + 1.6, 0, Z_GORE + 4, 1.0, 0.9, 2.0, [0.95, 0.72, 0.1])
 
   void Z_RAMP_BEND; void Props
   return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build() }
