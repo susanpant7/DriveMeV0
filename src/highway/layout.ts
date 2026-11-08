@@ -21,14 +21,14 @@ export const SB_EDGE_IN = -9.15
 export const SB_EDGE_OUT = -20.25
 export const MEDIAN_X = -5.5
 
-export const Z_START = 1220 // 0.5 mile of ramp (800 m) ahead of the gore
-export const Z_RAMP_BEND = 760 // the ramp is straight until here, then bends toward the highway
+export const Z_START = 903 // 0.3 mile of ramp (483 m) ahead of the gore
+export const Z_RAMP_BEND = 690 // the ramp is straight until here, then bends toward the highway
 export const Z_GORE = 420
 export const Z_TAPER = 120
 export const Z_END = 20
 export const Z_FINISH = -3300 // course end
 export const Z_BEGIN_NB = 520 // the northbound carriageway exists from here on (further back it is just the ramp)
-export const Z_BEGIN_SB = 1300
+export const Z_BEGIN_SB = 1000
 export const RAMP_X0 = 62 // where the ramp starts (x)
 export const ACC_X = NB_X[NB_X.length - 1] + LANE // centre of the merge lane at the gore
 export const ACC_EDGE_R = ACC_X + LANE / 2 // right edge line of the merge lane (full width)

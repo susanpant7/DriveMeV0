@@ -30,8 +30,8 @@ const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
 
 /** per-lane share of the cars on the road (lane 0 is the fast one) and the chance a vehicle in it is a truck */
 const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
-// the limit is 70 mph (31.3 m/s): the fast lanes go a little over, the right lane trucks a little under
-const LANE_SPEED: Array<[number, number]> = [[33, 36], [31.5, 34], [30, 32.5], [28.5, 31], [27, 30]]
+// the limit is 70 mph (31.3 m/s): nobody drives below it, the fast lanes go further over
+const LANE_SPEED: Array<[number, number]> = [[34.5, 38], [33.5, 36.5], [33, 35.5], [32.5, 35], [32, 34.5]]
 const LANE_COUNT = [6, 7, 8, 9, 10] // vehicles per lane within the window at normal density
 
 function describe(c: AiCar, i: number) {
@@ -43,7 +43,7 @@ function describe(c: AiCar, i: number) {
   c.wid = w
   c.color = pick(COLORS)
   const [a, b] = LANE_SPEED[h.dir === 1 ? h.lane : h.lane + 2]
-  h.v0 = truck ? rnd(24.5, 27.5) : rnd(a, b)
+  h.v0 = truck ? rnd(31.8, 33.5) : rnd(a, b)
 }
 
 function spacingOk(dir: 1 | -1, lane: number, z: number, len: number, skip = -1) {
@@ -147,6 +147,9 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
     const a = Math.max(-8, 1.6 * (free - inter))
     c.braking = a < -1.2
     c.speed = Math.max(0, v + a * dt)
+    // nobody on the highway crawls: below the limit only when really close behind something (e.g. the player)
+    if (gap > 14 && h.dir === 1) c.speed = Math.max(c.speed, 31.5)
+    else if (gap > 14) c.speed = Math.max(c.speed, 31.5)
     c.z += fwd * c.speed * dt
     c.x = h.lat
     c.h = h.dir === 1 ? 0 : Math.PI
@@ -178,7 +181,7 @@ function respawn(i: number, player: { z: number; speed: number }) {
     const z = ahead ? player.z - rnd(WINDOW * 0.55, WINDOW) : player.z + rnd(WINDOW * 0.4, WINDOW * 0.9)
     if (z < Z_FINISH + 40) continue
     if (!spacingOk(h.dir, h.lane, z, 6, i)) continue
-    place(i, h.dir, h.lane, z, rnd(20, 27))
+    place(i, h.dir, h.lane, z, 32)
     c.speed = h.v0
     return
   }

@@ -279,10 +279,10 @@ export function Highway() {
   const signs = useMemo(() => {
     const items: Array<{ x: number; z: number; cell: number; h: number; w: number; hh: number }> = []
     const rx = (z: number) => rampX(z) + LANE / 2 + RAMP_SHOULDER_R + 1.8
-    items.push({ x: rx(1150), z: 1150, cell: 3, h: 1.6, w: 2.6, hh: 2.5 })
-    items.push({ x: rx(1040), z: 1040, cell: 4, h: 1.6, w: 1.8, hh: 1.65 })
-    items.push({ x: rx(880), z: 880, cell: 0, h: 1.6, w: 1.9, hh: 1.9 })
-    items.push({ x: rx(700), z: 700, cell: 2, h: 1.6, w: 1.3, hh: 1.55 })
+    items.push({ x: rx(880), z: 880, cell: 3, h: 1.6, w: 2.6, hh: 2.5 })
+    items.push({ x: rx(800), z: 800, cell: 4, h: 1.6, w: 1.8, hh: 1.65 })
+    items.push({ x: rx(690), z: 690, cell: 0, h: 1.6, w: 1.9, hh: 1.9 })
+    items.push({ x: rx(600), z: 600, cell: 2, h: 1.6, w: 1.3, hh: 1.55 })
     items.push({ x: rx(520), z: 520, cell: 0, h: 1.6, w: 1.9, hh: 1.9 })
     // along the merge lane: lane-ends warnings (distance to the end) and the "merge lane ends" board
     const mr = (z: number) => accRightEdge(z) + 3.7
