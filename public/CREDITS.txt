@@ -2,3 +2,10 @@ Textures and HDRI from Poly Haven (https://polyhaven.com), licensed CC0:
 - kloofendal_48d_partly_cloudy_puresky (HDRI)
 - asphalt_02
 - aerial_grass_rock
+
+Car models (Sketchfab, standard licence; converted to GLB with reduced textures):
+- "Low Poly Vehicle Mini Pack" by Vladek (sedan, pickup, van) - https://sketchfab.com/3d-models/low-poly-vehicle-mini-pack-ef3c9ca5bc6b45ea9d6e1464155c7ec6
+- Cabin interior based on "Car interior" by Gerhald (CC-BY-4.0) - https://sketchfab.com/3d-models/car-interior-c5f830a811af4917972de8fa47949de9
+- "Dodge Challenger - Muscle Car - Low-Poly" by Allay Design - https://sketchfab.com/3d-models/dodge-challenger-muscle-car-low-poly-4c741c8d40c34ebe8b999e5a2823d80f
+- "Car Impala Chevy" by ElectroNick (CC-BY-4.0) - https://sketchfab.com/3d-models/car-impala-chevy
+- "1971 GAZ-24 Volga (LP)" by KrStolorz - https://sketchfab.com/3d-models/1971-gaz-24-volga-lp-784ffea507354f70adf94d7fe0fd4b2a

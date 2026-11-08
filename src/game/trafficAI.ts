@@ -22,7 +22,7 @@ export interface AiCar {
   ghost: number
   braking: boolean
   behindPlayer: boolean
-  kind: number // body type: 0 sedan, 1 SUV, 2 van
+  kind: number // body type: 0 sedan, 1 pickup, 2 van, 3 Challenger, 4 Impala, 5 Volga
   style: 0 | 1 // 0 = cruiser (keeps right, at the speed limit), 1 = fast (prefers the left lanes)
   pref: number // desired speed before the lane limit is applied (m/s)
   plan: 'L' | 'S' | 'R' // what this car intends to do at the next signalled junction
@@ -159,7 +159,8 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     if (p.toKind === 'signal') c.plan = p.lane === LANES - 1 ? 'R' : p.lane === 0 && hasLeft(p) ? 'L' : 'S'
     c.color = pick(COLORS)
     const r = Math.random()
-    c.kind = r < 0.6 ? 0 : r < 0.92 ? 1 : 2
+    // body type: sedans most common, then pickups and vans; a few classics and sports cars for variety
+    c.kind = r < 0.5 ? 0 : r < 0.72 ? 1 : r < 0.82 ? 2 : r < 0.88 ? 3 : r < 0.93 ? 4 : 5
     c.stuck = 0
     c.ghost = 0
     place(c)

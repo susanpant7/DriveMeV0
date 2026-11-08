@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { faceEuler } from './cabinConfig'
 import { drawCluster } from './gauges'
 import { extrudeProfile } from './geom'
@@ -65,7 +66,7 @@ function useCanvasTexture(w: number, h: number) {
 function Displays() {
   const cluster = useCanvasTexture(1024, 400)
   const last = useRef(0)
-  const clusterPos = useMemo(() => new THREE.Vector3(-0.4, 0.82, -0.66), [])
+  const clusterPos = useMemo(() => new THREE.Vector3(-0.4, 0.895, -0.56), [])
   const clusterRot = useMemo(() => faceEuler(clusterPos), [clusterPos])
 
   useFrame(() => {
@@ -276,10 +277,63 @@ function BodySide({ sd }: { sd: -1 | 1 }) {
 }
 
 
+/** The modelled interior (dash, doors, seats, console, steering wheel) from public/models/cabin.glb. */
+interface CabinModel { shell: THREE.Object3D; wheel: THREE.Mesh; wheelPos: THREE.Vector3; q: THREE.Quaternion }
+const wheelLeather = new THREE.MeshStandardMaterial({ color: '#0d0d0f', roughness: 0.5, metalness: 0.05 })
+
+function useCabinModel() {
+  const [m, setM] = useState<CabinModel | null>(null)
+  useEffect(() => {
+    let dead = false
+    fetch('/models/cabin.json')
+      .then((r) => r.json())
+      .then((meta) => {
+        new GLTFLoader().load('/models/cabin.glb', (g) => {
+          if (dead) return
+          const shell = g.scene.getObjectByName('cabin')
+          const wheel = g.scene.getObjectByName('wheel') as THREE.Mesh | undefined
+          if (!shell || !wheel) return
+          shell.removeFromParent()
+          shell.traverse((o) => {
+            o.layers.set(1) // driver-only: the cabin never shows up in the mirrors
+            const me = o as THREE.Mesh
+            if (me.isMesh) {
+              me.castShadow = false; me.receiveShadow = false
+              const mats = Array.isArray(me.material) ? me.material : [me.material]
+              mats.forEach((mm) => { (mm as THREE.MeshStandardMaterial).envMapIntensity = 0.35 })
+            }
+          })
+          wheel.removeFromParent()
+          wheel.layers.set(1)
+          wheel.material = wheelLeather
+          const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...(meta.normal as [number, number, number])).normalize())
+          setM({ shell, wheel, wheelPos: new THREE.Vector3(...(meta.wheel as [number, number, number])), q })
+        })
+      })
+      .catch(() => {})
+    return () => { dead = true }
+  }, [])
+  return m
+}
+
 export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
+  const model = useCabinModel()
+  const hasModel = !!model
+  const qInv = useMemo(() => (model ? model.q.clone().invert() : new THREE.Quaternion()), [model])
   return (
     <group>
+      {model && <primitive object={model.shell} />}
+      {model && (
+        <group position={model.wheelPos} quaternion={model.q}>
+          <group ref={wheel}>
+            <group quaternion={qInv}>
+              <primitive object={model.wheel} position={[0, 0, 0]} />
+            </group>
+          </group>
+        </group>
+      )}
       {/* dashboard (driver side is cut low so the wheel sits in front of the binnacle) */}
+      {!hasModel && <>
       <mesh geometry={geoDashPassenger} material={plastic} position={[0.4, 0, 0]} />
       <mesh geometry={geoDashPod} material={plastic} position={[-0.4, 0, 0]} />
       <mesh geometry={geoDashSide} material={plastic} position={[-0.8, 0, 0]} />
@@ -287,6 +341,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       <mesh position={[0, 0.992, -0.972]} material={trim}>
         <boxGeometry args={[1.88, 0.01, 0.012]} />
       </mesh>
+      </>}
 
       {/* A-pillars, header, roof */}
       <Beam from={[-0.93, 0.99, -0.97]} to={[-0.82, 1.62, -0.6]} t={0.1} material={plastic} />
@@ -297,7 +352,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       <Windshield />
       {/* the rear-view mirror hangs from the middle of the windshield header */}
       <Beam from={[0.0, 1.61, -0.66]} to={[0.0, 1.48, -0.72]} t={0.035} material={plastic} />
-      <CenterStack />
+      {!hasModel && <CenterStack />}
       <mesh position={[0, 1.65, 0.4]} material={headliner}>
         <boxGeometry args={[1.9, 0.05, 2.0]} />
       </mesh>
@@ -309,7 +364,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[0.42, 0.04, 0.2]} />
       </mesh>
       {/* doors with armrests */}
-      {[-1, 1].map((sd) => (
+      {!hasModel && [-1, 1].map((sd) => (
         <group key={sd}>
           <mesh position={[sd * 0.9, 0.7, 0.1]} material={door}>
             <boxGeometry args={[0.08, 0.5, 2.2]} />
@@ -333,12 +388,12 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       ))}
 
       {/* centre console between seats */}
-      <mesh position={[0.0, 0.62, 0.55]} material={leather}>
+      {!hasModel && <mesh position={[0.0, 0.62, 0.55]} material={leather}>
         <boxGeometry args={[0.28, 0.3, 1.0]} />
-      </mesh>
+      </mesh>}
 
       {/* steering column + wheel (tilted like a real column) */}
-      <group position={[-0.4, 0.89, -0.337]} rotation={[-0.454, 0, 0]} scale={1.054}>
+      {!hasModel && <group position={[-0.4, 0.89, -0.337]} rotation={[-0.454, 0, 0]} scale={1.054}>
         <mesh position={[0, 0, -0.1]} rotation={[Math.PI / 2, 0, 0]} material={plastic}>
           <cylinderGeometry args={[0.032, 0.04, 0.2, 14]} />
         </mesh>
@@ -382,15 +437,15 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
             <boxGeometry args={[0.04, 0.16, 0.022]} />
           </mesh>
         </group>
-      </group>
+      </group>}
 
       {/* floor and knee panel: nothing but cabin below the dash, so no road shows under the wheel */}
       <mesh position={[0, 0.3, 0.2]} material={fabric}>
         <boxGeometry args={[1.9, 0.04, 2.6]} />
       </mesh>
-      <mesh position={[0, 0.5, -0.64]} material={plastic}>
+      {!hasModel && <mesh position={[0, 0.5, -0.64]} material={plastic}>
         <boxGeometry args={[1.9, 0.4, 0.05]} />
-      </mesh>
+      </mesh>}
       <mesh position={[0, 0.5, -0.96]} material={matteBlack}>
         <boxGeometry args={[1.9, 0.4, 0.05]} />
       </mesh>

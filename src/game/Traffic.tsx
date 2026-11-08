@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { wrapD } from './map'
 import { extrudeProfile } from './geom'
@@ -105,9 +106,68 @@ const motion: Motion[] = Array.from({ length: MAX_CARS }, () => ({ h: 0, pitch: 
 const _e = new THREE.Euler(0, 0, 0, 'YXZ')
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a))
 
+/** Real car models, loaded from public/models. Until they arrive the built-in boxy cars are used. */
+interface GlbPart { geo: THREE.BufferGeometry; mat: THREE.Material; tint: boolean }
+interface GlbCar {
+  parts: GlbPart[]
+  halfLen: number
+  halfW: number
+  height: number
+  wheels: Array<{ x: number; z: number }>
+  r: number
+}
+// kind index -> model file. 0-2 take the paint colour (white paint tinted per car); the rest keep their own colours.
+const GLB_FILES: Array<{ name: string; meta: 'meta' | 'meta2'; tint: boolean }> = [
+  { name: 'sedan', meta: 'meta', tint: true },
+  { name: 'pickup', meta: 'meta', tint: true },
+  { name: 'van', meta: 'meta', tint: true },
+  { name: 'challenger', meta: 'meta2', tint: false },
+  { name: 'impala', meta: 'meta2', tint: false },
+  { name: 'volga', meta: 'meta2', tint: false },
+]
+export const N_KINDS = GLB_FILES.length
+
+function useCarModels() {
+  const [cars, setCars] = useState<Array<GlbCar | null>>(() => GLB_FILES.map(() => null))
+  useEffect(() => {
+    let dead = false
+    const loader = new GLTFLoader()
+    Promise.all([fetch('/models/meta.json').then((r) => r.json()), fetch('/models/meta2.json').then((r) => r.json())])
+      .then(([m1, m2]) => {
+        GLB_FILES.forEach((f, k) => {
+          loader.load(`/models/${f.name}.glb`, (g) => {
+            if (dead) return
+            const meshes: THREE.Mesh[] = []
+            g.scene.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh) })
+            if (!meshes.length) return
+            const m = (f.meta === 'meta' ? m1 : m2)[f.name]
+            const parts: GlbPart[] = meshes.map((me) => {
+              const src = me.material as THREE.MeshStandardMaterial
+              let mat: THREE.Material
+              if (f.tint) mat = new THREE.MeshPhysicalMaterial({ map: src.map, roughness: 0.38, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.15 })
+              else { mat = src.clone(); (mat as THREE.MeshStandardMaterial).envMapIntensity = 1; (mat as THREE.MeshStandardMaterial).side = THREE.FrontSide }
+              if ((mat as THREE.MeshStandardMaterial).map) (mat as THREE.MeshStandardMaterial).map!.anisotropy = 4
+              return { geo: me.geometry, mat, tint: f.tint }
+            })
+            const w = m.wheels as Array<{ x: number; z: number; r: number }>
+            const car: GlbCar = { parts, halfLen: m.length / 2, halfW: m.width / 2, height: m.height, wheels: w.map((q) => ({ x: q.x, z: q.z })), r: w.length ? w[0].r : 0.33 }
+            setCars((prev) => { const n = prev.slice(); n[k] = car; return n })
+          })
+        })
+      })
+      .catch(() => {})
+    return () => { dead = true }
+  }, [])
+  return cars
+}
+
 /** All AI traffic, drawn with instancing: any number of cars costs a handful of draw calls. */
 export function Traffic() {
   const models = useMemo(() => DEFS.map(buildModel), [])
+  const glb = useCarModels()
+  const glbRef = useRef(glb)
+  glbRef.current = glb
+  const partRefs = useRef<Array<Array<THREE.InstancedMesh | null>>>(GLB_FILES.map(() => []))
   const bodies = useRef<Array<THREE.InstancedMesh | null>>([])
   const darks = useRef<Array<THREE.InstancedMesh | null>>([])
   const tyres = useRef<THREE.InstancedMesh>(null!)
@@ -120,7 +180,7 @@ export function Traffic() {
   useEffect(() => () => models.forEach((m) => { m.body.dispose(); m.dark.dispose() }), [models])
 
   useFrame((_, dt) => {
-    const counts = [0, 0, 0]
+    const counts = GLB_FILES.map(() => 0)
     let nw = 0
     let nl = 0
     let nb = 0
@@ -146,25 +206,43 @@ export function Traffic() {
       _e.set(mo.pitch, mo.h, mo.roll, 'YXZ')
       _q.setFromEuler(_e)
       _m.compose(_p, _q, _s)
-      const k = c.kind
+      let k = c.kind < 3 || glbRef.current[c.kind] ? c.kind : 0 // a model that has not loaded yet is drawn as a sedan
+      if (k >= 3 && counts[k] >= 80) k = 0
       const i = counts[k]++
-      const md = models[k]
-      bodies.current[k]!.setMatrixAt(i, _m)
-      bodies.current[k]!.setColorAt(i, colorOf(c.color))
-      darks.current[k]!.setMatrixAt(i, _m)
-      for (const [wx, wz] of md.wheels) {
-        _l.makeTranslation(wx, md.d.tyre, wz)
+      const md = models[Math.min(k, 2)]
+      const gm = glbRef.current[k]
+      if (gm) {
+        const ps = partRefs.current[k]
+        for (let pi = 0; pi < gm.parts.length; pi++) {
+          const im = ps[pi]
+          if (!im) continue
+          im.setMatrixAt(i, _m)
+          if (gm.parts[pi].tint) im.setColorAt(i, colorOf(c.color))
+        }
+      } else {
+        bodies.current[k]!.setMatrixAt(i, _m)
+        bodies.current[k]!.setColorAt(i, colorOf(c.color))
+        darks.current[k]!.setMatrixAt(i, _m)
+      }
+      const wheelsAt = gm ? gm.wheels.map((w) => [w.x, w.z] as [number, number]) : md.wheels
+      const tyreR = gm ? gm.r : md.d.tyre
+      const tsc = tyreR / 0.34
+      for (const [wx, wz] of wheelsAt) {
+        _l.makeScale(tsc, tsc, tsc)
+        _l.setPosition(wx, tyreR, wz)
         _w.multiplyMatrices(_m, _l)
         tyres.current.setMatrixAt(nw, _w)
         rims.current.setMatrixAt(nw, _w)
         nw++
       }
-      const hl = md.d.halfLen + 0.01
+      const hl = (gm ? gm.halfLen - 0.02 : md.d.halfLen + 0.01)
+      const hw = gm ? gm.halfW : md.d.halfW
+      const lampY = gm ? [gm.height * 0.4, gm.height * (k === 2 ? 0.52 : 0.5)] : [0.72, k === 2 ? 0.95 : 0.78]
       for (const sx of [-0.66, 0.66]) {
-        _l.makeTranslation(sx * (md.d.halfW / 0.89), 0.72, -hl)
+        _l.makeTranslation(sx * (hw / 0.89), gm ? -10 : lampY[0], -hl) // real models have painted headlights
         _w.multiplyMatrices(_m, _l)
         heads.current.setMatrixAt(nl, _w)
-        _l.makeTranslation(sx * (md.d.halfW / 0.89), k === 2 ? 0.95 : 0.78, hl)
+        _l.makeTranslation(gm ? Math.sign(sx) * hw * 0.64 : sx * (hw / 0.89), lampY[1], gm ? hl - 0.1 : hl)
         _w.multiplyMatrices(_m, _l)
         tails.current.setMatrixAt(nl, _w)
         tails.current.setColorAt(nl, c.braking ? TAIL_ON : TAIL_DIM)
@@ -172,24 +250,38 @@ export function Traffic() {
       }
       // indicators: blink on the side the car is signalling (lane change or turn)
       if (c.sig !== 0 && (now / 380 + c.id * 0.37) % 2 < 1) {
-        const sx = c.sig * (md.d.halfW - 0.13)
-        _l.makeTranslation(sx, 0.72, -hl)
+        const sx = c.sig * (hw - 0.13)
+        _l.makeTranslation(sx, lampY[0], -hl)
         _w.multiplyMatrices(_m, _l)
         blinkers.current.setMatrixAt(nb++, _w)
-        _l.makeTranslation(sx, k === 2 ? 0.95 : 0.8, hl)
+        _l.makeTranslation(sx, lampY[1], hl)
         _w.multiplyMatrices(_m, _l)
         blinkers.current.setMatrixAt(nb++, _w)
-        _l.makeTranslation(c.sig * (md.d.halfW + 0.012), 0.82, -hl * 0.55)
+        _l.makeTranslation(c.sig * (hw + 0.012), lampY[1], -hl * 0.55)
         _w.multiplyMatrices(_m, _l)
         repeaters.current.setMatrixAt(nr++, _w)
       }
     }
-    for (let k = 0; k < 3; k++) {
-      const b = bodies.current[k]!
-      const d = darks.current[k]!
-      b.count = d.count = counts[k]
-      b.instanceMatrix.needsUpdate = d.instanceMatrix.needsUpdate = true
-      if (b.instanceColor) b.instanceColor.needsUpdate = true
+    for (let k = 0; k < GLB_FILES.length; k++) {
+      const gm = glbRef.current[k]
+      if (gm) {
+        for (const im of partRefs.current[k]) {
+          if (!im) continue
+          im.count = counts[k]
+          im.instanceMatrix.needsUpdate = true
+          if (im.instanceColor) im.instanceColor.needsUpdate = true
+        }
+      }
+      if (k < 3) {
+        const b = bodies.current[k]
+        const d = darks.current[k]
+        if (b && d) {
+          b.count = gm ? 0 : counts[k]
+          d.count = gm ? 0 : counts[k]
+          b.instanceMatrix.needsUpdate = d.instanceMatrix.needsUpdate = true
+          if (b.instanceColor) b.instanceColor.needsUpdate = true
+        }
+      }
     }
     tyres.current.count = rims.current.count = nw
     heads.current.count = tails.current.count = nl
@@ -208,6 +300,13 @@ export function Traffic() {
         <group key={k}>
           <instancedMesh ref={(r) => { bodies.current[k] = r }} args={[m.body, paintMat, MAX_CARS]} frustumCulled={false} castShadow />
           <instancedMesh ref={(r) => { darks.current[k] = r }} args={[m.dark, darkMat, MAX_CARS]} frustumCulled={false} castShadow />
+        </group>
+      ))}
+      {glb.map((g, k) => g && (
+        <group key={'g' + k}>
+          {g.parts.map((p, pi) => (
+            <instancedMesh key={pi} ref={(r) => { partRefs.current[k][pi] = r }} args={[p.geo, p.mat, k < 3 ? MAX_CARS : 80]} frustumCulled={false} castShadow />
+          ))}
         </group>
       ))}
       <instancedMesh ref={tyres} args={[tyreGeo, tyreMat, MAX_CARS * 4]} frustumCulled={false} castShadow />
