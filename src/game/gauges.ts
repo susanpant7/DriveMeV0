@@ -44,14 +44,12 @@ function segArc(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, 
   }
 }
 
-/** A modern all-digital instrument cluster: big speed readout inside a segmented arc, side gauges, gear and limit. */
+/** A modern all-digital instrument cluster: big speed readout inside a segmented arc, side gauges and gear. */
 export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d: ClusterData) {
   g.clearRect(0, 0, w, h)
   const mph = d.units === 'mph'
   const shown = d.speed * (mph ? 2.23694 : 3.6)
   const max = mph ? 120 : 200
-  const limit = mph ? 30 : 50
-  const over = shown > limit * 1.1
   const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif'
 
   // deep glass background with a faint vignette
@@ -68,11 +66,6 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
   // main speed arc
   const cool = (t: number) => (t < 0.55 ? `hsl(${190 - t * 40},95%,${58 + t * 10}%)` : t < 0.8 ? '#ffd24a' : '#ff5a4d')
   segArc(g, cx, cy, R, R * 0.12, 135, 270, Math.min(1, shown / max), 54, cool)
-  // speed-limit marker on the arc
-  const la = deg(135 + (limit / max) * 270)
-  g.strokeStyle = '#ff5a4d'
-  g.lineWidth = 4
-  g.beginPath(); g.moveTo(cx + Math.cos(la) * (R * 0.9), cy + Math.sin(la) * (R * 0.9)); g.lineTo(cx + Math.cos(la) * (R * 1.12), cy + Math.sin(la) * (R * 1.12)); g.stroke()
   // scale numbers just inside the arc
   g.fillStyle = 'rgba(200,220,245,0.55)'
   g.font = `500 ${R * 0.1}px ${FONT}`
@@ -84,9 +77,9 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
   }
 
   // big speed number
-  g.shadowColor = over ? 'rgba(255,90,77,0.7)' : 'rgba(110,200,255,0.55)'
+  g.shadowColor = 'rgba(110,200,255,0.55)'
   g.shadowBlur = R * 0.14
-  g.fillStyle = over ? '#ff7468' : '#f4f9ff'
+  g.fillStyle = '#f4f9ff'
   g.font = `600 ${R * 0.78}px ${FONT}`
   g.textAlign = 'center'
   g.fillText(String(Math.round(shown)), cx, cy - R * 0.06)
@@ -115,82 +108,17 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
   g.font = `500 ${R * 0.11}px ${FONT}`
   g.fillText('x1000 RPM', lx, ly + R * 0.27)
 
-  // right: speed-limit sign and trip
+  // right: trip distance
   const rx = w * 0.85
-  g.fillStyle = '#fff'
-  g.beginPath(); g.arc(rx, cy - R * 0.2, R * 0.34, 0, Math.PI * 2); g.fill()
-  g.strokeStyle = '#d8281d'
-  g.lineWidth = R * 0.07
-  g.beginPath(); g.arc(rx, cy - R * 0.2, R * 0.3, 0, Math.PI * 2); g.stroke()
-  g.fillStyle = '#111'
-  g.font = `700 ${R * 0.32}px ${FONT}`
-  g.fillText(String(limit), rx, cy - R * 0.18)
-  g.fillStyle = '#9fc0e6'
-  g.font = `500 ${R * 0.14}px ${FONT}`
-  g.fillText(`TRIP ${mph ? (d.trip / 1609.34).toFixed(1) + ' mi' : (d.trip / 1000).toFixed(1) + ' km'}`, rx, cy + R * 0.38)
+  g.fillStyle = '#eaf3ff'
+  g.textAlign = 'center'
+  g.font = `600 ${R * 0.3}px ${FONT}`
+  g.fillText(mph ? (d.trip / 1609.34).toFixed(1) : (d.trip / 1000).toFixed(1), rx, cy - R * 0.02)
+  g.fillStyle = '#7fa6cf'
+  g.font = `500 ${R * 0.11}px ${FONT}`
+  g.fillText(mph ? 'TRIP MI' : 'TRIP KM', rx, cy + R * 0.27)
 
   // turn signals at the top corners of the speed arc
   arrow(g, cx - R * 1.15, h * 0.12, -1, d.signal === -1 && d.blink, h * 0.07)
   arrow(g, cx + R * 1.15, h * 0.12, 1, d.signal === 1 && d.blink, h * 0.07)
-}
-
-export interface ScreenData {
-  score: number
-  clean: number
-  changes: number
-  speed: number // m/s
-  units: 'kmh' | 'mph'
-}
-
-export function drawScreen(g: CanvasRenderingContext2D, w: number, h: number, d: ScreenData) {
-  const bg = g.createLinearGradient(0, 0, w, h)
-  bg.addColorStop(0, '#0e1a2b')
-  bg.addColorStop(1, '#07101c')
-  g.fillStyle = bg
-  g.fillRect(0, 0, w, h)
-
-  const now = new Date()
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mm = String(now.getMinutes()).padStart(2, '0')
-  g.textBaseline = 'top'
-  g.textAlign = 'left'
-  g.fillStyle = '#ffffff'
-  g.font = '600 64px system-ui, sans-serif'
-  g.fillText(`${hh}:${mm}`, 28, 24)
-  g.fillStyle = '#6fa8ff'
-  g.font = '28px system-ui, sans-serif'
-  g.fillText('DriveMe', 30, 100)
-
-  // speed-limit sign
-  const sx = w - 110
-  const sy = 100
-  g.fillStyle = '#fff'
-  g.beginPath()
-  g.arc(sx, sy, 62, 0, Math.PI * 2)
-  g.fill()
-  g.strokeStyle = d.speed > 50 / 3.6 * 1.12 ? '#ff2d20' : '#d8281d'
-  g.lineWidth = 12
-  g.beginPath()
-  g.arc(sx, sy, 56, 0, Math.PI * 2)
-  g.stroke()
-  g.fillStyle = '#111'
-  g.textAlign = 'center'
-  g.textBaseline = 'middle'
-  g.font = '700 56px system-ui, sans-serif'
-  g.fillText(d.units === 'mph' ? '30' : '50', sx, sy + 3)
-
-  // lesson progress
-  g.textAlign = 'left'
-  g.fillStyle = '#9bb4d4'
-  g.font = '26px system-ui, sans-serif'
-  g.fillText('SCORE', 30, 190)
-  g.fillStyle = '#fff'
-  g.font = '700 54px system-ui, sans-serif'
-  g.fillText(String(d.score), 30, 235)
-  g.fillStyle = '#9bb4d4'
-  g.font = '26px system-ui, sans-serif'
-  g.fillText('CLEAN LANE CHANGES', 30, 285)
-  g.fillStyle = '#5dff7a'
-  g.font = '700 40px system-ui, sans-serif'
-  g.fillText(`${d.clean} / ${d.changes}`, 30, 325)
 }

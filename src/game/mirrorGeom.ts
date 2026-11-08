@@ -178,6 +178,11 @@ export class MirrorGlass extends THREE.Mesh {
   private readonly half: THREE.Vector2
   private readonly wide: number
   private readonly shift: [number, number]
+  // mirrors refresh on alternate frames (the picture is half a frame old at most): halves the extra scene renders
+  private static count = 0
+  private readonly phase = MirrorGlass.count++ & 1
+  private frame = 0
+  private primed = false
 
   constructor(geometry: THREE.BufferGeometry, o: MirrorGlassOpts) {
     const wide = o.wide ?? 1
@@ -204,6 +209,8 @@ export class MirrorGlass extends THREE.Mesh {
   }
 
   private renderView(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
+    this.frame++
+    if (this.primed && (this.frame & 1) !== this.phase) return
     const mw = this.matrixWorld
     _C.setFromMatrixPosition(mw)
     _N.set(0, 0, 1).transformDirection(mw)
@@ -241,6 +248,7 @@ export class MirrorGlass extends THREE.Mesh {
     v.projectionMatrix.makePerspective((cx - hw) * f, (cx + hw) * f, (cy + hh) * f, (cy - hh) * f, n, v.far)
     v.projectionMatrixInverse.copy(v.projectionMatrix).invert()
 
+    this.primed = true
     this.visible = false
     const prevRT = renderer.getRenderTarget()
     const prevXr = renderer.xr.enabled

@@ -77,7 +77,7 @@ export function SunLight() {
       castShadow
       intensity={1.7}
       color="#fff6e6"
-      shadow-mapSize={[2048, 2048]}
+      shadow-mapSize={[1536, 1536]}
       shadow-camera-left={-32}
       shadow-camera-right={32}
       shadow-camera-top={32}

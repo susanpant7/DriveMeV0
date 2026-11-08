@@ -298,18 +298,18 @@ export function Traffic() {
     <>
       {models.map((m, k) => (
         <group key={k}>
-          <instancedMesh ref={(r) => { bodies.current[k] = r }} args={[m.body, paintMat, MAX_CARS]} frustumCulled={false} castShadow />
-          <instancedMesh ref={(r) => { darks.current[k] = r }} args={[m.dark, darkMat, MAX_CARS]} frustumCulled={false} castShadow />
+          <instancedMesh ref={(r) => { bodies.current[k] = r }} args={[m.body, paintMat, MAX_CARS]} frustumCulled={false} />
+          <instancedMesh ref={(r) => { darks.current[k] = r }} args={[m.dark, darkMat, MAX_CARS]} frustumCulled={false} />
         </group>
       ))}
       {glb.map((g, k) => g && (
         <group key={'g' + k}>
           {g.parts.map((p, pi) => (
-            <instancedMesh key={pi} ref={(r) => { partRefs.current[k][pi] = r }} args={[p.geo, p.mat, k < 3 ? MAX_CARS : 80]} frustumCulled={false} castShadow />
+            <instancedMesh key={pi} ref={(r) => { partRefs.current[k][pi] = r }} args={[p.geo, p.mat, k < 3 ? MAX_CARS : 80]} frustumCulled={false} />
           ))}
         </group>
       ))}
-      <instancedMesh ref={tyres} args={[tyreGeo, tyreMat, MAX_CARS * 4]} frustumCulled={false} castShadow />
+      <instancedMesh ref={tyres} args={[tyreGeo, tyreMat, MAX_CARS * 4]} frustumCulled={false} />
       <instancedMesh ref={rims} args={[rimGeo, rimMat, MAX_CARS * 4]} frustumCulled={false} />
       <instancedMesh ref={heads} args={[lampGeo, headMat, MAX_CARS * 2]} frustumCulled={false} />
       <instancedMesh ref={tails} args={[lampGeo, tailMat, MAX_CARS * 2]} frustumCulled={false} />

@@ -12,8 +12,8 @@ const Key = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>
 const TRAFFIC_LABELS = ['Very light', 'Light', 'Normal', 'Busy', 'Very busy']
 
 function Settings() {
-  const units = useGame((s) => s.units)
   const traffic = useGame((s) => s.traffic)
+  const units = useGame((s) => s.units)
   return (
     <div className="settings">
       <div className="setting">
@@ -56,13 +56,6 @@ function ControlsList() {
   )
 }
 
-const MirrorIcon = () => (
-  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-    <path d="M5 7c0-1.7 1.3-3 3-3h8c1.7 0 3 1.3 3 3v6c0 1.7-1.3 3-3 3H8c-1.7 0-3-1.3-3-3z" fill="none" stroke="currentColor" strokeWidth="2" />
-    <path d="M10 16v4M14 16v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-  </svg>
-)
-
 /** A button that stays "pressed" while a finger is on it (works with several fingers at once). */
 function HoldButton({ label, onDown, onUp, className = '', active = false, children }: { label: string; onDown: () => void; onUp: () => void; className?: string; active?: boolean; children: ReactNode }) {
   const down = (e: PointerEvent<HTMLButtonElement>) => {
@@ -87,8 +80,8 @@ function HoldButton({ label, onDown, onUp, className = '', active = false, child
 }
 
 /**
- * On-screen controls for phones and tablets. Bottom left: an eye (slide to turn your head) with a steering wheel under it
- * (turn it with your thumb). Bottom centre: the indicators. Bottom right: brake and gas.
+ * On-screen controls for phones and tablets. Bottom left: an eye (slide to turn your head) with the indicators on either side and a steering wheel under it
+ * (turn it with your thumb). Bottom right: brake and gas.
  */
 function TouchControls() {
   const signal = useGame((s) => s.hud.signal)
@@ -96,16 +89,15 @@ function TouchControls() {
   return (
     <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
       <div className="tleft">
-        <EyeControl />
+        <div className="eyerow">
+          <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}>◀</HoldButton>
+          <EyeControl />
+          <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
+        </div>
         <SteerWheel />
       </div>
 
-      <div className="tgroup center">
-        <div className="trow">
-          <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}>◀</HoldButton>
-          <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
-        </div>
-      </div>
+      <div className="tgroup center" />
 
       <div className="tgroup">
         <HoldButton label="Brake" className="pedal brake" {...hold('down')}>Brake</HoldButton>
@@ -121,7 +113,7 @@ function TouchHelp() {
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
       <li><span><b>Wheel</b></span> Bottom left: turn the steering wheel with your thumb</li>
       <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror)</li>
-      <li><span><b>◀ ▶</b></span> Bottom centre: left and right indicators (tap to switch on or off)</li>
+      <li><span><b>◀ ▶</b></span> Either side of the eye: left and right indicators (tap to switch on or off)</li>
     </ul>
   )
 }
@@ -143,27 +135,16 @@ function ModePicker() {
 const modeTitle = (m: Mode) => MODES.find((x) => x.id === m)?.title ?? ''
 
 function PlayingHud() {
-  const hud = useGame((s) => s.hud)
   const messages = useGame((s) => s.messages)
-  const units = useGame((s) => s.units)
   const { touch } = useViewport()
   const [help, setHelp] = useState(true)
   useEffect(() => {
     const t = setTimeout(() => setHelp(false), 15000)
     return () => clearTimeout(t)
   }, [])
-  const speeding = hud.speed > hud.limit * 1.12
-  const chip = (label: string, on: boolean, active: boolean) => (
-    <span className={`chip${on ? ' on' : ''}${active ? ' active' : ''}`}><MirrorIcon />{label}</span>
-  )
   return (
     <>
       <div className="tl">
-        <div className="chips" title="Lights up when you have glanced at that mirror recently">
-          {chip('Left', hud.checks.left, hud.look === 'left')}
-          {chip('Rear', hud.checks.center, hud.look === 'center')}
-          {chip('Right', hud.checks.right, hud.look === 'right')}
-        </div>
         <div className="toasts">
           {messages.map((m) => (
             <div key={m.id} className={`toast ${m.kind}`}>{m.text}</div>
@@ -176,11 +157,6 @@ function PlayingHud() {
           <svg viewBox="0 0 24 24" width="18" height="18"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor" /><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor" /></svg>
         </button>
       </div>
-
-      {touch && <div className={`limit${speeding ? ' over' : ''}${touch ? ' top' : ''}`} title="Speed limit">
-        <small>SPEED<br />LIMIT</small>
-        <b>{Math.round((hud.limit * (units === 'kmh' ? 3.6 : 2.23694)) / 5) * 5}</b>
-      </div>}
 
       <MapOverlay />
 

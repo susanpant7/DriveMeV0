@@ -199,6 +199,26 @@ function drawIcon(g: CanvasRenderingContext2D, icon: string, cx: number, cy: num
 const angDiff = (a: number, b: number) => ((((b - a) % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2)) - Math.PI
 
 /** Heading-up navigation map. Called a few times per frame-budget; `dt` smooths the camera so nothing jitters. */
+/** The turn instruction banner (icon, street, distance). Also used alone on phones, where there is no map. */
+export function drawBanner(g: CanvasRenderingContext2D, w: number, units: 'kmh' | 'mph', compact: boolean) {
+  if (nav.text) {
+    const bh = compact ? 46 : 58
+    g.fillStyle = 'rgba(10,15,23,.94)'
+    roundRect(g, 8, 8, w - 16, bh, 11); g.fill()
+    g.fillStyle = '#1f6fe0'
+    roundRect(g, 12, 12, bh - 8, bh - 8, 9); g.fill()
+    drawIcon(g, nav.icon, 12 + (bh - 8) / 2, 12 + (bh - 8) / 2, bh - 16)
+    const tx = 12 + bh - 8 + 8
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic'
+    g.fillStyle = '#fff'; g.font = `700 ${compact ? 13 : 16}px system-ui, sans-serif`
+    g.fillText(nav.text, tx, compact ? 28 : 32, w - tx - 62)
+    g.fillStyle = '#9fb4cf'; g.font = `500 ${compact ? 10.5 : 12}px system-ui, sans-serif`
+    g.fillText(nav.sub, tx, compact ? 42 : 51, w - tx - 62)
+    g.textAlign = 'right'; g.fillStyle = '#fff'; g.font = `700 ${compact ? 14 : 18}px system-ui, sans-serif`
+    g.fillText(fmtDist(nav.dist, units), w - 14, compact ? 36 : 42)
+  }
+}
+
 export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt: number, units: 'kmh' | 'mph', compact = false) {
   if (!paths) paths = buildPaths()
   const pth = paths
@@ -326,23 +346,7 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   g.fillStyle = 'rgba(8,12,18,.82)'; g.beginPath(); g.arc(ca.x, ca.y, 14, 0, Math.PI * 2); g.fill()
   g.fillStyle = '#ff6b6b'; g.font = '700 11px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'
   g.fillText('N', ca.x + Math.sin(view.h) * 7, ca.y - Math.cos(view.h) * 7)
-  // instruction banner
-  if (nav.text) {
-    const bh = compact ? 46 : 58
-    g.fillStyle = 'rgba(10,15,23,.94)'
-    roundRect(g, 8, 8, w - 16, bh, 11); g.fill()
-    g.fillStyle = '#1f6fe0'
-    roundRect(g, 12, 12, bh - 8, bh - 8, 9); g.fill()
-    drawIcon(g, nav.icon, 12 + (bh - 8) / 2, 12 + (bh - 8) / 2, bh - 16)
-    const tx = 12 + bh - 8 + 8
-    g.textAlign = 'left'; g.textBaseline = 'alphabetic'
-    g.fillStyle = '#fff'; g.font = `700 ${compact ? 13 : 16}px system-ui, sans-serif`
-    g.fillText(nav.text, tx, compact ? 28 : 32, w - tx - 62)
-    g.fillStyle = '#9fb4cf'; g.font = `500 ${compact ? 10.5 : 12}px system-ui, sans-serif`
-    g.fillText(nav.sub, tx, compact ? 42 : 51, w - tx - 62)
-    g.textAlign = 'right'; g.fillStyle = '#fff'; g.font = `700 ${compact ? 14 : 18}px system-ui, sans-serif`
-    g.fillText(fmtDist(nav.dist, units), w - 14, compact ? 36 : 42)
-  }
+  drawBanner(g, w, units, compact)
   g.restore()
 }
 

@@ -20,7 +20,7 @@ canvas { display: block; }
 button { font: inherit; color: inherit; cursor: pointer; }
 
 .hud { position: fixed; inset: 0; pointer-events: none; }
-.card, .chip, .toast, .helpbar, .limit, .icon-btn, .panel {
+.card, .toast, .helpbar, .icon-btn, .panel {
   backdrop-filter: blur(10px) saturate(1.2);
   -webkit-backdrop-filter: blur(10px) saturate(1.2);
 }
@@ -34,15 +34,6 @@ kbd {
 
 /* ---------- in-game HUD ---------- */
 .tl { position: absolute; top: 16px; left: 16px; display: flex; flex-direction: column; gap: 10px; max-width: min(380px, 70vw); }
-.chips { display: flex; gap: 6px; }
-.chip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px 5px 9px; border-radius: 999px;
-  font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted);
-  background: var(--glass); border: 1px solid var(--stroke); transition: all .2s;
-}
-.chip.on { color: #eafff1; background: rgba(34, 197, 94, .28); border-color: rgba(34, 197, 94, .7); }
-.chip.active { box-shadow: 0 0 0 2px rgba(255,255,255,.55); }
-
 .toasts { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .toast {
   position: relative; padding: 9px 14px 9px 16px; border-radius: 10px; font-size: 14px; line-height: 1.3;
@@ -68,15 +59,6 @@ kbd {
 }
 .icon-btn:hover { background: rgba(255,255,255,.14); transform: scale(1.05); }
 
-/* US-style speed-limit sign */
-.limit {
-  position: absolute; left: 16px; bottom: 18px; width: 62px; padding: 5px 0 6px; border-radius: 6px;
-  display: flex; flex-direction: column; align-items: center; background: #fff; color: #111; border: 3px solid #111;
-  box-shadow: 0 0 0 2px #fff, 0 6px 18px rgba(0,0,0,.4); transition: all .2s;
-}
-.limit small { font-size: 9px; font-weight: 800; line-height: 1.05; text-align: center; letter-spacing: .02em; }
-.limit b { font-size: 30px; font-weight: 800; line-height: 1; margin-top: 2px; }
-.limit.over { animation: pulse .7s ease-in-out infinite; box-shadow: 0 0 0 4px rgba(239,68,68,.85), 0 6px 18px rgba(0,0,0,.4); }
 @keyframes pulse { 50% { transform: scale(1.1); } }
 
 .helpbar {
@@ -189,9 +171,6 @@ canvas { touch-action: none; }
 
 .hud.touch .helpbar { display: none; }
 .hud.touch button kbd, .hud.touch .settings kbd { display: none; }
-.limit.top { left: auto; right: 70px; bottom: auto; top: 16px; width: 52px; }
-.limit.top b { font-size: 24px; }
-.limit.top small { font-size: 8px; }
 .overlay.rotate { z-index: 50; background: rgba(6,9,14,.96); }
 .overlay.rotate svg { color: var(--accent-2); margin-bottom: 6px; }
 
@@ -215,7 +194,6 @@ canvas { touch-action: none; }
   .tr { top: 8px; right: 10px; }
   .toast { font-size: 12.5px; padding: 6px 10px 6px 12px; }
   .icon-btn { width: 38px; height: 38px; }
-  .limit.top { top: 10px; right: 58px; }
 }
 @media (max-width: 760px) { .tbtn.look small { display: none; } .tbtn { padding: 0 8px; } }
 
@@ -265,7 +243,7 @@ canvas { touch-action: none; }
   background: #0e151e;
 }
 .hud:not(.touch) .mapscreen { right: auto; left: 16px; }
-.hud.touch .mapscreen { right: 10px; bottom: calc(clamp(54px, 17vh, 92px) * 1.35 + 22px); }
+.hud.touch .mapscreen { right: auto; left: 50%; transform: translateX(-50%); top: 8px; bottom: auto; border: 0; box-shadow: none; background: transparent; }
 
 /* ================= city picker ================= */
 .citypicker { display: flex; flex-direction: column; gap: 10px; }
@@ -300,21 +278,22 @@ canvas { touch-action: none; }
 button.primary:disabled { opacity: .6; cursor: wait; transform: none; }
 
 /* ================= touch: eye (look) and steering wheel at the lower left ================= */
-.tleft { pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.tleft { pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.eyerow { display: flex; align-items: center; gap: 8px; pointer-events: none; }
+.hud.touch .eyerow .tbtn.sig { min-width: 38px; height: 38px; border-radius: 12px; font-size: 14px; }
 .eye {
-  pointer-events: auto; touch-action: none; display: grid; place-items: center; gap: 0; width: 92px; height: 56px; border-radius: 28px; color: #fff;
+  pointer-events: auto; touch-action: none; display: grid; place-items: center; gap: 0; width: 64px; height: 40px; border-radius: 20px; color: #fff;
   background: rgba(14, 19, 28, .62); border: 1.5px solid rgba(255,255,255,.3); box-shadow: 0 6px 18px rgba(0,0,0,.35);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); user-select: none;
 }
-.eye svg { width: 56px; height: 34px; margin-top: 3px; }
-.eye small { font-size: 9.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .8; margin-top: -2px; margin-bottom: 3px; }
+.eye svg { width: 40px; height: 24px; margin-top: 2px; }
+.eye small { font-size: 8px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .8; margin-top: -2px; margin-bottom: 3px; }
 .eye.on { background: rgba(59,130,246,.62); border-color: rgba(255,255,255,.75); }
 .wheel {
-  pointer-events: auto; touch-action: none; width: clamp(96px, 29vh, 150px); aspect-ratio: 1; border-radius: 50%;
+  pointer-events: auto; touch-action: none; width: clamp(64px, 19vh, 98px); aspect-ratio: 1; border-radius: 50%;
   background: radial-gradient(circle, rgba(14,19,28,.35) 60%, rgba(14,19,28,.6) 100%); box-shadow: 0 8px 22px rgba(0,0,0,.4); user-select: none;
 }
 .wheel svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 3px 4px rgba(0,0,0,.5)); }
-.hud.touch .mapscreen { bottom: calc(clamp(54px, 17vh, 92px) * 1.35 + 22px); }
 
 .mapscreen { transition: opacity .15s; }
 .mapscreen.dim { opacity: .08; }
@@ -327,4 +306,3 @@ button.primary:disabled { opacity: .6; cursor: wait; transform: none; }
 .hud.touch .tbtn.pedal { min-width: calc(var(--pedal) * 1.3); height: var(--pedal); font-size: 12px; border-radius: 13px; padding: 0 8px; }
 .hud.touch .tbtn.pedal.gas { height: calc(var(--pedal) * 1.28); }
 .hud.touch .tbtn.sig { font-size: 15px; }
-.hud.touch .mapscreen { bottom: calc(clamp(38px, 10.5vh, 52px) * 1.28 + 8px + env(safe-area-inset-bottom)); }

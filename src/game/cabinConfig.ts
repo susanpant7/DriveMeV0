@@ -28,8 +28,8 @@ function mirror(id: MirrorCfg['id'], pos: THREE.Vector3, size: [number, number],
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 // mirror reflection textures: half size on phones / tablets
-const RES_SIDE: [number, number] = IS_COARSE ? [960, 648] : [1300, 880]
-const RES_REAR: [number, number] = IS_COARSE ? [768, 232] : [1024, 310]
+const RES_SIDE: [number, number] = IS_COARSE ? [800, 540] : [960, 650]
+const RES_REAR: [number, number] = IS_COARSE ? [640, 195] : [800, 244]
 
 // The left mirror sits in the lower-left of the front view, just past the A-pillar; no key is needed to see it.
 // Side mirrors are aimed almost straight back so the inner edge catches your own car's
