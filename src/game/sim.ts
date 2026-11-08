@@ -127,7 +127,6 @@ function trackHighway(): boolean {
     if (hw.crossed && x + halfW <= NB_EDGE_R + 0.2) {
       hw.stage = 'merged'
       hw.mergedAt = sim.t
-      say('Merged onto the highway. Cancel your indicator.', 'good')
     }
     // the lane has run out
     if (z <= Z_END && x > NB_EDGE_R - 0.3) return fail('The merge lane ended before you merged.', ['Start looking for a gap early: speed up along the merge lane, signal left and move over well before the lane ends.', 'If there is no gap, keep speed and look for the next one: do not stop in the merge lane.'])

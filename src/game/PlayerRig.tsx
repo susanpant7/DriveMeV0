@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Cabin } from './Cabin'
 import { CarPlay } from './CarPlay'
-import { EYE, FRONT_PITCH, FRONT_YAW, REPEATER, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
+import { EYE, FRONT_PITCH, FRONT_YAW, CARPLAY, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
 import { useGame } from './store'
@@ -32,20 +32,28 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
     })
     r.position.copy(cfg.pos)
     r.quaternion.copy(cfg.quat)
-    if (cfg.id === 'right') r.frustumCulled = false // keep rendering even when it is out of view: the dash repeater shows it
+    if (cfg.id !== 'center') r.frustumCulled = false // keep rendering even when it is out of view: the dash repeater shows it
     return { glass: r, ...housingGeometries(w, h, cfg.inner) }
   }, [cfg, w, h, side])
   useEffect(() => () => glass.dispose(), [glass])
-  // the dash repeater shares the real right mirror's picture
+  // the dash screen shows this mirror's picture while the matching indicator is on (left = -1, right = +1)
   const repeater = useMemo(() => {
-    if (cfg.id !== 'right') return null
+    if (cfg.id === 'center') return null
     const m = glass.material as THREE.ShaderMaterial
-    const mat = new THREE.ShaderMaterial({ uniforms: { ...m.uniforms }, vertexShader: m.vertexShader, fragmentShader: m.fragmentShader })
-    const mesh = new THREE.Mesh(glass.geometry, mat)
+    // a screen-shaped window onto the same picture: full width, the middle of the height (no stretching)
+    const Ws = CARPLAY.W, Hs = CARPLAY.W * 0.469
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { ...m.uniforms, uHalf: { value: new THREE.Vector2(Ws / 2, Hs / 1.4) }, uInner: { value: 1 } },
+      vertexShader: m.vertexShader,
+      fragmentShader: m.fragmentShader,
+    })
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(Ws, Hs), mat)
     mesh.frustumCulled = false
     return { mesh, mat }
   }, [cfg, glass])
   useEffect(() => () => repeater?.mat.dispose(), [repeater])
+  const feedGroup = useRef<THREE.Group>(null)
+  useFrame(() => { if (feedGroup.current) feedGroup.current.visible = sim.signal === (cfg.id === 'left' ? -1 : 1) })
 
   // A mirror is a fixed object: it never changes size. It only looks bigger when your head moves closer or turns to face it.
   return (
@@ -55,7 +63,13 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
         <mesh geometry={ringGeo} material={housingMat} />
         <mesh geometry={shellGeo} material={housingMat} />
       </group>
-      {repeater && <CarPlay feed={repeater.mesh} pos={REPEATER.pos} rot={[-0.15, 0.1, 0]} />}
+      {repeater && (
+        <group ref={feedGroup} position={CARPLAY.pos} rotation={CARPLAY.rot} visible={false}>
+          <group position={[0, 0, 0.004]}>
+            <primitive object={repeater.mesh} />
+          </group>
+        </group>
+      )}
     </>
   )
 }
@@ -171,6 +185,7 @@ export function PlayerRig() {
   return (
     <group ref={rig}>
       <Cabin wheel={wheel} />
+      <CarPlay />
 
       {MIRRORS.map((m) => (
         <Mirror key={m.id} cfg={m} />

@@ -11,8 +11,7 @@ export function MapOverlay() {
   const ref = useRef<HTMLCanvasElement>(null)
   const { touch } = useViewport()
   const look = useGame((g) => g.hud.look) // the map fades while you glance at a mirror, so it never covers one
-  const hwy = useGame((g) => g.mode === 'highway' && g.world === 'grid')
-  const banner = touch || hwy // phones and the highway course: just the instruction, no map
+  const banner = true // the map now lives on the dash screen; the overlay is only the turn instruction
   const W = banner ? 250 : 360
   const H = banner ? 54 : 236
 

@@ -460,9 +460,6 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       <BodySide sd={-1} />
       <BodySide sd={1} />
 
-      {/* mirror arms from the door to the mirror housings */}
-      <Beam from={[-0.94, 0.92, -0.85]} to={[-1.16, 0.99, -0.85]} t={0.045} />
-      <Beam from={[0.92, 0.9, -0.58]} to={[1.17, 1.0, -0.6]} t={0.045} />
 
     </group>
   )
