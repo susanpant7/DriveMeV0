@@ -37,17 +37,6 @@ export const nodeName = (i: number, j: number) => `${VERTICAL_NAMES[mod(i, 4)]} 
 /** name of the road you are on after leaving node (i, j) in direction d */
 const roadName = (i: number, j: number, d: number) => (d % 2 === 0 ? HORIZONTAL_NAMES[mod(j, 4)] : VERTICAL_NAMES[mod(i, 4)])
 
-export function dirOfHeading(h: number) {
-  const fx = -Math.sin(h)
-  const fz = -Math.cos(h)
-  let best = 0
-  let bd = -2
-  DIRS.forEach(([dx, dz], d) => {
-    const v = dx * fx + dz * fz
-    if (v > bd) { bd = v; best = d }
-  })
-  return best
-}
 export const headingOfDir = (d: number) => {
   const [dx, dz] = dirv(d)
   return Math.atan2(-dx, -dz)

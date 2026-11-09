@@ -55,7 +55,7 @@ export function installInput() {
     last.y = e.clientY
   }
   const mouseDown = (e: MouseEvent) => {
-    if (!onCanvas(e)) return
+    if (!onCanvas(e) || adjust.dragging) return // a press on a mirror adjusts it instead of turning the head
     last.x = e.clientX
     last.y = e.clientY
     if (e.button === 0) drag = { x: e.clientX, y: e.clientY }
@@ -144,7 +144,6 @@ export function installInput() {
     input.up = input.down = input.left = input.right = false
     input.free = false
     input.yaw = input.pitch = 0
-    input.analog = null
   }
   const blur = () => { release(); pauseGame() }
   const hidden = () => { if (document.hidden) pauseGame() }

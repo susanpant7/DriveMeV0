@@ -115,8 +115,6 @@ export function onRoad(x: number, z: number): boolean {
   return false
 }
 
-export type Zone = 'ramp' | 'merge' | 'highway' | 'off'
-
 /** the pose the player starts in */
 export function startPose() {
   if (scen.type === 'merge') return { x: RAMP_X0, z: Z_START, h: 0 }

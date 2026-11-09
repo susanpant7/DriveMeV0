@@ -66,7 +66,7 @@ function useCanvasTexture(w: number, h: number) {
 function Displays() {
   const cluster = useCanvasTexture(1024, 400)
   const last = useRef(0)
-  const clusterPos = useMemo(() => new THREE.Vector3(-0.4, 0.895, -0.56), [])
+  const clusterPos = useMemo(() => new THREE.Vector3(-0.41, 0.86, -0.93), [])
   const clusterRot = useMemo(() => faceEuler(clusterPos), [clusterPos])
 
   useFrame(() => {
@@ -293,49 +293,6 @@ function DoorCard({ sd }: { sd: -1 | 1 }) {
   )
 }
 
-const stitch = new THREE.MeshStandardMaterial({ color: '#d9b98a', roughness: 0.7 })
-const glowAmber = new THREE.MeshBasicMaterial({ color: '#ffb066', toneMapped: false })
-
-function woodTexture() {
-  const c = document.createElement('canvas')
-  c.width = 512; c.height = 64
-  const g = c.getContext('2d')!
-  const gr = g.createLinearGradient(0, 0, 0, 64)
-  gr.addColorStop(0, '#6b4528'); gr.addColorStop(1, '#4a2e1a')
-  g.fillStyle = gr; g.fillRect(0, 0, 512, 64)
-  for (let i = 0; i < 70; i++) {
-    g.strokeStyle = `rgba(${20 + (i % 5) * 12},10,5,${0.12 + (i % 3) * 0.06})`
-    g.lineWidth = 0.6 + (i % 4) * 0.5
-    const y = (i * 37) % 64
-    g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(170, y + 6 * Math.sin(i), 340, y - 6 * Math.cos(i), 512, y + 3); g.stroke()
-  }
-  const t = new THREE.CanvasTexture(c)
-  t.colorSpace = THREE.SRGBColorSpace
-  return t
-}
-
-/** The dash styling: a wood-grain trim band with chrome edges and stitched leather beside it, an ambient light line, wide air vents,
- *  a leather-wrapped instrument hood, centre console with a gear selector and a rotary dial, and the CarPlay screen's surround. */
-function DashStyle() {
-  const wood = useMemo(() => new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.35, metalness: 0.05 }), [])
-  useEffect(() => () => wood.map?.dispose(), [wood])
-  const y = (z: number) => 0.93 + (-z - 0.15) * 0.07 // height of the dash top at z (slopes gently up toward the windshield)
-  return (
-    <group>
-      {/* wood trim band across the passenger side, edged in chrome, with stitching above and below */}
-      <mesh position={[0.45, y(-0.58) + 0.004, -0.58]} rotation={[-0.065, 0, 0]} material={wood}><boxGeometry args={[1.0, 0.008, 0.11]} /></mesh>
-      <mesh position={[0.45, y(-0.515) + 0.006, -0.515]} rotation={[-0.065, 0, 0]} material={chrome}><boxGeometry args={[1.0, 0.006, 0.006]} /></mesh>
-      <mesh position={[0.45, y(-0.645) + 0.006, -0.645]} rotation={[-0.065, 0, 0]} material={chrome}><boxGeometry args={[1.0, 0.006, 0.006]} /></mesh>
-      <mesh position={[0.45, y(-0.49) + 0.003, -0.49]} rotation={[-0.065, 0, 0]} material={stitch}><boxGeometry args={[1.0, 0.003, 0.004]} /></mesh>
-      <mesh position={[0.45, y(-0.67) + 0.003, -0.67]} rotation={[-0.065, 0, 0]} material={stitch}><boxGeometry args={[1.0, 0.003, 0.004]} /></mesh>
-      {/* a thin ambient light line along the front of the dash */}
-      <mesh position={[0.2, y(-0.9) + 0.002, -0.9]} rotation={[-0.065, 0, 0]} material={glowAmber}><boxGeometry args={[1.5, 0.003, 0.006]} /></mesh>
-      {/* wide, thin air vents */}
-      {[0.78, -0.02].map((x) => <Vent key={x} w={0.22} h={0.04} pos={[x, y(-0.84) + 0.004, -0.84]} />)}
-    </group>
-  )
-}
-
 function BodySide({ sd }: { sd: -1 | 1 }) {
   const tex = useMemo(() => sideTexture(sd === 1), [sd])
   useEffect(() => () => tex.dispose(), [tex])
@@ -350,7 +307,6 @@ function BodySide({ sd }: { sd: -1 | 1 }) {
 
 /** The modelled interior (dash, doors, seats, console, steering wheel) from public/models/cabin.glb. */
 interface CabinModel { shell: THREE.Object3D; wheel: THREE.Mesh; wheelPos: THREE.Vector3; q: THREE.Quaternion }
-const wheelLeather = new THREE.MeshStandardMaterial({ color: '#0d0d0f', roughness: 0.5, metalness: 0.05 })
 
 function useCabinModel() {
   const [m, setM] = useState<CabinModel | null>(null)
@@ -361,6 +317,9 @@ function useCabinModel() {
       .then((meta) => {
         new GLTFLoader().load('/models/cabin.glb', (g) => {
           if (dead) return
+          // ambient-light strips (dash and doors) ride along with the cabin shell
+          const shell0 = g.scene.getObjectByName('cabin')
+          g.scene.children.filter((o) => o.name.startsWith('glow')).forEach((o) => { shell0?.add(o.clone()); })
           const shell = g.scene.getObjectByName('cabin')
           const wheel = g.scene.getObjectByName('wheel') as THREE.Mesh | undefined
           if (!shell || !wheel) return
@@ -375,15 +334,14 @@ function useCabinModel() {
                 const m = mm as THREE.MeshStandardMaterial
                 m.envMapIntensity = 0.35
                 // a richer two-tone cabin: soft-touch dark dash, light stitched leather seats, metal-look trim
-                const pal: Record<string, [string, number, number]> = { dash: ['#2e2420', 0.5, 0.03], door: ['#3d2f27', 0.5, 0.03], seat: ['#9a7a58', 0.42, 0.02], floor: ['#1c1815', 0.95, 0], trim: ['#cfc9c0', 0.25, 0.85] }
-                const p = pal[m.name]
+                m.color.set('#ffffff') // warm the lavender shell towards the cream / brown palette
+                const p = undefined as [string, number, number] | undefined
                 if (p) { m.color.set(p[0]); m.roughness = p[1]; m.metalness = p[2] }
               })
             }
           })
           wheel.removeFromParent()
           wheel.layers.set(1)
-          wheel.material = wheelLeather
           const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...(meta.normal as [number, number, number])).normalize())
           setM({ shell, wheel, wheelPos: new THREE.Vector3(...(meta.wheel as [number, number, number])), q })
         })
@@ -402,7 +360,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
     <group>
       {model && <primitive object={model.shell} />}
       {model && (
-        <group position={model.wheelPos} quaternion={model.q}>
+        <group position={[model.wheelPos.x, model.wheelPos.y + 0.13, model.wheelPos.z + 0.02]} quaternion={model.q}>
           <group ref={wheel}>
             <group quaternion={qInv}>
               <primitive object={model.wheel} position={[0, 0, 0]} />
@@ -528,7 +486,6 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[1.9, 0.4, 0.05]} />
       </mesh>
       <Displays />
-      <DashStyle />
       <DoorCard sd={-1} />
       <DoorCard sd={1} />
       <BodySide sd={-1} />

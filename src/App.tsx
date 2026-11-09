@@ -26,7 +26,7 @@ export default function App() {
   return (
     <>
       <GraphicsBoundary>
-      <Canvas flat shadows dpr={IS_COARSE ? [1, 1.25] : [1, 1.5]} gl={{ antialias: LOWFX, powerPreference: 'high-performance' }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
+      <Canvas flat shadows dpr={[1, 2]} gl={{ antialias: LOWFX, powerPreference: 'high-performance' }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
         <color attach="background" args={[HORIZON]} />
         <fog attach="fog" args={[HORIZON, 120, 400]} />
         <Sky />
@@ -37,8 +37,8 @@ export default function App() {
         <Traffic />
         <PlayerRig />
         {!LOWFX && (
-        <EffectComposer multisampling={0}>
-          <N8AO aoRadius={0.8} distanceFalloff={1} intensity={3} quality="low" halfRes />
+        <EffectComposer multisampling={4}>
+          <N8AO aoRadius={0.8} distanceFalloff={1} intensity={3} quality="low" />
           <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
           <HueSaturation saturation={-0.14} />
           <BrightnessContrast brightness={-0.02} contrast={0.1} />

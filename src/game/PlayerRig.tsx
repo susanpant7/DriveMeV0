@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { Cabin } from './Cabin'
 import { CarPlay } from './CarPlay'
-import { EYE, FRONT_PITCH, FRONT_YAW, CARPLAY, adjust, mirrorAdj, mirrorScreen, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
+import { EYE, FRONT_PITCH, FRONT_YAW, CARPLAY, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
 import { useGame } from './store'
@@ -115,9 +115,11 @@ export function PlayerRig() {
 
   const size = useThree((st) => st.size)
   const proj = useMemo(() => new THREE.Vector3(), [])
-  // clicking a mirror (or the dash screen while it shows the right mirror) selects it for adjusting; arrow keys then move it
+  // Press a mirror (or the dash screen while it shows the right mirror) to select it, then drag to move the view in it.
+  // Arrow keys also nudge the selected mirror. Pressing anywhere else deselects.
   useEffect(() => {
-    const onClick = (e: MouseEvent) => {
+    let last = { x: 0, y: 0 }
+    const down = (e: PointerEvent) => {
       if ((e.target as HTMLElement)?.tagName !== 'CANVAS' || useGame.getState().status !== 'playing') return
       let best: 'left' | 'center' | 'right' | null = null
       let bd = Infinity
@@ -127,15 +129,34 @@ export function PlayerRig() {
         const d = Math.hypot(e.clientX - m.x, e.clientY - m.y)
         if (d < m.r && d < bd) { bd = d; best = k === 'carplay' ? 'right' : k }
       }
-      if (best && adjust.sel !== best) {
+      if (!best) { adjust.sel = null; adjust.dragging = false; return }
+      if (adjust.sel !== best) {
         adjust.sel = best
         sim.msgId++
-        const text = `Adjusting the ${best} mirror: arrow keys to move it, Enter to finish`
+        const text = `Adjusting the ${best} mirror: drag to move the view, tap elsewhere to finish`
         useGame.setState((s) => ({ messages: [...s.messages.slice(-3), { id: sim.msgId, text, kind: 'info' as const, until: sim.t + 6 }] }))
-      } else if (!best) adjust.sel = null
+      }
+      adjust.dragging = true
+      last = { x: e.clientX, y: e.clientY }
     }
-    window.addEventListener('click', onClick)
-    return () => window.removeEventListener('click', onClick)
+    const move = (e: PointerEvent) => {
+      if (!adjust.dragging || !adjust.sel) return
+      const a = mirrorAdj[adjust.sel]
+      a.yaw = Math.max(-0.6, Math.min(0.6, a.yaw + (e.clientX - last.x) * 0.004))
+      a.pitch = Math.max(-0.6, Math.min(0.6, a.pitch - (e.clientY - last.y) * 0.004))
+      last = { x: e.clientX, y: e.clientY }
+    }
+    const up = () => { if (adjust.dragging) { adjust.dragging = false; saveMirrors() } }
+    window.addEventListener('pointerdown', down)
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
+    return () => {
+      window.removeEventListener('pointerdown', down)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+    }
   }, [])
 
   useFrame((_, dt) => {

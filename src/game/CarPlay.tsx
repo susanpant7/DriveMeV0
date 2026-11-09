@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { CARPLAY } from './cabinConfig'
-import { drawBanner, drawNavMap } from './navMap'
+import { drawNavMap } from './navMap'
 import { sim } from './sim'
 import { useGame } from './store'
 import { WORLD } from '../real/world'
@@ -39,10 +39,9 @@ export function CarPlay() {
       g.save(); g.translate(86, 0); g.beginPath(); g.rect(0, 0, CW - 86, CH); g.clip()
       drawHighwayMap(g, CW - 86, CH)
       g.restore()
-      g.save(); g.translate(86, 0); drawBanner(g, CW - 86, units, false); g.restore()
     } else {
       g.save(); g.translate(86, 0)
-      drawNavMap(g, CW - 86, CH, Math.min(dt, 0.1), units, false)
+      drawNavMap(g, CW - 86, CH, Math.min(dt, 0.1), units, false, false)
       g.restore()
     }
     // CarPlay-style app column on the left

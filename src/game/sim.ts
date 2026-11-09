@@ -35,8 +35,6 @@ export const input = {
   free: false,
   yaw: 0,
   pitch: 0,
-  /** touch steering wheel, -1 (full left) .. 1 (full right); null = use the arrow keys */
-  analog: null as number | null,
 }
 let freeWas = false
 const GAZE_TOL = 0.42 // rad (about 24 degrees): how close the head must point to a mirror to count as looking at it
@@ -221,7 +219,6 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   input.up = input.down = input.left = input.right = false
   input.free = false
   input.yaw = input.pitch = 0
-  input.analog = null
   if (WORLD.real) initRealTraffic()
   else if (WORLD.highway) { setHighwayCount(useGame.getState().traffic); initHighwayTraffic(pose.z) }
   else initTraffic()
@@ -253,7 +250,6 @@ export function pauseGame() {
   input.up = input.down = input.left = input.right = false
   input.free = false
   input.yaw = input.pitch = 0
-  input.analog = null
   useGame.setState({ status: 'paused', pauseReason: 'user' })
 }
 
@@ -360,7 +356,7 @@ export function stepSim(dt: number) {
   updateEngine(dt)
 
   // ---- steering (bicycle model) ----
-  const target = input.analog ?? (input.right ? 1 : 0) - (input.left ? 1 : 0)
+  const target = (input.right ? 1 : 0) - (input.left ? 1 : 0)
   const rate = target ? 2.2 : 3.5
   // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
   const err = target - sim.steerIn

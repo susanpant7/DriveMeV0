@@ -225,7 +225,7 @@ export function drawBanner(g: CanvasRenderingContext2D, w: number, units: 'kmh' 
   }
 }
 
-export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt: number, units: 'kmh' | 'mph', compact = false) {
+export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt: number, units: 'kmh' | 'mph', compact = false, banner = true) {
   if (!paths) paths = buildPaths()
   const pth = paths
 
@@ -352,7 +352,7 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   g.fillStyle = 'rgba(8,12,18,.82)'; g.beginPath(); g.arc(ca.x, ca.y, 14, 0, Math.PI * 2); g.fill()
   g.fillStyle = '#ff6b6b'; g.font = '700 11px system-ui, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'
   g.fillText('N', ca.x + Math.sin(view.h) * 7, ca.y - Math.cos(view.h) * 7)
-  drawBanner(g, w, units, compact)
+  if (banner) drawBanner(g, w, units, compact)
   g.restore()
 }
 

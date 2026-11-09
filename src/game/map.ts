@@ -34,7 +34,6 @@ export function rbShift(d: number) {
 export const RB_SHIFT = RB_ISLAND[0][1]
 export const flare = (d: number) => (d <= FLARE ? 1 : d >= FLARE + TAPER ? 0 : 1 - (d - FLARE) / TAPER)
 export const BOX = 17 // half size of a signalised junction
-export const DELTA = (15 * Math.PI) / 180
 export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
 
 /** Direction indices: 0 = east, 1 = north, 2 = west, 3 = south (counter-clockwise on the map). */
@@ -55,8 +54,6 @@ export function armClosed(i: number, j: number, d: number) {
   const [dx, dz] = DIRS[dd]
   return dd === 0 || dd === 3 ? CLOSED_ROADS.has(`${mod(i, G)},${mod(j, G)},${dd}`) : CLOSED_ROADS.has(`${mod(i + dx, G)},${mod(j + dz, G)},${(dd + 2) % 4}`)
 }
-/** how many exits does the roundabout at (i, j) have? */
-export const rbExits = (i: number, j: number) => [0, 1, 2, 3].filter((d) => !armClosed(i, j, d)).length
 /** wrap a coordinate difference into [-P/2, P/2) so "nearest copy" maths works */
 /** the world repeats every `period` metres (the grid city); a real city does not repeat, so its period is effectively infinite */
 export const WORLD_PERIOD = { v: P }

@@ -128,7 +128,6 @@ const cell = (i: number): Rect => ({ x: i * 256, y: 0, w: 256, h: 256 })
 const cell2 = (i: number): Rect => ({ x: i * 256, y: 896, w: 256, h: 256 })
 export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2) }
 export const PLATE = (i: number): Rect => ({ x: i * 256, y: 256, w: 256, h: 128 })
-export const PANEL = (i: number): Rect => ({ x: (i % 4) * 512, y: 384 + Math.floor(i / 4) * 256, w: 512, h: 256 })
 
 function arrowHead(g: CanvasRenderingContext2D, x: number, y: number, ang: number, s: number) {
   g.save(); g.translate(x, y); g.rotate(ang)

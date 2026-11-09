@@ -49,7 +49,7 @@ export const mirrorAdj: Record<'left' | 'center' | 'right', { yaw: number; pitch
   try { const v = JSON.parse(localStorage.getItem('driveme.mirrors') || 'null'); if (v) return { ...base, ...v } } catch { /* ignore */ }
   return base
 })()
-export const adjust = { sel: null as null | 'left' | 'center' | 'right' }
+export const adjust = { sel: null as null | 'left' | 'center' | 'right', dragging: false }
 export const saveMirrors = () => { try { localStorage.setItem('driveme.mirrors', JSON.stringify(mirrorAdj)) } catch { /* ignore */ } }
 /** where each mirror (and the dash screen) currently is on screen, in pixels; filled in every frame by the camera rig */
 export const mirrorScreen: Record<string, { x: number; y: number; r: number; ok: boolean }> = { left: { x: 0, y: 0, r: 0, ok: false }, center: { x: 0, y: 0, r: 0, ok: false }, carplay: { x: 0, y: 0, r: 0, ok: false } }
@@ -76,7 +76,7 @@ function glance(m: MirrorCfg, turn: number, pitchK: number, lean: THREE.Vector3)
 }
 
 /** A repeater of the right door mirror, set into the dash at the lower right so it never blocks the view of the road. */
-export const CARPLAY = { pos: V(0.02, 1.1, -0.8), rot: [-0.08, 0.12, 0] as [number, number, number], W: 0.5 }
+export const CARPLAY = { pos: V(0.0, 0.97, -0.79), rot: [-0.08, 0.12, 0] as [number, number, number], W: 0.5 }
 
 /** The head direction that points straight at each mirror (yaw + = left, pitch + = up, absolute from the horizon). */
 export const MIRROR_AIM: Record<'left' | 'center' | 'right', { yaw: number; pitch: number }> = (() => {
