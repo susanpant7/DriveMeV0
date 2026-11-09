@@ -103,6 +103,7 @@ export function installInput() {
       pauseGame()
       return
     }
+    if (e.code === 'KeyR' && !e.repeat && useGame.getState().status === 'playing') { startGame(); return }
     if (e.code === 'KeyC' && !e.repeat) startLook(true)
     if (LOOK_KEYS[e.code] && !input.free) input.look = LOOK_KEYS[e.code]
     if (adjust.sel) {

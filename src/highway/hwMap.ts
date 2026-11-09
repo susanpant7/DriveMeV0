@@ -1,5 +1,5 @@
 import { sim } from '../game/sim'
-import { NB_EDGE_L, NB_SHOULDER_L, SB_EDGE_IN, SB_EDGE_OUT, SHOULDER_R, Z_BEGIN_NB, Z_BEGIN_SB, Z_END, Z_FINISH, Z_GORE, Z_START, LANE, NB_X, nbPavementRight, rampX } from './layout'
+import { EXIT_C, NB_EDGE_L, NB_X, Z_END, Z_FINISH, Z_GORE, Z_START, Z_TOP, forkShift, nbPavementRight, rampX, scen, strips, LANE } from './layout'
 
 /** A heading-up map of the highway course: carriageways, the ramp and merge lane, the surroundings and your car. */
 export function drawHighwayMap(g: CanvasRenderingContext2D, w: number, h: number) {
@@ -35,29 +35,30 @@ export function drawHighwayMap(g: CanvasRenderingContext2D, w: number, h: number
     g.lineTo(X(r(a)), Y(a))
     g.closePath(); g.fill()
   }
-  band(Z_FINISH, Z_BEGIN_NB, () => NB_EDGE_L - NB_SHOULDER_L, nbPavementRight, '#7a8190')
-  band(Z_FINISH, Z_BEGIN_SB, () => SB_EDGE_OUT - SHOULDER_R, () => SB_EDGE_IN + NB_SHOULDER_L, '#626978')
-  band(Z_GORE, Z_START + 5, (z) => rampX(z) - LANE / 2 - 1.2, (z) => rampX(z) + LANE / 2 + 2.4, '#7a8190')
+  const all = strips()
+  all.forEach((st, i) => band(st.z0, st.z1, st.l, st.r, i === all.length - 1 ? '#626978' : '#7a8190'))
   // pavement edge lines and guard rails
   const edge = (xf: (z: number) => number, z0: number, z1: number) => { g.beginPath(); for (let z = Math.max(zTop, Math.min(z0, z1)); z <= Math.min(zBot, Math.max(z0, z1)); z += 10) g.lineTo(X(xf(z)), Y(z)); g.stroke() }
   g.strokeStyle = 'rgba(255,255,255,.9)'; g.lineWidth = 1.5
-  edge((z) => nbPavementRight(z) - 1, Z_FINISH, Z_BEGIN_NB)
-  edge((z) => rampX(z) + LANE / 2, Z_GORE, Z_START + 5)
+  edge((z) => nbPavementRight(z) - 1, Z_FINISH, Z_TOP)
   g.strokeStyle = '#c9ced6'; g.lineWidth = 2
-  edge((z) => nbPavementRight(z) + 0.4, Z_FINISH, Z_BEGIN_NB)
+  edge((z) => nbPavementRight(z) + 0.4, Z_FINISH, Z_TOP)
   // lane lines
   g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1; g.setLineDash([6, 10])
-  for (let k = 1; k < NB_X.length; k++) { const x = X(NB_EDGE_L + k * LANE); g.beginPath(); g.moveTo(x, Y(Math.min(zTop, Z_BEGIN_NB))); g.lineTo(x, Y(zBot)); g.stroke() }
+  for (let k = 1; k < NB_X.length; k++) { g.beginPath(); for (let z = zTop; z <= zBot; z += 10) g.lineTo(X(NB_EDGE_L + k * LANE + (k >= 4 ? forkShift(z) : 0)), Y(z)); g.stroke() }
   g.setLineDash([])
   g.strokeStyle = '#f2b705'; g.lineWidth = 2
-  g.beginPath(); g.moveTo(X(NB_EDGE_L), Y(Z_BEGIN_NB)); g.lineTo(X(NB_EDGE_L), Y(zTop)); g.stroke()
+  g.beginPath(); g.moveTo(X(NB_EDGE_L), Y(zBot)); g.lineTo(X(NB_EDGE_L), Y(zTop)); g.stroke()
   // where the merge lane ends
   g.strokeStyle = '#ff4d4d'; g.lineWidth = 4
   g.beginPath(); g.moveTo(X(14), Y(Z_END)); g.lineTo(X(28), Y(Z_END)); g.stroke()
-  // your route: along the ramp and into the merge lane
-  g.strokeStyle = 'rgba(47,155,255,.55)'; g.lineWidth = 6; g.lineCap = 'round'; g.lineJoin = 'round'
-  g.beginPath(); for (let z = Math.min(zBot, Z_START); z >= Math.max(zTop, Z_END); z -= 10) g.lineTo(X(rampX(z)), Y(z)); g.stroke()
-  g.lineCap = 'butt'
+  // your route: the ramp and merge lane (merge) or the exit ramp (exit)
+  if (scen.type !== 'fork') {
+    g.strokeStyle = 'rgba(47,155,255,.55)'; g.lineWidth = 6; g.lineCap = 'round'; g.lineJoin = 'round'
+    const [r0, r1] = scen.type === 'exit' ? [EXIT_C - Z_GORE + 200, EXIT_C - Z_START - 5] : [Z_START, Z_END]
+    g.beginPath(); for (let z = Math.min(zBot, r0); z >= Math.max(zTop, r1); z -= 10) g.lineTo(X(rampX(z)), Y(z)); g.stroke()
+    g.lineCap = 'butt'
+  }
   // you
   g.save(); g.translate(px, py); g.rotate(-sim.h)
   g.fillStyle = '#2f9bff'; g.strokeStyle = '#fff'; g.lineWidth = 2

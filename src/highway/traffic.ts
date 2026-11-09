@@ -1,5 +1,5 @@
 import { cars, type AiCar } from '../game/trafficAI'
-import { NB_X as NBX, SB_X, Z_FINISH, Z_GORE, Z_END } from './layout'
+import { NB_X as NBX, SB_X, Z_FINISH, Z_GORE, Z_END, forkHeading, forkShift, scen } from './layout'
 
 /** [length, width] of each vehicle kind drawn by Traffic.tsx (collision boxes for trucks). */
 const DIMS: Record<number, [number, number]> = {
@@ -25,6 +25,8 @@ const WINDOW = 650 // cars live this far ahead of / behind the player
 
 const NB_N = NBX.length
 const laneX = (dir: 1 | -1, lane: number) => (dir === 1 ? NBX[lane] : SB_X[lane])
+/** where a vehicle in lane `lane` really is at z (the right two lanes swing away in a fork) */
+const realX = (dir: 1 | -1, lane: number, base: number, z: number) => (dir === 1 && lane >= 3 ? base + forkShift(z) : base)
 const rnd = (a: number, b: number) => a + Math.random() * (b - a)
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
 
@@ -63,9 +65,9 @@ function place(i: number, dir: 1 | -1, lane: number, z: number, speed: number) {
   h.lat = laneX(dir, lane)
   describe(c, i)
   c.active = true
-  c.x = h.lat
+  c.x = realX(dir, lane, h.lat, z)
   c.z = z
-  c.h = dir === 1 ? 0 : Math.PI
+  c.h = dir === 1 ? (lane >= 3 ? forkHeading(z) : 0) : Math.PI
   c.speed = speed
   c.sig = 0
   c.braking = false
@@ -78,6 +80,7 @@ export function initHighwayTraffic(playerZ: number) {
   const dens = DENSITY[level - 1]
   const lanes: Array<[1 | -1, number]> = [...NBX.map((_, k) => [1, k] as [1 | -1, number]), [-1, 0], [-1, 1], [-1, 2]]
   for (const [dir, lane] of lanes) {
+    if (scen.type === 'lanedrop' && dir === 1 && lane === 4) continue
     const n = Math.round((dir === 1 ? LANE_COUNT[lane] : LANE_COUNT[lane + 2] * 0.7) * dens)
     for (let k = 0; k < n; k++) {
       const i = ncars
@@ -98,12 +101,17 @@ export function initHighwayTraffic(playerZ: number) {
   }
 }
 
+/** remove every vehicle in a lane (used when that lane is about to end) */
+export function clearLane(lane: number) {
+  for (let i = 0; i < ncars; i++) if (cars[i].active && hw[i].dir === 1 && (hw[i].lane === lane || hw[i].target === lane)) cars[i].active = false
+}
+
 export function setHighwayCount(l: number) {
   level = l
 }
 
 export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; z: number; speed: number }) {
-  const mergeInPlay = player.x > 17 && player.z < Z_GORE + 40 && player.z > Z_END - 40
+  const mergeInPlay = scen.type === 'merge' && player.x > 17 && player.z < Z_GORE + 40 && player.z > Z_END - 40
   const sig = (i: number) => (cars[i].sig = hw[i].target >= 0 ? -1 : 0)
   for (let i = 0; i < ncars; i++) {
     const c = cars[i]
@@ -115,12 +123,12 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
     let gap = 1e9, lv = h.v0, gapCar = 1e9
     for (let j = 0; j < ncars; j++) {
       if (j === i || !cars[j].active || hw[j].dir !== h.dir) continue
-      if (Math.abs(cars[j].x - h.lat) > 2.4) continue
+      if (Math.abs(hw[j].lat - h.lat) > 2.4) continue
       const d = (cars[j].z - c.z) * fwd - myHalf - (cars[j].len ?? 4.6) / 2
       if (d > -1 && d < gap) { gap = d; lv = cars[j].speed }
       if (d > -1 && d < gapCar) gapCar = d
     }
-    if (h.dir === 1 && Math.abs(player.x - h.lat) < 2.5) {
+    if (h.dir === 1 && Math.abs(player.x - c.x) < 2.5) {
       const d = (player.z - c.z) * fwd - myHalf - 2.4
       if (d > -1 && d < gap) { gap = d; lv = player.speed }
     }
@@ -130,7 +138,7 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
       if (clear) h.target = NB_N - 2
     }
     // a slower player ahead in my lane: pull out to the left if there is room, otherwise carry on (and hit them)
-    if (h.dir === 1 && h.target < 0 && h.lane > 0 && Math.abs(player.x - h.lat) < 2.5 && (player.z - c.z) * fwd > 0 && (player.z - c.z) * fwd < 55 && player.speed < c.speed - 2 && laneClear(h.lane - 1, c.z, myHalf)) h.target = h.lane - 1
+    if (h.dir === 1 && h.target < 0 && h.lane > 0 && Math.abs(player.x - c.x) < 2.5 && (player.z - c.z) * fwd > 0 && (player.z - c.z) * fwd < 55 && player.speed < c.speed - 2 && laneClear(h.lane - 1, c.z, myHalf)) h.target = h.lane - 1
     if (h.target >= 0) {
       const tx = laneX(h.dir, h.target)
       const step = Math.sign(tx - h.lat) * Math.min(Math.abs(tx - h.lat), 1.6 * dt)
@@ -154,8 +162,8 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
     // (only another vehicle in the way slows them; you in front of them never does)
     if (gapCar > 14) c.speed = Math.max(c.speed, 31.5)
     c.z += fwd * c.speed * dt
-    c.x = h.lat
-    c.h = h.dir === 1 ? 0 : Math.PI
+    c.x = realX(h.dir, h.lane, h.lat, c.z)
+    c.h = h.dir === 1 ? (h.lane >= 3 ? forkHeading(c.z) : 0) : Math.PI
     // --- recycle: far behind or far ahead of the player, reappear on the other side ---
     const rel = c.z - player.z
     if (rel > WINDOW || rel < -WINDOW * 1.15 || c.z < Z_FINISH + 30) respawn(i, player)
@@ -177,6 +185,7 @@ function respawn(i: number, player: { z: number; speed: number }) {
   const h = hw[i]
   const c = cars[i]
   c.active = false
+  if (scen.type === 'lanedrop' && h.dir === 1 && h.lane === 4) return
   // northbound traffic that has dropped far behind comes round to the front again (and vice versa)
   const rel = c.z - player.z
   for (let tries = 0; tries < 6; tries++) {

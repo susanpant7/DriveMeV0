@@ -138,6 +138,9 @@ function ModePicker() {
 const modeTitle = (m: Mode) => MODES.find((x) => x.id === m)?.title ?? ''
 
 function PlayingHud() {
+  const hud = useGame((s) => s.hud)
+  const mode = useGame((s) => s.mode)
+  const world = useGame((s) => s.world)
   const messages = useGame((s) => s.messages)
   const { touch } = useViewport()
   const [help, setHelp] = useState(true)
@@ -148,6 +151,7 @@ function PlayingHud() {
   return (
     <>
       <div className="tl">
+        {mode === 'highway' && world === 'grid' && <div className="pts"><small>POINTS</small><b>{Math.floor(hud.score)}</b></div>}
         <div className="toasts">
           {messages.map((m) => (
             <div key={m.id} className={`toast ${m.kind}`}>{m.text}</div>
@@ -156,6 +160,9 @@ function PlayingHud() {
       </div>
 
       <div className="tr">
+        <button className="icon-btn" onClick={() => startGame()} aria-label="Restart (R)" title="Restart (R)">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 12a7 7 0 1 0 2.2-5.1" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /><path d="M4 4v5h5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+        </button>
         <button className="icon-btn" onClick={pauseGame} aria-label="Pause (Esc)" title="Pause (Esc)">
           <svg viewBox="0 0 24 24" width="18" height="18"><rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor" /><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor" /></svg>
         </button>

@@ -8,8 +8,8 @@ import { realSignal, axisOf } from '../real/signals'
 import { initRealTraffic, setRealCount, stepRealTraffic } from '../real/traffic'
 import { edgeAt } from '../real/graph'
 import { WORLD, inRealBuilding } from '../real/world'
-import { NB_EDGE_R, Z_END, Z_GORE, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
-import { initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
+import { LD1, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z, forkShift, scen, type HwType, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
+import { clearLane, initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
@@ -100,50 +100,94 @@ export const sim = {
 }
 
 /* ---------- the highway merge course ---------- */
+/** points for the highway course (shown in the corner); they only ever go up */
+function award(n: number) { if (n > 0) sim.score += n }
+
+/** Move on to the next scenario: back to the start of the course, with the traffic carried along (the plain highway looks the same). */
+function advanceHighway() {
+  const cur = scen.type
+  if (cur === 'exit' && hw.exitTaken) {
+    award(100)
+    say('You joined a new highway.', 'info')
+    resetSim('merge', true) // the exit ramp leads onto another highway's on-ramp
+    return
+  }
+  award(cur === 'fork' ? 50 : cur === 'merge' || (cur === 'lanedrop' && hw.crossed) ? 100 : 0)
+  if (cur === 'fork') say(sim.x > 12 ? 'You are now on I-405 East.' : 'You are now on I-5 North.', 'info')
+  const pool: HwType[] = ['exit', 'fork', 'lanedrop']
+  const next: HwType = pool[Math.floor(Math.random() * pool.length)]
+  if (next === 'lanedrop') clearLane(4)
+  const baseX = sim.x - (cur === 'fork' ? forkShift(sim.z) : 0)
+  const dz = SPAWN_Z - sim.z
+  for (const c of cars) if (c.active) c.z += dz
+  sim.z = SPAWN_Z
+  sim.x = Math.max(-1, Math.min(15.5, baseX))
+  sim.h = 0
+  sim.yawRate = 0
+  hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.warned = false
+  scen.type = next
+  useGame.setState((st) => ({ hwType: next, hwVersion: st.hwVersion + 1 }))
+}
+
 /** Returns true when the run ended (game over). */
 function trackHighway(): boolean {
   const x = sim.x, z = sim.z
   const halfW = CAR_W / 2 + 0.05
-  // instructions (the same banner the city uses)
-  if (z > Z_GORE) {
-    nav.text = 'Follow the on-ramp'; nav.sub = 'Build up speed for the highway'; nav.icon = 'S'; nav.dist = Math.max(0, z - Z_GORE)
-  } else if (hw.stage !== 'merged') {
-    nav.text = 'Merge onto the highway'
-    nav.sub = sim.signal === -1 ? 'Check your mirror, then move over' : 'Signal left, check mirrors, match speed'
-    nav.icon = 'M'; nav.dist = Math.max(0, z - Z_END)
-  } else {
-    nav.text = 'You are on the highway'; nav.sub = 'Keep a safe distance'; nav.icon = 'S'; nav.dist = 0
+  const type = scen.type
+  sim.score += sim.speed * 0.02 // a point for every ~50 m driven safely
+  const banner = (text: string, sub: string, icon: string, dist: number) => { nav.text = text; nav.sub = sub; nav.icon = icon; nav.dist = Math.max(0, dist) }
+  if (type === 'merge') {
+    if (z > Z_GORE) banner('Follow the on-ramp', 'Build up speed for the highway', 'S', z - Z_GORE)
+    else if (hw.stage !== 'merged') banner('Merge onto the highway', sim.signal === -1 ? 'Check your mirror, then move over' : 'Signal left, check mirrors, match speed', 'M', z - Z_END)
+    else banner('You are on the highway', 'Keep a safe distance', 'S', 0)
+    if (hw.stage === 'ramp' && z <= Z_GORE) hw.stage = 'merge'
+    if (hw.stage === 'merge') {
+      if (!hw.crossed && x - halfW < NB_EDGE_R - 0.15 && z <= Z_GORE) {
+        hw.crossed = true
+        if (sim.signal !== -1) return fail('You moved onto the highway without signalling.', ['Switch on your left indicator (Q) a few seconds before you move over, so drivers know you are merging.'])
+        if (sim.t - sim.lastCheck.left > 6 && sim.t - sim.lastCheck.center > 6) say('Check your left mirror / blind spot before merging.', 'warn')
+        if (sim.speed < 22) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
+      }
+      if (hw.crossed && x + halfW <= NB_EDGE_R + 0.2) { hw.stage = 'merged'; hw.mergedAt = sim.t }
+      if (z <= Z_END && x > NB_EDGE_R - 0.3) return fail('The merge lane ended before you merged.', ['Start looking for a gap early: speed up along the merge lane, signal left and move over well before the lane ends.', 'If there is no gap, keep speed and look for the next one: do not stop in the merge lane.'])
+    }
+    if (hw.stage === 'merged' && !hw.sigOffWarn && sim.signal !== 0 && sim.t - hw.mergedAt > 5) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
+    if (hw.stage === 'merged' && z < Z_END - 420) advanceHighway()
+    return false
   }
-  if (hw.stage === 'ramp' && z <= Z_GORE) hw.stage = 'merge'
-  if (hw.stage === 'merge') {
-    // the moment the car starts to cross the dashed line toward the highway
-    if (!hw.crossed && x - halfW < NB_EDGE_R - 0.15 && z <= Z_GORE) {
+  if (type === 'exit') {
+    const gore = EXIT_C - Z_GORE // where the ramp leaves the highway
+    const start = EXIT_C - Z_END // where the exit lane begins
+    if (hw.exitTaken) banner('Follow the exit ramp', 'Slow down for the ramp', 'S', z + 150)
+    else if (z > gore) banner('Take the exit on the right', 'Move to the right lane and signal right', 'R', z - gore)
+    else banner('Exit passed', 'Continue on the highway', 'S', 0)
+    if (!hw.crossed && x - halfW > NB_EDGE_R - 0.05 && z <= start && z > gore - 20) {
       hw.crossed = true
-      if (sim.signal !== -1) return fail('You moved onto the highway without signalling.', ['Switch on your left indicator (Q) a few seconds before you move over, so drivers know you are merging.'])
-      if (sim.t - sim.lastCheck.left > 6 && sim.t - sim.lastCheck.center > 6) say('Check your left mirror / blind spot before merging.', 'warn')
-      if (sim.speed < 22) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
+      if (sim.signal !== 1) return fail('You moved into the exit lane without signalling.', ['Switch on your right indicator (E) well before you leave the highway, so the drivers behind know.'])
+      if (sim.t - sim.lastCheck.right > 6) say('Check your right mirror before moving over.', 'warn')
     }
-    // fully across: merged
-    if (hw.crossed && x + halfW <= NB_EDGE_R + 0.2) {
-      hw.stage = 'merged'
-      hw.mergedAt = sim.t
-    }
-    // the lane has run out
-    if (z <= Z_END && x > NB_EDGE_R - 0.3) return fail('The merge lane ended before you merged.', ['Start looking for a gap early: speed up along the merge lane, signal left and move over well before the lane ends.', 'If there is no gap, keep speed and look for the next one: do not stop in the merge lane.'])
+    if (hw.crossed && !hw.exitTaken && z <= gore) hw.exitTaken = x > NB_EDGE_R
+    if (hw.exitTaken && !hw.sigOffWarn && z < gore - 120 && sim.signal !== 0) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
+    if (z < (hw.exitTaken ? -150 : -350)) advanceHighway()
+    return false
   }
-  if (hw.stage === 'merged') {
-    if (!hw.sigOffWarn && sim.signal !== 0 && sim.t - hw.mergedAt > 5) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
-    // well done: after a stretch on the highway a fresh attempt begins
-    if (z < Z_END - 420 && !hw.doneT) {
-      hw.doneT = sim.t
-      say('Well done: a clean merge. Starting another ramp.', 'good')
+  if (type === 'lanedrop') {
+    const ldEdge = NB_X[3] + 1.85 // the divider between the last two lanes
+    if (z > 450) banner('Right lane ends ahead', 'Signal left and move over', 'M', z - LD1)
+    else banner('Lane ending', 'Move left now', 'M', z - LD1)
+    if (!hw.crossed && x - halfW < ldEdge - 0.1 && z < 700) {
+      hw.crossed = true
+      if (sim.signal !== -1) return fail('You changed lanes without signalling.', ['Switch on your left indicator (Q) before moving out of a lane that is about to end.'])
+      if (sim.t - sim.lastCheck.left > 6) say('Check your left mirror / blind spot before moving over.', 'warn')
     }
-    if (hw.doneT && sim.t - hw.doneT > 2.5) {
-      useGame.setState({ messages: [] })
-      resetSim()
-      return true
-    }
+    if (z <= LD1 + 15 && x > ldEdge) return fail('Your lane ended before you moved over.', ['Look for a gap early when you see "Right lane ends": signal, check your mirror and blind spot, then move left.'])
+    if (z < -250) advanceHighway()
+    return false
   }
+  // fork: the right two lanes become I-405 East, the left three carry on as I-5 North
+  if (z > FORK_Z) banner('Highway splits ahead', 'Left 3 lanes: I-5 North · Right 2 lanes: I-405 East', 'S', z - FORK_Z)
+  else banner(x > 12 ? 'I-405 East' : 'I-5 North', 'Keep to your lane', 'S', 0)
+  if (z < -300) advanceHighway()
   return false
 }
 function fail(reason: string, tips: string[]) {
@@ -152,23 +196,25 @@ function fail(reason: string, tips: string[]) {
 }
 
 /** state of the highway merge attempt */
-const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false }
+const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false, exitTaken: false, warned: false }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 const normAngle = (a: number) => mod(a + Math.PI, Math.PI * 2) - Math.PI
 const playerObs = () => (WORLD.real || WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: sim.speed } : { x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
 
 /* ---------- lifecycle ---------- */
-export function resetSim() {
+export function resetSim(hwType: HwType = 'merge', keepScore = false) {
+  const keep = keepScore ? sim.score : 0
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
   WORLD.highway = !WORLD.real && useGame.getState().mode === 'highway'
   if (!WORLD.real) WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
-  hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false
+  hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false
+  if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
   const pose = WORLD.real ? startRealRoute() : WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
-    score: 0, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
+    score: keep, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
     warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0,
   })
   input.look = 'front'
@@ -661,7 +707,7 @@ function trackRealRules() {
 }
 
 function currentLimit() {
-  if (WORLD.highway) return sim.z > Z_GORE + 30 ? 40 : 31.3 // 70 mph on the highway; the ramp lets you build speed (no limit warning)
+  if (WORLD.highway) return scen.type === 'merge' && sim.z > Z_GORE + 30 ? 40 : 31.3 // 70 mph on the highway; the on-ramp lets you build speed
   if (!WORLD.real) return LIMIT
   return locate(sim.x, sim.z, sim.h)?.e.speed ?? LIMIT
 }
@@ -701,4 +747,4 @@ function syncHud() {
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __rnav: rnav, __world: WORLD, __edgeAt: edgeAt, __realSignal: realSignal, __axisOf: axisOf, __navfn: { startRoute, navUpdate, navJunctionExit } })
+if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __rnav: rnav, __world: WORLD, __edgeAt: edgeAt, __realSignal: realSignal, __axisOf: axisOf, __navfn: { startRoute, navUpdate, navJunctionExit } })

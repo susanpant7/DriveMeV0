@@ -50,6 +50,9 @@ interface GameState {
   world: 'grid' | 'real'
   realName: string
   dl: DlState
+  /** the highway course: which scenario is being driven, and a counter that changes whenever a new one is built */
+  hwType: string
+  hwVersion: number
 }
 
 export const initialHud: Hud = {
@@ -97,6 +100,8 @@ export const useGame = create<GameState>(() => ({
   world: 'grid',
   realName: '',
   dl: { phase: 'idle', message: '', place: '' },
+  hwType: 'merge',
+  hwVersion: 0,
   units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))

@@ -1,15 +1,14 @@
 /**
- * The highway merge course. Everything lies along the z axis: traffic on the main highway runs north (-z, heading 0), the same way
- * the player faces at the start. x grows to the player's right.
- *
- *   z = 1500   start of the on-ramp (a one-lane road)
- *   z =  420   the gore: the ramp becomes an acceleration (merge) lane beside the right lane of the highway
- *   z =  120   the merge lane starts to taper
- *   z =   20   the merge lane ends: you must be on the highway before this
- *   z = -3500  end of the course
+ * The highway course. Everything lies along the z axis: traffic on the main highway runs north (-z, heading 0), the same way the player
+ * faces. x grows to the player's right. The course is endless: it is a sequence of scenarios (a merge from an on-ramp, an exit, a fork
+ * into another highway). Each scenario is laid out in the same coordinates; when one is finished the player is moved back to the start
+ * of the next one (the plain highway looks identical, so you never notice).
  */
+export type HwType = 'merge' | 'exit' | 'fork' | 'lanedrop'
+export const scen = { type: 'merge' as HwType }
+
 export const LANE = 3.7
-/** centres of the three northbound lanes (0 = left / fast, 2 = right / slow) */
+/** centres of the five northbound lanes (0 = left / fast, 4 = right / slow) */
 export const NB_X = [0, 3.7, 7.4, 11.1, 14.8]
 export const NB_EDGE_L = -1.85
 export const NB_EDGE_R = 16.65
@@ -21,96 +20,119 @@ export const SB_EDGE_IN = -9.15
 export const SB_EDGE_OUT = -20.25
 export const MEDIAN_X = -5.5
 
-export const Z_START = 903 // 0.3 mile of ramp (483 m) ahead of the gore
-export const Z_RAMP_BEND = 520 // the ramp is dead straight until here, then a straight diagonal into the merge lane (no curves) // the ramp is straight until here, then bends toward the highway
-export const Z_GORE = 420
+export const Z_TOP = 2200 // the carriageways exist from here...
+export const Z_FINISH = -3600 // ...to here
+export const Z_START = 903 // merge: start of the on-ramp (0.3 mile ahead of the gore)
+export const Z_GORE = 420 // merge space: where the ramp becomes the merge lane
+export const Z_RAMP_BEND = 520
 export const Z_TAPER = 120
-export const Z_END = 20
-export const Z_FINISH = -3300 // course end
-export const Z_BEGIN_NB = 1000 // the northbound carriageway exists from here on (further back it is just the ramp)
-export const Z_BEGIN_SB = 1000
-export const RAMP_X0 = 25.5 // the ramp runs straight, parallel to the highway, this far to the right (x)
-export const ACC_X = NB_X[NB_X.length - 1] + LANE // centre of the merge lane at the gore
-export const ACC_EDGE_R = ACC_X + LANE / 2 // right edge line of the merge lane (full width)
-
+export const Z_END = 20 // merge: the merge lane ends
+export const RAMP_X0 = 25.5 // the ramp runs straight, parallel to the highway, this far to the right
+export const ACC_X = NB_X[NB_X.length - 1] + LANE // centre of the merge / exit lane
+export const ACC_EDGE_R = ACC_X + LANE / 2
 export const RAMP_SHOULDER_L = 1.2
 export const RAMP_SHOULDER_R = 2.4
+/** exits are a merge seen the other way round: real z = EXIT_C - merge-space z */
+export const EXIT_C = 720
+/** fork: where the right two lanes leave the highway, and how fast they pull away */
+export const FORK_Z = 350
+export const FORK_SLOPE = 0.22
+export const FORK_MAX = 40
+/** lane drop: the right lane is full width until LD0, then tapers away by LD1 */
+export const LD0 = 450
+export const LD1 = 250
+export const laneDropT = (z: number) => (scen.type !== 'lanedrop' ? 1 : clamp01((z - LD1) / (LD0 - LD1)))
+/** x of the right edge line of the highway (it closes in on the right lane when that lane ends) */
+export const edgeLineX = (z: number) => NB_EDGE_R - LANE * (1 - laneDropT(z))
 
+/** where the player is put at the start of a scenario that does not begin on a ramp */
+export const SPAWN_Z = 1250
 
-/** x of the centre of the ramp lane at z (for z >= Z_GORE; below that it is the merge lane) */
+const mz = (z: number) => (scen.type === 'exit' ? EXIT_C - z : z)
+const clamp01 = (t: number) => (t < 0 ? 0 : t > 1 ? 1 : t)
+
+/** sideways distance the two right lanes have moved away from the highway at z (fork only) */
+export function forkShift(z: number) {
+  if (scen.type !== 'fork' || z >= FORK_Z) return 0
+  return Math.min(FORK_MAX, (FORK_Z - z) * FORK_SLOPE)
+}
+/** how the road bends there (rad): the right branch turns away to the right while it is pulling away */
+export function forkHeading(z: number) {
+  return scen.type === 'fork' && z < FORK_Z && z > FORK_Z - FORK_MAX / FORK_SLOPE ? -Math.atan(FORK_SLOPE) : 0
+}
+
+/** x of the centre of the ramp lane at z (merge / exit) */
 export function rampX(z: number) {
-  if (z <= Z_GORE) return ACC_X
-  if (z >= Z_RAMP_BEND) return RAMP_X0
-  return ACC_X + (RAMP_X0 - ACC_X) * ((z - Z_GORE) / (Z_RAMP_BEND - Z_GORE))
+  const m = mz(z)
+  if (m <= Z_GORE) return ACC_X
+  if (m >= Z_RAMP_BEND) return RAMP_X0
+  return ACC_X + (RAMP_X0 - ACC_X) * ((m - Z_GORE) / (Z_RAMP_BEND - Z_GORE))
 }
-/** heading (rad, 0 = north) of the ramp at z */
 export function rampHeading(z: number) {
-  if (z <= Z_GORE || z >= Z_RAMP_BEND) return 0
   const e = 0.5
-  const dx = rampX(z + e) - rampX(z - e)
-  return Math.atan2(dx, 2 * e) // driving north (z falling) the ramp moves toward -x, i.e. the car turns left (positive heading)
+  return Math.atan2(rampX(z + e) - rampX(z - e), 2 * e)
 }
-
-/** right edge line of the merge lane (the right edge of the paved lane) */
+/** right edge line of the extra (merge / exit) lane */
 export function accRightEdge(z: number) {
-  if (z >= Z_TAPER) return ACC_EDGE_R
-  if (z <= Z_END) return NB_EDGE_R
-  return NB_EDGE_R + (ACC_EDGE_R - NB_EDGE_R) * ((z - Z_END) / (Z_TAPER - Z_END))
+  const m = mz(z)
+  if (m >= Z_TAPER) return ACC_EDGE_R
+  if (m <= Z_END) return NB_EDGE_R
+  return NB_EDGE_R + (ACC_EDGE_R - NB_EDGE_R) * ((m - Z_END) / (Z_TAPER - Z_END))
 }
-/** is z within the span of the merge lane (gore to end)? */
-export const inMergeLane = (z: number) => z <= Z_GORE && z >= Z_END
-
 /** right edge of the northbound pavement (including the shoulder) at z */
 export function nbPavementRight(z: number) {
-  if (z > Z_GORE) return NB_EDGE_R + SHOULDER_R
-  return accRightEdge(z) + (z >= Z_TAPER ? RAMP_SHOULDER_R : RAMP_SHOULDER_R + (SHOULDER_R - RAMP_SHOULDER_R) * (1 - (z - Z_END) / (Z_TAPER - Z_END)))
+  if (scen.type === 'fork') return NB_EDGE_R + SHOULDER_R + forkShift(z)
+  if (scen.type === 'lanedrop') return edgeLineX(z) + SHOULDER_R
+  const m = mz(z)
+  if (m > Z_GORE) return NB_EDGE_R + SHOULDER_R
+  const t = clamp01((m - Z_END) / (Z_TAPER - Z_END))
+  return accRightEdge(z) + RAMP_SHOULDER_R + (SHOULDER_R - RAMP_SHOULDER_R) * (1 - t)
+}
+
+export interface Strip { z0: number; z1: number; l: (z: number) => number; r: (z: number) => number }
+/** every piece of paved road in the current scenario (z0 > z1) */
+export function strips(): Strip[] {
+  const out: Strip[] = []
+  const hwLeft = NB_EDGE_L - NB_SHOULDER_L
+  if (scen.type === 'fork') {
+    const midR = NB_X[2] + LANE / 2 + NB_SHOULDER_L
+    out.push({ z0: Z_TOP, z1: FORK_Z, l: () => hwLeft, r: () => NB_EDGE_R + SHOULDER_R })
+    out.push({ z0: FORK_Z, z1: Z_FINISH, l: () => hwLeft, r: () => midR })
+    out.push({ z0: FORK_Z, z1: Z_FINISH, l: (z) => NB_X[2] + LANE / 2 - NB_SHOULDER_L + forkShift(z), r: (z) => NB_EDGE_R + SHOULDER_R + forkShift(z) })
+  } else if (scen.type === 'lanedrop') {
+    out.push({ z0: Z_TOP, z1: Z_FINISH, l: () => hwLeft, r: nbPavementRight })
+  } else {
+    out.push({ z0: Z_TOP, z1: Z_FINISH, l: () => hwLeft, r: nbPavementRight })
+    const [a, b] = scen.type === 'exit' ? [EXIT_C - Z_GORE, EXIT_C - Z_START - 5] : [Z_START + 5, Z_GORE]
+    out.push({ z0: a, z1: b, l: (z) => rampX(z) - LANE / 2 - RAMP_SHOULDER_L, r: (z) => rampX(z) + LANE / 2 + RAMP_SHOULDER_R })
+  }
+  out.push({ z0: Z_TOP, z1: Z_FINISH, l: () => SB_EDGE_OUT - SHOULDER_R, r: () => SB_EDGE_IN + NB_SHOULDER_L })
+  return out
+}
+
+export function onRoad(x: number, z: number): boolean {
+  for (const s of strips()) if (z <= s.z0 && z >= s.z1 - 1 && x >= s.l(z) && x <= s.r(z)) return true
+  return false
 }
 
 export type Zone = 'ramp' | 'merge' | 'highway' | 'off'
 
-/** Is this point on paved road (lanes or shoulders)? */
-export function onRoad(x: number, z: number): boolean {
-  // the ramp
-  if (z > Z_GORE - 0.001 && z <= Z_START + 5) {
-    const cx = rampX(z)
-    if (x >= cx - LANE / 2 - RAMP_SHOULDER_L && x <= cx + LANE / 2 + RAMP_SHOULDER_R) return true
-  }
-  // the northbound carriageway (with the merge lane beside it)
-  if (z <= Z_BEGIN_NB && z >= Z_FINISH - 5) {
-    if (x >= NB_EDGE_L - NB_SHOULDER_L && x <= nbPavementRight(z)) return true
-  }
-  // the southbound carriageway
-  if (z <= Z_BEGIN_SB && z >= Z_FINISH - 5) {
-    if (x >= SB_EDGE_OUT - SHOULDER_R && x <= SB_EDGE_IN + NB_SHOULDER_L) return true
-  }
-  return false
-}
-
-/** which lane of the northbound carriageway is x in? 0..2, 3 = the merge lane / right shoulder side, -1 = left of the lanes */
-export function nbLaneAt(x: number) {
-  if (x < NB_EDGE_L) return -1
-  if (x > NB_EDGE_R) return NB_X.length
-  return Math.min(NB_X.length - 1, Math.floor((x - NB_EDGE_L) / LANE))
-}
-
-export function zoneAt(x: number, z: number): Zone {
-  if (!onRoad(x, z)) return 'off'
-  if (z > Z_GORE) return 'ramp'
-  if (x > NB_EDGE_R + 0.2) return 'merge'
-  return 'highway'
-}
-
-/** the pose the player starts in: on the ramp, in the middle of its lane, facing along it */
+/** the pose the player starts in */
 export function startPose() {
-  return { x: RAMP_X0, z: Z_START, h: 0 }
+  if (scen.type === 'merge') return { x: RAMP_X0, z: Z_START, h: 0 }
+  if (scen.type === 'lanedrop') return { x: NB_X[4], z: SPAWN_Z, h: 0 }
+  return { x: NB_X[2], z: SPAWN_Z, h: 0 }
 }
 
-/** Where to put the player back after leaving the road: the nearest point on the ramp / merge lane, at rest, facing north. */
+/** Where to put the player back after leaving the road: the nearest sensible lane, at rest, facing along it. */
 export function recoverPose(_x: number, z: number) {
-  if (z > Z_GORE) {
-    const zz = Math.min(Z_START - 10, Math.max(Z_GORE + 20, z))
-    return { x: rampX(zz), z: zz, h: rampHeading(zz) }
+  if (scen.type === 'merge') {
+    if (z > Z_GORE) {
+      const zz = Math.min(Z_START - 10, Math.max(Z_GORE + 20, z))
+      return { x: rampX(zz), z: zz, h: rampHeading(zz) }
+    }
+    const zz = Math.min(Z_GORE - 10, Math.max(Z_END + 60, z))
+    return { x: ACC_X, z: zz, h: 0 }
   }
-  const zz = Math.min(Z_GORE - 10, Math.max(Z_END + 60, z))
-  return { x: ACC_X, z: zz, h: 0 }
+  return { x: NB_X[2], z: Math.min(z, SPAWN_Z), h: 0 }
 }
