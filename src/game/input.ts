@@ -9,11 +9,14 @@ const SENS = 0.0028 // rad of head turn per pixel of mouse movement
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 
 /** Wires keyboard and mouse controls. Returns a cleanup function. */
+export let gasTapFn: () => void = () => {}
 export function installInput() {
   // ---- free look: press and drag the mouse, or swipe with two fingers on a trackpad, to turn your head ----
   // (holding C or the right mouse button also works). Let go and your head returns to the road.
   let lookHeld = false
-  const lastTap = [0, 0]
+  const lastTap = [0, 0, 0]
+  const gasTapCheck = () => { const now = performance.now(); if (now - lastTap[2] < 320) { input.gasTap = true; lastTap[2] = 0 } else lastTap[2] = now }
+  gasTapFn = gasTapCheck
   let drag: { x: number; y: number } | null = null // a left-button press that has not moved far enough to count as a drag yet
   let wheelTimer = 0
   const startLook = (lock: boolean) => {
@@ -107,7 +110,7 @@ export function installInput() {
     if (e.code === 'KeyR' && !e.repeat && useGame.getState().status === 'playing') { startGame(); return }
     if (e.code === 'KeyC' && !e.repeat) startLook(true)
     if (LOOK_KEYS[e.code] && !input.free) input.look = LOOK_KEYS[e.code]
-    if (adjust.sel) {
+    if (adjust.sel && useGame.getState().adjusting) {
       const a = mirrorAdj[adjust.sel]
       const step = 0.012
       if (e.code === 'ArrowLeft') a.yaw -= step
@@ -120,7 +123,7 @@ export function installInput() {
       saveMirrors()
       return
     }
-    if (e.code === 'ArrowUp') input.up = true
+    if (e.code === 'ArrowUp') { input.up = true; if (!e.repeat) gasTapCheck() }
     if (e.code === 'ArrowDown') input.down = true
     if (e.code === 'ArrowLeft') input.left = true
     if (e.code === 'ArrowRight') input.right = true

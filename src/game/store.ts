@@ -9,7 +9,7 @@ export type Units = 'kmh' | 'mph'
 export interface Msg {
   id: number
   text: string
-  kind: 'good' | 'warn' | 'info'
+  kind: 'good' | 'warn' | 'info' | 'alert'
   until: number
 }
 
@@ -44,6 +44,8 @@ interface GameState {
   crashTips: string[]
   units: Units
   traffic: 1 | 2 | 3 | 4 | 5
+  /** steering sensitivity 1 (gentle) .. 5 (quick) */
+  steerSens: 1 | 2 | 3 | 4 | 5
   pauseReason: 'user' | 'offroad'
   mode: Mode
   nav: NavHud
@@ -53,6 +55,8 @@ interface GameState {
   /** the highway course: which scenario is being driven, and a counter that changes whenever a new one is built */
   hwType: string
   hwVersion: number
+  /** paused and adjusting the mirrors (only possible while the game is paused) */
+  adjusting: boolean
 }
 
 export const initialHud: Hud = {
@@ -102,13 +106,19 @@ export const useGame = create<GameState>(() => ({
   dl: { phase: 'idle', message: '', place: '' },
   hwType: 'merge',
   hwVersion: 0,
+  adjusting: false,
   units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
+  steerSens: load<1 | 2 | 3 | 4 | 5>('driveme.steer', 2, (v) => [1, 2, 3, 4, 5].includes(v as number)),
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))
 
 export const setUnits = (u: Units) => {
   save('driveme.units', u)
   useGame.setState({ units: u })
+}
+export const setSteerSens = (n: 1 | 2 | 3 | 4 | 5) => {
+  save('driveme.steer', n)
+  useGame.setState({ steerSens: n })
 }
 export const setTraffic = (n: 1 | 2 | 3 | 4 | 5) => {
   save('driveme.traffic', n)

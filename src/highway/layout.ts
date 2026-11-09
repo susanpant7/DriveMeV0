@@ -24,10 +24,12 @@ export const Z_TOP = 2200 // the carriageways exist from here...
 export const Z_FINISH = -3600 // ...to here
 export const Z_START = 903 // merge: start of the on-ramp (0.3 mile ahead of the gore)
 export const Z_GORE = 420 // merge space: where the ramp becomes the merge lane
-export const Z_RAMP_BEND = 520
+/** the ramp is one straight road meeting the highway at 10 degrees */
+export const RAMP_ANGLE = (10 * Math.PI) / 180
+export const RAMP_EASE = 160 // length of the curve where the ramp straightens into the merge lane
+export const RAMP_K = 1 / Math.cos(RAMP_ANGLE) // sideways width of the ramp measured along x
 export const Z_TAPER = 120
 export const Z_END = 20 // merge: the merge lane ends
-export const RAMP_X0 = 25.5 // the ramp runs straight, parallel to the highway, this far to the right
 export const ACC_X = NB_X[NB_X.length - 1] + LANE // centre of the merge / exit lane
 export const ACC_EDGE_R = ACC_X + LANE / 2
 export const RAMP_SHOULDER_L = 1.2
@@ -65,8 +67,10 @@ export function forkHeading(z: number) {
 export function rampX(z: number) {
   const m = mz(z)
   if (m <= Z_GORE) return ACC_X
-  if (m >= Z_RAMP_BEND) return RAMP_X0
-  return ACC_X + (RAMP_X0 - ACC_X) * ((m - Z_GORE) / (Z_RAMP_BEND - Z_GORE))
+  // a gentle easing curve where the ramp straightens out into the merge lane (heading changes smoothly from 10 degrees to 0),
+  // then the straight diagonal; this is how real acceleration lanes are drawn: no kink where they meet the highway
+  const d = m - Z_GORE, t = Math.tan(RAMP_ANGLE)
+  return d < RAMP_EASE ? ACC_X + (t * d * d) / (2 * RAMP_EASE) : ACC_X + t * (d - RAMP_EASE / 2)
 }
 export function rampHeading(z: number) {
   const e = 0.5
@@ -104,7 +108,7 @@ export function strips(): Strip[] {
   } else {
     out.push({ z0: Z_TOP, z1: Z_FINISH, l: () => hwLeft, r: nbPavementRight })
     const [a, b] = scen.type === 'exit' ? [EXIT_C - Z_GORE, EXIT_C - Z_START - 5] : [Z_START + 5, Z_GORE]
-    out.push({ z0: a, z1: b, l: (z) => rampX(z) - LANE / 2 - RAMP_SHOULDER_L, r: (z) => rampX(z) + LANE / 2 + RAMP_SHOULDER_R })
+    out.push({ z0: a, z1: b, l: (z) => rampX(z) - (LANE / 2 + RAMP_SHOULDER_L) * RAMP_K, r: (z) => rampX(z) + (LANE / 2 + RAMP_SHOULDER_R) * RAMP_K })
   }
   out.push({ z0: Z_TOP, z1: Z_FINISH, l: () => SB_EDGE_OUT - SHOULDER_R, r: () => SB_EDGE_IN + NB_SHOULDER_L })
   return out
@@ -117,7 +121,7 @@ export function onRoad(x: number, z: number): boolean {
 
 /** the pose the player starts in */
 export function startPose() {
-  if (scen.type === 'merge') return { x: RAMP_X0, z: Z_START, h: 0 }
+  if (scen.type === 'merge') return { x: rampX(Z_START), z: Z_START, h: rampHeading(Z_START) }
   if (scen.type === 'lanedrop') return { x: NB_X[4], z: SPAWN_Z, h: 0 }
   return { x: NB_X[2], z: SPAWN_Z, h: 0 }
 }

@@ -81,6 +81,7 @@ function Displays() {
       signal: sim.signal,
       blink: Math.floor(now / 350) % 2 === 0,
       trip: sim.trip,
+      cruise: sim.cruise,
     })
     cluster.tex.needsUpdate = true
   }, -1)

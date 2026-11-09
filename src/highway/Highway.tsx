@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { useGame } from '../game/store'
 import {
   ACC_X, EXIT_C, FORK_MAX, FORK_SLOPE, FORK_Z, LANE, MEDIAN_X, NB_EDGE_L, NB_EDGE_R, NB_SHOULDER_L, NB_X, RAMP_SHOULDER_R, SB_EDGE_IN, SB_EDGE_OUT,
-  SHOULDER_R, edgeLineX, Z_END, Z_FINISH, Z_GORE, Z_START, Z_TAPER, Z_TOP, accRightEdge, forkShift, nbPavementRight, rampX, scen, strips, type HwType,
+  SHOULDER_R, RAMP_K, edgeLineX, Z_END, Z_FINISH, Z_GORE, Z_START, Z_TAPER, Z_TOP, accRightEdge, forkShift, nbPavementRight, rampX, scen, strips, type HwType,
 } from './layout'
 
 type V3 = [number, number, number]
@@ -98,7 +98,6 @@ function line(buf: Buf, z0: number, z1: number, xAt: (z: number) => number, w: n
 
 
 /** merge-space z -> real z for the current scenario (an exit is a merge seen the other way round) */
-const RZ = (zm: number) => (scen.type === 'exit' ? EXIT_C - zm : zm)
 /** a range given in merge space as (high, low) as a real (high, low) range */
 const RR = (a: number, b: number): [number, number] => (scen.type === 'exit' ? [EXIT_C - b, EXIT_C - a] : [a, b])
 
@@ -136,21 +135,9 @@ export function buildHighway(type: HwType) {
     line(marks, d1, Z_FINISH, () => NB_EDGE_R, 0.18, WHITE, undefined, 40)
     line(marks, d0, d1, accRightEdge, 0.18, WHITE, undefined, 6) // the extra lane's right edge, following the taper
     const [r0, r1] = RR(Z_START + 5, Z_GORE)
-    line(marks, r0, r1, (z) => rampX(z) - LANE / 2, 0.18, YELLOW, undefined, 10)
-    line(marks, r0, r1, (z) => rampX(z) + LANE / 2, 0.18, WHITE, undefined, 10)
-    // the gore: chevron stripes where the ramp and the highway meet
-    for (let zm = Z_GORE + 60; zm > Z_GORE + 2; zm -= 5) {
-      const z = RZ(zm)
-      const x0 = rampX(z) - LANE / 2 - 0.6, x1 = NB_EDGE_R + 0.15
-      const dz = type === 'exit' ? 2.2 : -2.2
-      if (x0 > x1) marks.flat([x1, z], [x1 + 0.35, z], [x0 + 0.35, z + dz], [x0, z + dz], 0.02, WHITE)
-    }
+    line(marks, r0, r1, (z) => rampX(z) - (LANE / 2) * RAMP_K, 0.18, YELLOW, undefined, 10)
+    line(marks, r0, r1, (z) => rampX(z) + (LANE / 2) * RAMP_K, 0.18, WHITE, undefined, 10)
     if (type === 'merge') {
-      for (const z of [Z_GORE + 260, Z_GORE + 90]) {
-        const cx = rampX(z)
-        marks.flat([cx - 0.15, z], [cx + 0.15, z], [cx + 0.15, z - 3], [cx - 0.15, z - 3], 0.02, WHITE)
-        marks.flat([cx - 0.6, z - 3], [cx + 0.6, z - 3], [cx, z - 4.4], [cx, z - 4.4], 0.02, WHITE)
-      }
       for (const z of [Z_GORE - 40, Z_TAPER + 70]) {
         const cx = ACC_X
         marks.flat([cx - 0.15, z], [cx + 0.15, z], [cx - 0.15 - 0.6, z - 5], [cx - 0.45 - 0.6, z - 5], 0.02, WHITE)
@@ -176,10 +163,10 @@ export function buildHighway(type: HwType) {
   }
   for (let z = Z_TOP; z > Z_FINISH; z -= 6) solid.box(MEDIAN_X, 0, z, 0.55, 0.85, 6.0, BARRIER)
   // the highway's outer rail stops where a ramp joins or leaves it (otherwise it would fence the ramp off)
-  rail(Z_TOP, Z_FINISH, (z) => nbPavementRight(z) + 0.4, fork || type === 'lanedrop' ? undefined : (z) => { const m = type === 'exit' ? EXIT_C - z : z; return m > Z_GORE - 8 && m < 500 })
+  rail(Z_TOP, Z_FINISH, (z) => nbPavementRight(z) + 0.4, fork || type === 'lanedrop' ? undefined : (z) => { const m = type === 'exit' ? EXIT_C - z : z; return m > Z_GORE - 8 && m < Z_GORE + 140 })
   if (!fork && type !== 'lanedrop') {
     const [a, b] = RR(Z_START + 5, Z_GORE)
-    rail(a, b, (z) => rampX(z) + LANE / 2 + RAMP_SHOULDER_R + 0.4)
+    rail(a, b, (z) => rampX(z) + (LANE / 2 + RAMP_SHOULDER_R) * RAMP_K + 0.4)
   } else {
     // a barrier wedge between the branches where they have parted
     for (let z = FORK_Z - 30; z > FORK_Z - FORK_MAX / FORK_SLOPE; z -= 6) solid.box(NB_EDGE_L + 3 * LANE + forkShift(z) / 2, 0, z, 0.5, 0.8, 6, BARRIER)
@@ -290,7 +277,7 @@ function scenarioSigns(type: HwType): Item[] {
   const items: Item[] = []
   const rt = (z: number) => nbPavementRight(z) + 2.2
   if (type === 'merge') {
-    const rx = (z: number) => rampX(z) + LANE / 2 + RAMP_SHOULDER_R + 1.8
+    const rx = (z: number) => rampX(z) + (LANE / 2 + RAMP_SHOULDER_R) * RAMP_K + 1.8
     items.push({ x: rx(880), z: 880, cell: 3, h: 1.6, w: 2.6, hh: 2.5 })
     items.push({ x: rx(800), z: 800, cell: 4, h: 1.6, w: 1.8, hh: 1.65 })
     items.push({ x: rx(690), z: 690, cell: 0, h: 1.6, w: 1.9, hh: 1.9 })

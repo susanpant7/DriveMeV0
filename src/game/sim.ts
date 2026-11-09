@@ -1,6 +1,6 @@
 import { crashSound, initAudio, tick } from './audio'
 import { WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
-import { FRONT_PITCH, MIRROR_AIM } from './cabinConfig'
+import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { nav, navJunctionExit, navUpdate, startRoute } from './nav'
 import { realNavUpdate, rnav, startRealRoute } from '../real/nav'
 import { locate } from '../real/player'
@@ -8,7 +8,7 @@ import { realSignal, axisOf } from '../real/signals'
 import { initRealTraffic, setRealCount, stepRealTraffic } from '../real/traffic'
 import { edgeAt } from '../real/graph'
 import { WORLD, inRealBuilding } from '../real/world'
-import { LD1, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z, forkShift, scen, type HwType, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
+import { LD1, NB_EDGE_L, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z, forkShift, scen, type HwType, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
 import { clearLane, initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
@@ -35,6 +35,8 @@ export const input = {
   free: false,
   /** set by a double tap of an arrow key: -1 = move one lane left, 1 = one lane right */
   laneShift: 0 as -1 | 0 | 1,
+  /** a quick double tap of the accelerator: toggles cruise control */
+  gasTap: false,
   yaw: 0,
   pitch: 0,
 }
@@ -94,6 +96,8 @@ export const sim = {
   warnT: { off: -99, centre: -99, wrong: -99, speed: -99 },
   speedingFor: 0,
   yawRate: 0,
+  /** cruise control: the set speed in m/s, 0 = off */
+  cruise: 0,
   trip: 0,
   offRoadT: 0,
   errors: 0,
@@ -134,6 +138,14 @@ function trackHighway(): boolean {
   const x = sim.x, z = sim.z
   const halfW = CAR_W / 2 + 0.05
   const type = scen.type
+  {
+    const lane = Math.floor((x - NB_EDGE_L) / 3.7)
+    if (hw.lane !== -99 && lane !== hw.lane && sim.speed > 6 && sim.t - hw.alertT > 4 && lane >= 0 && lane <= 4 && hw.lane >= 0 && hw.lane <= 4) {
+      const dir = lane > hw.lane ? 1 : -1
+      if (sim.signal !== dir && !autoLane.on) { hw.alertT = sim.t; say('ALERT: you changed lanes without signalling!', 'alert') }
+    }
+    hw.lane = lane
+  }
   sim.score += sim.speed * 0.02 // a point for every ~50 m driven safely
   const banner = (text: string, sub: string, icon: string, dist: number) => { nav.text = text; nav.sub = sub; nav.icon = icon; nav.dist = Math.max(0, dist) }
   if (type === 'merge') {
@@ -144,7 +156,7 @@ function trackHighway(): boolean {
     if (hw.stage === 'merge') {
       if (!hw.crossed && x - halfW < NB_EDGE_R - 0.15 && z <= Z_GORE) {
         hw.crossed = true
-        if (sim.signal !== -1) return fail('You moved onto the highway without signalling.', ['Switch on your left indicator (Q) a few seconds before you move over, so drivers know you are merging.'])
+        if (sim.signal !== -1) say('ALERT: you changed lanes without signalling!', 'alert')
         if (sim.t - sim.lastCheck.left > 6 && sim.t - sim.lastCheck.center > 6) say('Check your left mirror / blind spot before merging.', 'warn')
         if (sim.speed < 22) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
       }
@@ -163,7 +175,7 @@ function trackHighway(): boolean {
     else banner('Exit passed', 'Continue on the highway', 'S', 0)
     if (!hw.crossed && x - halfW > NB_EDGE_R - 0.05 && z <= start && z > gore - 20) {
       hw.crossed = true
-      if (sim.signal !== 1) return fail('You moved into the exit lane without signalling.', ['Switch on your right indicator (E) well before you leave the highway, so the drivers behind know.'])
+      if (sim.signal !== 1) say('ALERT: you changed lanes without signalling!', 'alert')
       if (sim.t - sim.lastCheck.right > 6) say('Check your right mirror before moving over.', 'warn')
     }
     if (hw.crossed && !hw.exitTaken && z <= gore) hw.exitTaken = x > NB_EDGE_R
@@ -177,7 +189,7 @@ function trackHighway(): boolean {
     else banner('Lane ending', 'Move left now', 'M', z - LD1)
     if (!hw.crossed && x - halfW < ldEdge - 0.1 && z < 700) {
       hw.crossed = true
-      if (sim.signal !== -1) return fail('You changed lanes without signalling.', ['Switch on your left indicator (Q) before moving out of a lane that is about to end.'])
+      if (sim.signal !== -1) say('ALERT: you changed lanes without signalling!', 'alert')
       if (sim.t - sim.lastCheck.left > 6) say('Check your left mirror / blind spot before moving over.', 'warn')
     }
     if (z <= LD1 + 15 && x > ldEdge) return fail('Your lane ended before you moved over.', ['Look for a gap early when you see "Right lane ends": signal, check your mirror and blind spot, then move left.'])
@@ -199,7 +211,7 @@ function fail(reason: string, tips: string[]) {
 const autoLane = { t: 0, on: false, h0: 0, dir: 1 as -1 | 1, p0: 0, w: 4.7, sig: false }
 
 /** state of the highway merge attempt */
-const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false, exitTaken: false, warned: false }
+const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false, exitTaken: false, warned: false, lane: -99, alertT: -99 }
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 const normAngle = (a: number) => mod(a + Math.PI, Math.PI * 2) - Math.PI
@@ -211,14 +223,14 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
   WORLD.highway = !WORLD.real && useGame.getState().mode === 'highway'
   if (!WORLD.real) WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
-  hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false
+  hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
   const pose = WORLD.real ? startRealRoute() : WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
     score: keep, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
-    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0,
+    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0, cruise: 0,
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
@@ -240,13 +252,13 @@ resetSim()
 export function startGame() {
   initAudio()
   resetSim()
-  useGame.setState({ status: 'playing', pauseReason: 'user', messages: [], crashReason: '', crashTips: [], hud: { ...initialHud } })
+  useGame.setState({ status: 'playing', pauseReason: 'user', adjusting: false, messages: [], crashReason: '', crashTips: [], hud: { ...initialHud } })
 }
 
 export function goMenu() {
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
-  useGame.setState({ status: 'menu', pauseReason: 'user' })
+  useGame.setState({ status: 'menu', pauseReason: 'user', adjusting: false })
 }
 
 export function pauseGame() {
@@ -259,6 +271,8 @@ export function pauseGame() {
 }
 
 export function resumeGame() {
+  adjust.sel = null; adjust.dragging = false
+  useGame.setState({ adjusting: false })
   if (useGame.getState().status !== 'paused') return
   if (useGame.getState().pauseReason === 'offroad') recoverToRoad()
   applyTraffic()
@@ -329,7 +343,7 @@ export function toggleSignal(dir: -1 | 1) {
 
 /* ---------- messages ---------- */
 function say(text: string, kind: Msg['kind']) {
-  if (kind === 'warn') sim.errors++
+  if (kind === 'warn' || kind === 'alert') sim.errors++
   const msg: Msg = { id: ++sim.msgId, text, kind, until: sim.t + 4.5 }
   useGame.setState((s) => ({ messages: [...s.messages.filter((m) => m.until > sim.t).slice(-3), msg] }))
 }
@@ -347,7 +361,9 @@ export function stepSim(dt: number) {
   const onRoad = WORLD.real ? WORLD.onRoad(sim.x, sim.z) : WORLD.highway ? hwOnRoad(sim.x, sim.z) : onAsphalt(sim.x, sim.z)
 
   // ---- pedals and longitudinal dynamics ----
-  const thrT = input.up ? 1 : 0
+  if (input.down) sim.cruise = 0 // the brake switches cruise control off
+  if (input.gasTap) { input.gasTap = false; if (sim.cruise) sim.cruise = 0; else if (sim.speed > 5) { sim.cruise = sim.speed; say(`Cruise control on`, 'info') } }
+  const thrT = input.up ? 1 : sim.cruise ? clamp((sim.cruise - sim.speed) * 0.7 + 0.12, 0, 1) : 0
   const brkT = input.down ? 1 : 0
   sim.thr += (thrT - sim.thr) * Math.min(1, dt * (thrT ? 2.5 : 5))
   sim.brk += (brkT - sim.brk) * Math.min(1, dt * (brkT ? 7 : 10))
@@ -361,6 +377,7 @@ export function stepSim(dt: number) {
   updateEngine(dt)
 
   // ---- steering (bicycle model) ----
+  const sens = [0.32, 0.46, 0.62, 0.82, 1.05][useGame.getState().steerSens - 1]
   let target = (input.right ? 1 : 0) - (input.left ? 1 : 0)
   // double-tap lane change: the car steers itself over to the next lane, then straightens up
   if (input.laneShift) {
@@ -381,16 +398,20 @@ export function stepSim(dt: number) {
     const err = autoLane.p0 + autoLane.dir * autoLane.w - (sim.x * rxv + sim.z * rzv)
     autoLane.t += dt
     const hrel = sim.h - autoLane.h0
-    const des = clamp(-err * 0.06, -0.11, 0.11)
-    target = -clamp((des - hrel) * 4, -1, 1)
-    const done = Math.abs(err) < 0.25 && Math.abs(hrel) < 0.006 && Math.abs(sim.yawRate) < 0.02
+    const des = clamp(-err * 0.045, -0.09, 0.09)
+    target = -clamp(((des - hrel) * 4 * 0.7) / sens, -1, 1) // the self-steer works the same at any sensitivity
+    const done = Math.abs(err) < 0.12 && Math.abs(hrel) < 0.02 && Math.abs(sim.yawRate) < 0.03
+    if (done) { // settle exactly in the middle of the new lane, pointing straight
+      sim.h = autoLane.h0; sim.yawRate = 0; sim.steerIn = 0
+      const dx = err * rxv, dz = err * rzv; sim.x += dx; sim.z += dz
+    }
     if (done || sim.speed < 1.5 || input.down || (autoLane.t > 0.6 && (input.left || input.right))) { autoLane.on = false; target = (input.right ? 1 : 0) - (input.left ? 1 : 0); if (autoLane.sig && sim.signal === autoLane.dir) sim.signal = 0 }
   }
-  const rate = target ? 2.2 : 3.5
+  const rate = target ? 1.5 + sens : 3
   // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
   const err = target - sim.steerIn
   sim.steerIn += clamp(err * Math.min(1, dt * (target ? 5 : 7)) + Math.sign(err) * Math.min(Math.abs(err), rate * dt * 0.25), -rate * dt, rate * dt)
-  sim.steer = sim.steerIn * (0.55 / (1 + (sim.speed / 9) ** 2))
+  sim.steer = sim.steerIn * (0.55 * sens / (1 + (sim.speed / 9) ** 2))
   // the car's heading turns with a little inertia, so a turn starts and ends smoothly instead of snapping
   const yawTarget = -(sim.speed / WHEELBASE) * Math.tan(sim.steer)
   sim.yawRate += (yawTarget - sim.yawRate) * (1 - Math.exp(-9 * dt))

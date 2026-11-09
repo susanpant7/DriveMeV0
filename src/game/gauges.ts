@@ -9,10 +9,11 @@ export interface ClusterData {
   signal: -1 | 0 | 1
   blink: boolean
   trip: number // metres
+  cruise: number // set speed in m/s, 0 = off
 }
 
 function arrow(g: CanvasRenderingContext2D, x: number, y: number, dir: -1 | 1, on: boolean, s: number) {
-  g.fillStyle = on ? '#3dff7a' : '#14221a'
+  g.fillStyle = on ? '#3dff7a' : '#2a4a36'
   if (on) {
     g.shadowColor = '#3dff7a'
     g.shadowBlur = s * 0.6
@@ -77,9 +78,9 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
   }
 
   // big speed number
-  g.shadowColor = 'rgba(110,200,255,0.55)'
+  g.shadowColor = d.cruise > 0 ? 'rgba(52,224,138,0.6)' : 'rgba(110,200,255,0.55)'
   g.shadowBlur = R * 0.14
-  g.fillStyle = '#f4f9ff'
+  g.fillStyle = d.cruise > 0 ? '#34e08a' : '#f4f9ff' // the speed turns green while cruise control is on
   g.font = `600 ${R * 0.78}px ${FONT}`
   g.textAlign = 'center'
   g.fillText(String(Math.round(shown)), cx, cy - R * 0.06)
@@ -119,6 +120,6 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
   g.fillText(mph ? 'TRIP MI' : 'TRIP KM', rx, cy + R * 0.27)
 
   // turn signals at the top corners of the speed arc
-  arrow(g, cx - R * 1.15, h * 0.12, -1, d.signal === -1 && d.blink, h * 0.07)
-  arrow(g, cx + R * 1.15, h * 0.12, 1, d.signal === 1 && d.blink, h * 0.07)
+  arrow(g, cx - R * 1.02, cy - R * 0.1, -1, d.signal === -1 && d.blink, h * 0.085)
+  arrow(g, cx + R * 1.02, cy - R * 0.1, 1, d.signal === 1 && d.blink, h * 0.085)
 }

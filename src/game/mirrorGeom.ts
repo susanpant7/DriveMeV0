@@ -125,7 +125,7 @@ const FRAG = /* glsl */ `
       vec2 hl = ( q - vec2( 0.31, 0.2 ) ) * vec2( 1.0, 1.5 );
       vec2 hr = ( q - vec2( 0.69, 0.2 ) ) * vec2( 1.0, 1.5 );
       float rest = 1.0 - smoothstep( 0.075, 0.095, max( length( hl * vec2( 1.0, 1.0 ) ), 0.0 ) );
-      rest = max( rest, 1.0 - smoothstep( 0.075, 0.095, length( hr ) ) );
+      rest = 0.0; // clean: no head restraints in the rear-view mirror
       float frame = clamp( max( max( shelf, pillarL ), max( max( pillarR, top * 0.8 ), rest ) ), 0.0, 1.0 );
       col = mix( col, trim, frame );
       // a soft glint along the top of the parcel shelf

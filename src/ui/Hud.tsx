@@ -1,7 +1,8 @@
 import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
+import { gasTapFn } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
-import { setMode, setTraffic, setUnits, useGame } from '../game/store'
+import { setMode, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { CityPicker } from './CityPicker'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
@@ -14,6 +15,7 @@ const TRAFFIC_LABELS = ['Very light', 'Light', 'Normal', 'Busy', 'Very busy']
 function Settings() {
   const traffic = useGame((s) => s.traffic)
   const units = useGame((s) => s.units)
+  const steerSens = useGame((s) => s.steerSens)
   return (
     <div className="settings">
       <div className="setting">
@@ -24,6 +26,17 @@ function Settings() {
         <div className="seg" role="group" aria-label="Speed units">
           <button className={units === 'kmh' ? 'on' : ''} onClick={() => setUnits('kmh')}>km/h</button>
           <button className={units === 'mph' ? 'on' : ''} onClick={() => setUnits('mph')}>mph</button>
+        </div>
+      </div>
+      <div className="setting">
+        <div className="setting-head">
+          <span>Steering sensitivity</span>
+          <span className="muted">{['Very gentle', 'Gentle', 'Medium', 'Quick', 'Very quick'][steerSens - 1]}</span>
+        </div>
+        <div className="seg" role="group" aria-label="Steering sensitivity">
+          {([1, 2, 3, 4, 5] as const).map((n) => (
+            <button key={n} className={steerSens === n ? 'on' : ''} onClick={() => setSteerSens(n)}>{n}</button>
+          ))}
         </div>
       </div>
       <div className="setting">
@@ -104,7 +117,7 @@ function TouchControls() {
 
       <div className="tgroup">
         <HoldButton label="Brake" className="pedal brake" {...hold('down')}>Brake</HoldButton>
-        <HoldButton label="Accelerator" className="pedal gas" {...hold('up')}>Gas</HoldButton>
+        <HoldButton label="Accelerator" className="pedal gas" onDown={() => { input.up = true; gasTapFn() }} onUp={() => { input.up = false }}>Gas</HoldButton>
       </div>
     </div>
   )
@@ -192,6 +205,7 @@ export function Hud() {
   const start = startGame
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
+  const adjusting = useGame((s) => s.adjusting)
   const world = useGame((s) => s.world)
   const realName = useGame((s) => s.realName)
   const dlPhase = useGame((s) => s.dl.phase)
@@ -262,7 +276,14 @@ export function Hud() {
         </div>
       )}
 
-      {status === 'paused' && pauseReason === 'user' && (
+      {status === 'paused' && pauseReason === 'user' && adjusting && (
+        <div className="adjbar">
+          <span>Drag a mirror to move its view. For the right mirror, drag on the dash screen.</span>
+          <button className="primary" onClick={() => useGame.setState({ adjusting: false })}>Done</button>
+        </div>
+      )}
+
+      {status === 'paused' && pauseReason === 'user' && !adjusting && (
         <div className="overlay">
           <div className="panel">
             <h2>Paused</h2>
@@ -271,6 +292,7 @@ export function Hud() {
             <div className="actions">
               <button className="primary" onClick={resumeGame}>Resume <Key>Esc</Key></button>
               <button className="secondary" onClick={start}>Restart <Key>R</Key></button>
+              <button className="secondary" onClick={() => useGame.setState({ adjusting: true })}>Adjust mirrors</button>
               <button className="secondary" onClick={goMenu}>Change practice</button>
             </div>
           </div>

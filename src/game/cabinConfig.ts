@@ -76,7 +76,7 @@ function glance(m: MirrorCfg, turn: number, pitchK: number, lean: THREE.Vector3)
 }
 
 /** A repeater of the right door mirror, set into the dash at the lower right so it never blocks the view of the road. */
-export const CARPLAY = { pos: V(0.06, 1.04, -0.7), rot: [-0.4, 0.12, 0] as [number, number, number], W: 0.5 }
+export const CARPLAY = { pos: V(0.0, 1.04, -0.7), rot: [-0.17, 0, 0] as [number, number, number], W: 0.375, H: 0.375 * (400 / 675) }
 
 /** The head direction that points straight at each mirror (yaw + = left, pitch + = up, absolute from the horizon). */
 export const MIRROR_AIM: Record<'left' | 'center' | 'right', { yaw: number; pitch: number }> = (() => {
@@ -87,7 +87,7 @@ export const MIRROR_AIM: Record<'left' | 'center' | 'right', { yaw: number; pitc
   return { left: aim(MIRRORS[0]), center: aim(MIRRORS[1]), right: aim(MIRRORS[2]) }
 })()
 /** The resting view is turned a little to the left so the whole left mirror sits on screen (the scene shifts right). */
-export const FRONT_YAW = 0.1
+export const FRONT_YAW = 0
 export const FRONT_PITCH = -0.17 // the resting view: nearly level (about 10 degrees down), so the road fills most of the screen and the dash is a band at the bottom
 
 export const LOOK_TARGETS: Record<Look, LookTarget> = {

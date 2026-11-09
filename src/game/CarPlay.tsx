@@ -8,7 +8,7 @@ import { useGame } from './store'
 import { WORLD } from '../real/world'
 import { drawHighwayMap } from '../highway/hwMap'
 
-const CW = 900, CH = 400
+const CW = 675, CH = 400
 
 /** A Honda-style infotainment screen on the dash: it shows the map, and while an indicator is on it switches to that side's mirror camera. */
 export function CarPlay() {
@@ -23,7 +23,7 @@ export function CarPlay() {
   const mapMesh = useRef<THREE.Mesh>(null!)
   const last = useRef(0)
   useFrame(() => {
-    const showMap = sim.signal !== 1
+    const showMap = sim.signal !== 1 && !useGame.getState().adjusting
     mapMesh.current.visible = showMap
     if (!showMap) return
     const now = performance.now()
@@ -52,7 +52,7 @@ export function CarPlay() {
   }, -1)
   useEffect(() => () => tex.t.dispose(), [tex])
 
-  const W = CARPLAY.W, H = W * (CH / CW)
+  const W = CARPLAY.W, H = CARPLAY.H
   return (
     <group position={CARPLAY.pos} rotation={CARPLAY.rot}>
       <mesh position={[0, 0, -0.012]}>

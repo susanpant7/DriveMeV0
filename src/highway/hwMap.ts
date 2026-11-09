@@ -3,8 +3,8 @@ import { EXIT_C, NB_EDGE_L, NB_X, Z_END, Z_FINISH, Z_GORE, Z_START, Z_TOP, forkS
 
 /** A heading-up map of the highway course: carriageways, the ramp and merge lane, the surroundings and your car. */
 export function drawHighwayMap(g: CanvasRenderingContext2D, w: number, h: number) {
-  const s = 4.2 // pixels per metre
-  const px = w * 0.42, py = h * 0.72
+  const s = 4.6 // pixels per metre
+  const px = w * 0.5, py = h * 0.5
   const X = (x: number) => px + (x - sim.x) * s
   const Y = (z: number) => py + (z - sim.z) * s
   g.fillStyle = '#2a4a31'

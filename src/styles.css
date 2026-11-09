@@ -43,6 +43,9 @@ kbd {
 .toast::before { content: ''; position: absolute; left: 0; top: 7px; bottom: 7px; width: 4px; border-radius: 0 4px 4px 0; background: var(--accent-2); }
 .toast.good::before { background: var(--good); }
 .toast.warn::before { background: var(--warn); }
+.toast.alert { background: rgba(185, 28, 28, .92); border-color: #fecaca; color: #fff; font-weight: 700; box-shadow: 0 0 0 2px rgba(239,68,68,.6), 0 8px 24px rgba(127,29,29,.6); animation: toast-in .25s ease-out, alert-pulse .5s ease-in-out 3, toast-out .4s ease-in 4.1s forwards; }
+.toast.alert::before { background: #fff; }
+@keyframes alert-pulse { 50% { transform: scale(1.04); } }
 @keyframes toast-in { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
 @keyframes toast-out { to { opacity: 0; transform: translateX(-8px); } }
 
@@ -310,6 +313,7 @@ button.primary:disabled { opacity: .6; cursor: wait; transform: none; }
 .hud.touch .tbtn.pedal.gas { height: calc(var(--pedal) * 1.28); }
 .hud.touch .tbtn.sig { font-size: 15px; }
 
+.adjbar { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 10px 14px 10px 18px; border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--stroke); backdrop-filter: blur(10px); pointer-events: auto; max-width: 92vw; font-size: 14px; }
 .pts { display: flex; align-items: baseline; gap: 8px; padding: 6px 14px; border-radius: 12px; background: var(--glass-strong); border: 1px solid var(--stroke); backdrop-filter: blur(8px); }
 .pts small { font-size: 10px; font-weight: 800; letter-spacing: .12em; color: var(--muted); }
 .pts b { font-size: 22px; font-variant-numeric: tabular-nums; }

@@ -25,8 +25,8 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       h,
       res: cfg.res,
       // the driver's mirror is nearly flat; the passenger-side one is gently convex ("objects are closer than they appear")
-      wide: !side ? 1.0 : cfg.id === 'left' ? 1.08 : 1.3,
-      m0: !side ? 1.0 : cfg.id === 'left' ? 0.96 : 0.86,
+      wide: !side ? 1.0 : 1.0,
+      m0: !side ? 1.0 : 1.0,
       m1: side ? 1.0 : 1.0,
       shift: [0, 0],
       inner: cfg.inner,
@@ -43,7 +43,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
     if (cfg.id === 'center') return null
     const m = glass.material as THREE.ShaderMaterial
     // a screen-shaped window onto the same picture: full width, the middle of the height (no stretching)
-    const Ws = CARPLAY.W, Hs = CARPLAY.W * 0.469
+    const Ws = CARPLAY.W, Hs = CARPLAY.H
     const mat = new THREE.ShaderMaterial({
       uniforms: { ...m.uniforms, uHalf: { value: new THREE.Vector2(Ws / 2, Hs / 1.4) }, uInner: { value: 1 } },
       vertexShader: m.vertexShader,
@@ -63,7 +63,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
   const qa = useMemo(() => new THREE.Quaternion(), [])
   const qb = useMemo(() => new THREE.Quaternion(), [])
   useFrame(() => {
-    if (feedGroup.current) feedGroup.current.visible = cfg.id === 'right' && sim.signal === 1
+    if (feedGroup.current) feedGroup.current.visible = cfg.id === 'right' && (sim.signal === 1 || useGame.getState().adjusting)
     // the driver's own mirror adjustment turns the glass (and its housing) a little
     const a = mirrorAdj[cfg.id as 'left' | 'center' | 'right']
     qa.setFromAxisAngle(AY, a.yaw)
@@ -120,12 +120,12 @@ export function PlayerRig() {
   useEffect(() => {
     let last = { x: 0, y: 0 }
     const down = (e: PointerEvent) => {
-      if ((e.target as HTMLElement)?.tagName !== 'CANVAS' || useGame.getState().status !== 'playing') return
+      if ((e.target as HTMLElement)?.tagName !== 'CANVAS' || useGame.getState().status !== 'paused' || !useGame.getState().adjusting) return // mirrors can only be adjusted while paused
       let best: 'left' | 'center' | 'right' | null = null
       let bd = Infinity
       for (const k of ['left', 'center', 'carplay'] as const) {
         const m = mirrorScreen[k]
-        if (!m.ok || (k === 'carplay' && sim.signal !== 1)) continue
+        if (!m.ok || (k === 'carplay' && !useGame.getState().adjusting && sim.signal !== 1)) continue
         const d = Math.hypot(e.clientX - m.x, e.clientY - m.y)
         if (d < m.r && d < bd) { bd = d; best = k === 'carplay' ? 'right' : k }
       }
@@ -133,7 +133,7 @@ export function PlayerRig() {
       if (adjust.sel !== best) {
         adjust.sel = best
         sim.msgId++
-        const text = `Adjusting the ${best} mirror: drag to move the view, tap elsewhere to finish`
+        const text = `Adjusting the ${best} mirror`
         useGame.setState((s) => ({ messages: [...s.messages.slice(-3), { id: sim.msgId, text, kind: 'info' as const, until: sim.t + 6 }] }))
       }
       adjust.dragging = true
