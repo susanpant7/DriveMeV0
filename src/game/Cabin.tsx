@@ -66,7 +66,7 @@ function useCanvasTexture(w: number, h: number) {
 function Displays() {
   const cluster = useCanvasTexture(1024, 400)
   const last = useRef(0)
-  const clusterPos = useMemo(() => new THREE.Vector3(-0.41, 0.86, -0.93), [])
+  const clusterPos = useMemo(() => new THREE.Vector3(-0.4, 0.895, -0.56), [])
   const clusterRot = useMemo(() => faceEuler(clusterPos), [clusterPos])
 
   useFrame(() => {
@@ -87,19 +87,6 @@ function Displays() {
 
   useEffect(() => () => cluster.tex.dispose(), [cluster])
 
-  // turn-signal indicators: two green arrows on the dash above the dials
-  const arrowGeo = useMemo(() => {
-    const sh = new THREE.Shape()
-    sh.moveTo(1, 0); sh.lineTo(0.1, 0.8); sh.lineTo(0.1, 0.32); sh.lineTo(-1, 0.32); sh.lineTo(-1, -0.32); sh.lineTo(0.1, -0.32); sh.lineTo(0.1, -0.8); sh.closePath()
-    return new THREE.ShapeGeometry(sh)
-  }, [])
-  const mats = useMemo(() => [new THREE.MeshBasicMaterial({ color: '#16301f', toneMapped: false, side: THREE.DoubleSide }), new THREE.MeshBasicMaterial({ color: '#16301f', toneMapped: false, side: THREE.DoubleSide })], [])
-  useFrame(() => {
-    const blink = Math.floor(performance.now() / 350) % 2 === 0
-    mats[0].color.set(sim.signal === -1 && blink ? '#5cff8d' : '#16301f')
-    mats[1].color.set(sim.signal === 1 && blink ? '#5cff8d' : '#16301f')
-  }, -1)
-
   return (
     <group position={clusterPos} rotation={clusterRot} scale={0.64}>
       <mesh position={[0, 0, -0.012]} material={matteBlack}>
@@ -108,8 +95,6 @@ function Displays() {
       <mesh position={[0, 0.125, 0.02]} rotation={[-0.35, 0, 0]} material={plastic}>
         <boxGeometry args={[0.62, 0.014, 0.12]} />
       </mesh>
-      <mesh geometry={arrowGeo} material={mats[0]} position={[-0.3, 0.2, 0.03]} scale={[-0.045, 0.045, 1]} />
-      <mesh geometry={arrowGeo} material={mats[1]} position={[0.3, 0.2, 0.03]} scale={0.045} />
       <mesh>
         <planeGeometry args={[0.56, 0.22]} />
         <meshBasicMaterial map={cluster.tex} toneMapped={false} transparent depthWrite={false} />
@@ -334,7 +319,6 @@ function useCabinModel() {
                 const m = mm as THREE.MeshStandardMaterial
                 m.envMapIntensity = 0.35
                 // a richer two-tone cabin: soft-touch dark dash, light stitched leather seats, metal-look trim
-                m.color.set('#ffffff') // warm the lavender shell towards the cream / brown palette
                 const p = undefined as [string, number, number] | undefined
                 if (p) { m.color.set(p[0]); m.roughness = p[1]; m.metalness = p[2] }
               })
@@ -360,7 +344,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
     <group>
       {model && <primitive object={model.shell} />}
       {model && (
-        <group position={[model.wheelPos.x, model.wheelPos.y + 0.13, model.wheelPos.z + 0.02]} quaternion={model.q}>
+        <group position={[model.wheelPos.x, model.wheelPos.y, model.wheelPos.z]} quaternion={model.q}>
           <group ref={wheel}>
             <group quaternion={qInv}>
               <primitive object={model.wheel} position={[0, 0, 0]} />

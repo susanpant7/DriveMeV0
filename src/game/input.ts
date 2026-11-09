@@ -13,6 +13,7 @@ export function installInput() {
   // ---- free look: press and drag the mouse, or swipe with two fingers on a trackpad, to turn your head ----
   // (holding C or the right mouse button also works). Let go and your head returns to the road.
   let lookHeld = false
+  const lastTap = [0, 0]
   let drag: { x: number; y: number } | null = null // a left-button press that has not moved far enough to count as a drag yet
   let wheelTimer = 0
   const startLook = (lock: boolean) => {
@@ -123,6 +124,12 @@ export function installInput() {
     if (e.code === 'ArrowDown') input.down = true
     if (e.code === 'ArrowLeft') input.left = true
     if (e.code === 'ArrowRight') input.right = true
+    if (!e.repeat && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+      // a quick second tap asks for a lane change; holding the key steers as before
+      const now = performance.now()
+      const d = e.code === 'ArrowLeft' ? 0 : 1
+      if (now - lastTap[d] < 320) { input.laneShift = d === 0 ? -1 : 1; lastTap[d] = 0 } else lastTap[d] = now
+    }
     if (e.repeat) return
     switch (e.code) {
       case 'KeyQ': toggleSignal(-1); break

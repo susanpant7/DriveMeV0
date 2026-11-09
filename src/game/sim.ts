@@ -33,6 +33,8 @@ export const input = {
   right: false,
   /** touch free-look: head turn (rad, + = left) and tilt (rad, + = up), used while `free` is true */
   free: false,
+  /** set by a double tap of an arrow key: -1 = move one lane left, 1 = one lane right */
+  laneShift: 0 as -1 | 0 | 1,
   yaw: 0,
   pitch: 0,
 }
@@ -192,6 +194,9 @@ function fail(reason: string, tips: string[]) {
   crash(reason, tips)
   return true
 }
+
+/** the car's self-steered lane change (double tap) */
+const autoLane = { t: 0, on: false, h0: 0, dir: 1 as -1 | 1, p0: 0, w: 4.7, sig: false }
 
 /** state of the highway merge attempt */
 const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false, exitTaken: false, warned: false }
@@ -356,7 +361,31 @@ export function stepSim(dt: number) {
   updateEngine(dt)
 
   // ---- steering (bicycle model) ----
-  const target = (input.right ? 1 : 0) - (input.left ? 1 : 0)
+  let target = (input.right ? 1 : 0) - (input.left ? 1 : 0)
+  // double-tap lane change: the car steers itself over to the next lane, then straightens up
+  if (input.laneShift) {
+    if (sim.speed > 2) {
+      const h0 = Math.round(sim.h / (Math.PI / 2)) * (Math.PI / 2)
+      if (Math.abs(sim.h - h0) < 0.35) {
+        const rxv = Math.cos(h0), rzv = -Math.sin(h0)
+        const w = WORLD.highway ? 3.7 : LANE_W
+        autoLane.h0 = h0; autoLane.dir = input.laneShift; autoLane.p0 = sim.x * rxv + sim.z * rzv; autoLane.w = w
+        autoLane.on = true; autoLane.t = 0; autoLane.sig = sim.signal === 0
+        if (autoLane.sig) { sim.signal = input.laneShift; sim.signalSince = sim.t - SIGNAL_MIN }
+      }
+    }
+    input.laneShift = 0
+  }
+  if (autoLane.on) {
+    const rxv = Math.cos(autoLane.h0), rzv = -Math.sin(autoLane.h0)
+    const err = autoLane.p0 + autoLane.dir * autoLane.w - (sim.x * rxv + sim.z * rzv)
+    autoLane.t += dt
+    const hrel = sim.h - autoLane.h0
+    const des = clamp(-err * 0.06, -0.11, 0.11)
+    target = -clamp((des - hrel) * 4, -1, 1)
+    const done = Math.abs(err) < 0.25 && Math.abs(hrel) < 0.006 && Math.abs(sim.yawRate) < 0.02
+    if (done || sim.speed < 1.5 || input.down || (autoLane.t > 0.6 && (input.left || input.right))) { autoLane.on = false; target = (input.right ? 1 : 0) - (input.left ? 1 : 0); if (autoLane.sig && sim.signal === autoLane.dir) sim.signal = 0 }
+  }
   const rate = target ? 2.2 : 3.5
   // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
   const err = target - sim.steerIn
