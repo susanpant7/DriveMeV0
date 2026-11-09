@@ -50,6 +50,11 @@ export function CarPlay() {
         <boxGeometry args={[W + 0.02, H + 0.02, 0.02]} />
         <meshStandardMaterial color="#05070a" roughness={0.3} metalness={0.5} />
       </mesh>
+      {/* stand that fixes the screen to the dash */}
+      <mesh position={[0, -H / 2 - 0.05, -0.02]}>
+        <boxGeometry args={[W * 0.35, 0.1, 0.03]} />
+        <meshStandardMaterial color="#0a0c10" roughness={0.5} />
+      </mesh>
       <mesh ref={mapMesh}>
         <planeGeometry args={[W, H]} />
         <meshBasicMaterial map={tex.t} toneMapped={false} />

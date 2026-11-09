@@ -265,6 +265,34 @@ function sideTexture(flip: boolean) {
   return t
 }
 
+const pillarGrey = new THREE.MeshStandardMaterial({ color: '#8d9097', roughness: 0.85 })
+const cardDark = new THREE.MeshStandardMaterial({ color: '#17181c', roughness: 0.6 })
+const cardMid = new THREE.MeshStandardMaterial({ color: '#2b2d33', roughness: 0.55 })
+const cardLight = new THREE.MeshStandardMaterial({ color: '#7b7e86', roughness: 0.5 })
+
+/** A door card: dark upper panel with a light trim band, chrome sill and handle, armrest and map pocket. sd = -1 driver's side. */
+function DoorCard({ sd }: { sd: -1 | 1 }) {
+  const x = sd * 0.93
+  const n = -sd * 0.012 // offset toward the cabin
+  return (
+    <group>
+      <mesh position={[x, 0.7, -0.05]} material={cardDark}><boxGeometry args={[0.04, 0.62, 1.9]} /></mesh>
+      {/* light trim band along the top, like the reference */}
+      <mesh position={[x + n, 0.93, -0.05]} material={cardLight}><boxGeometry args={[0.05, 0.07, 1.9]} /></mesh>
+      <mesh position={[x + n * 2, 0.975, -0.05]} material={chrome}><boxGeometry args={[0.052, 0.012, 1.9]} /></mesh>
+      {/* padded armrest and pocket */}
+      <mesh position={[x + n * 6, 0.8, 0.15]} material={cardMid}><boxGeometry args={[0.13, 0.08, 0.85]} /></mesh>
+      <mesh position={[x + n * 3, 0.6, 0.1]} material={cardMid}><boxGeometry args={[0.07, 0.2, 0.75]} /></mesh>
+      <mesh position={[x + n * 4, 0.6, 0.1]} material={matteBlack}><boxGeometry args={[0.03, 0.14, 0.62]} /></mesh>
+      {/* handle and window switches */}
+      <mesh position={[x + n * 5, 0.86, -0.18]} material={chrome}><boxGeometry args={[0.05, 0.026, 0.2]} /></mesh>
+      <mesh position={[x + n * 4, 0.84, 0.32]} material={cardDark}><boxGeometry args={[0.05, 0.03, 0.22]} /></mesh>
+      {/* speaker grille */}
+      <mesh position={[x + n * 2, 0.5, -0.6]} material={matteBlack}><boxGeometry args={[0.03, 0.16, 0.3]} /></mesh>
+    </group>
+  )
+}
+
 function BodySide({ sd }: { sd: -1 | 1 }) {
   const tex = useMemo(() => sideTexture(sd === 1), [sd])
   useEffect(() => () => tex.dispose(), [tex])
@@ -351,8 +379,8 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       </>}
 
       {/* A-pillars, header, roof */}
-      <Beam from={[-0.93, 0.99, -0.97]} to={[-0.82, 1.62, -0.6]} t={0.1} material={plastic} />
-      <Beam from={[0.93, 0.99, -0.97]} to={[0.84, 1.62, -0.6]} t={0.06} material={fabric} />
+      <Beam from={[-0.93, 0.99, -0.97]} to={[-0.82, 1.62, -0.6]} t={0.1} material={pillarGrey} />
+      <Beam from={[0.93, 0.99, -0.97]} to={[0.84, 1.62, -0.6]} t={0.06} material={pillarGrey} />
       <mesh position={[0, 1.61, -0.64]} material={fabric}>
         <boxGeometry args={[1.72, 0.07, 0.1]} />
       </mesh>
@@ -457,6 +485,8 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[1.9, 0.4, 0.05]} />
       </mesh>
       <Displays />
+      <DoorCard sd={-1} />
+      <DoorCard sd={1} />
       <BodySide sd={-1} />
       <BodySide sd={1} />
 
