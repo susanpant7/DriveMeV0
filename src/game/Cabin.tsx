@@ -11,14 +11,14 @@ import { useGame } from './store'
 const UP = new THREE.Vector3(0, 1, 0)
 
 // --- shared materials -----------------------------------------------------
-const plastic = new THREE.MeshStandardMaterial({ color: '#202226', roughness: 0.62, metalness: 0.08 })
-const leather = new THREE.MeshStandardMaterial({ color: '#0e0e10', roughness: 0.55, metalness: 0.05 })
+const plastic = new THREE.MeshStandardMaterial({ color: '#2b2522', roughness: 0.6, metalness: 0.05 })
+const leather = new THREE.MeshStandardMaterial({ color: '#241c18', roughness: 0.5, metalness: 0.05 })
 const trim = new THREE.MeshStandardMaterial({ color: '#9aa1aa', roughness: 0.3, metalness: 0.9 })
-const headliner = new THREE.MeshStandardMaterial({ color: '#c3c3c7', roughness: 0.95 })
-const door = new THREE.MeshStandardMaterial({ color: '#33363d', roughness: 0.7 })
+const headliner = new THREE.MeshStandardMaterial({ color: '#d6cab8', roughness: 0.95 })
+const door = new THREE.MeshStandardMaterial({ color: '#3a2f29', roughness: 0.6 })
 export const paint = new THREE.MeshPhysicalMaterial({ color: '#a3201a', roughness: 0.32, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.1 })
-const fabric = new THREE.MeshStandardMaterial({ color: '#34363c', roughness: 0.96 })
-const redLeather = new THREE.MeshStandardMaterial({ color: '#8d1c18', roughness: 0.55 })
+const fabric = new THREE.MeshStandardMaterial({ color: '#cbbfae', roughness: 0.96 })
+const redLeather = new THREE.MeshStandardMaterial({ color: '#b8895a', roughness: 0.5 })
 const chrome = new THREE.MeshStandardMaterial({ color: '#d8dce2', roughness: 0.12, metalness: 1 })
 const glassMat = new THREE.MeshStandardMaterial({ color: '#cfe6ff', transparent: true, opacity: 0.07, roughness: 0.02, metalness: 0, envMapIntensity: 3, depthWrite: false })
 const matteBlack = new THREE.MeshStandardMaterial({ color: '#0b0b0d', roughness: 0.85 })
@@ -265,10 +265,10 @@ function sideTexture(flip: boolean) {
   return t
 }
 
-const pillarGrey = new THREE.MeshStandardMaterial({ color: '#8d9097', roughness: 0.85 })
-const cardDark = new THREE.MeshStandardMaterial({ color: '#17181c', roughness: 0.6 })
-const cardMid = new THREE.MeshStandardMaterial({ color: '#2b2d33', roughness: 0.55 })
-const cardLight = new THREE.MeshStandardMaterial({ color: '#7b7e86', roughness: 0.5 })
+const pillarGrey = new THREE.MeshStandardMaterial({ color: '#9c9388', roughness: 0.85 })
+const cardDark = new THREE.MeshStandardMaterial({ color: '#3b2f28', roughness: 0.6 })
+const cardMid = new THREE.MeshStandardMaterial({ color: '#7a5a3e', roughness: 0.55 })
+const cardLight = new THREE.MeshStandardMaterial({ color: '#6b4528', roughness: 0.5 })
 
 /** A door card: dark upper panel with a light trim band, chrome sill and handle, armrest and map pocket. sd = -1 driver's side. */
 function DoorCard({ sd }: { sd: -1 | 1 }) {
@@ -289,6 +289,49 @@ function DoorCard({ sd }: { sd: -1 | 1 }) {
       <mesh position={[x + n * 4, 0.84, 0.32]} material={cardDark}><boxGeometry args={[0.05, 0.03, 0.22]} /></mesh>
       {/* speaker grille */}
       <mesh position={[x + n * 2, 0.5, -0.6]} material={matteBlack}><boxGeometry args={[0.03, 0.16, 0.3]} /></mesh>
+    </group>
+  )
+}
+
+const stitch = new THREE.MeshStandardMaterial({ color: '#d9b98a', roughness: 0.7 })
+const glowAmber = new THREE.MeshBasicMaterial({ color: '#ffb066', toneMapped: false })
+
+function woodTexture() {
+  const c = document.createElement('canvas')
+  c.width = 512; c.height = 64
+  const g = c.getContext('2d')!
+  const gr = g.createLinearGradient(0, 0, 0, 64)
+  gr.addColorStop(0, '#6b4528'); gr.addColorStop(1, '#4a2e1a')
+  g.fillStyle = gr; g.fillRect(0, 0, 512, 64)
+  for (let i = 0; i < 70; i++) {
+    g.strokeStyle = `rgba(${20 + (i % 5) * 12},10,5,${0.12 + (i % 3) * 0.06})`
+    g.lineWidth = 0.6 + (i % 4) * 0.5
+    const y = (i * 37) % 64
+    g.beginPath(); g.moveTo(0, y); g.bezierCurveTo(170, y + 6 * Math.sin(i), 340, y - 6 * Math.cos(i), 512, y + 3); g.stroke()
+  }
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+
+/** The dash styling: a wood-grain trim band with chrome edges and stitched leather beside it, an ambient light line, wide air vents,
+ *  a leather-wrapped instrument hood, centre console with a gear selector and a rotary dial, and the CarPlay screen's surround. */
+function DashStyle() {
+  const wood = useMemo(() => new THREE.MeshStandardMaterial({ map: woodTexture(), roughness: 0.35, metalness: 0.05 }), [])
+  useEffect(() => () => wood.map?.dispose(), [wood])
+  const y = (z: number) => 0.93 + (-z - 0.15) * 0.07 // height of the dash top at z (slopes gently up toward the windshield)
+  return (
+    <group>
+      {/* wood trim band across the passenger side, edged in chrome, with stitching above and below */}
+      <mesh position={[0.45, y(-0.58) + 0.004, -0.58]} rotation={[-0.065, 0, 0]} material={wood}><boxGeometry args={[1.0, 0.008, 0.11]} /></mesh>
+      <mesh position={[0.45, y(-0.515) + 0.006, -0.515]} rotation={[-0.065, 0, 0]} material={chrome}><boxGeometry args={[1.0, 0.006, 0.006]} /></mesh>
+      <mesh position={[0.45, y(-0.645) + 0.006, -0.645]} rotation={[-0.065, 0, 0]} material={chrome}><boxGeometry args={[1.0, 0.006, 0.006]} /></mesh>
+      <mesh position={[0.45, y(-0.49) + 0.003, -0.49]} rotation={[-0.065, 0, 0]} material={stitch}><boxGeometry args={[1.0, 0.003, 0.004]} /></mesh>
+      <mesh position={[0.45, y(-0.67) + 0.003, -0.67]} rotation={[-0.065, 0, 0]} material={stitch}><boxGeometry args={[1.0, 0.003, 0.004]} /></mesh>
+      {/* a thin ambient light line along the front of the dash */}
+      <mesh position={[0.2, y(-0.9) + 0.002, -0.9]} rotation={[-0.065, 0, 0]} material={glowAmber}><boxGeometry args={[1.5, 0.003, 0.006]} /></mesh>
+      {/* wide, thin air vents */}
+      {[0.78, -0.02].map((x) => <Vent key={x} w={0.22} h={0.04} pos={[x, y(-0.84) + 0.004, -0.84]} />)}
     </group>
   )
 }
@@ -332,7 +375,7 @@ function useCabinModel() {
                 const m = mm as THREE.MeshStandardMaterial
                 m.envMapIntensity = 0.35
                 // a richer two-tone cabin: soft-touch dark dash, light stitched leather seats, metal-look trim
-                const pal: Record<string, [string, number, number]> = { dash: ['#1b1d23', 0.5, 0.05], door: ['#2a2d35', 0.55, 0.05], seat: ['#a8845f', 0.42, 0.02], floor: ['#101114', 0.95, 0], trim: ['#b9bec6', 0.25, 0.9] }
+                const pal: Record<string, [string, number, number]> = { dash: ['#2e2420', 0.5, 0.03], door: ['#3d2f27', 0.5, 0.03], seat: ['#9a7a58', 0.42, 0.02], floor: ['#1c1815', 0.95, 0], trim: ['#cfc9c0', 0.25, 0.85] }
                 const p = pal[m.name]
                 if (p) { m.color.set(p[0]); m.roughness = p[1]; m.metalness = p[2] }
               })
@@ -485,6 +528,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[1.9, 0.4, 0.05]} />
       </mesh>
       <Displays />
+      <DashStyle />
       <DoorCard sd={-1} />
       <DoorCard sd={1} />
       <BodySide sd={-1} />
