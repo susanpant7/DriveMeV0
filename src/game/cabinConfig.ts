@@ -76,7 +76,7 @@ function glance(m: MirrorCfg, turn: number, pitchK: number, lean: THREE.Vector3)
 }
 
 /** A repeater of the right door mirror, set into the dash at the lower right so it never blocks the view of the road. */
-export const CARPLAY = { pos: V(0.0, 1.04, -0.7), rot: [-0.17, 0, 0] as [number, number, number], W: 0.375, H: 0.375 * (400 / 675) }
+export const CARPLAY = { pos: V(0.008, 1.05, -0.62), rot: [-0.07, -0.17, 0] as [number, number, number], W: 0.27, H: 0.27 * (400 / 675) }
 
 /** The head direction that points straight at each mirror (yaw + = left, pitch + = up, absolute from the horizon). */
 export const MIRROR_AIM: Record<'left' | 'center' | 'right', { yaw: number; pitch: number }> = (() => {

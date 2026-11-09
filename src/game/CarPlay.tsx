@@ -52,20 +52,42 @@ export function CarPlay() {
   useEffect(() => () => tex.t.dispose(), [tex])
 
   const W = CARPLAY.W, H = CARPLAY.H
+  // dark matte bezel with rounded corners and a slight chamfer, as a frame around the (recessed) screen
+  const bezel = useMemo(() => {
+    const bw = W + 0.03, bh = H + 0.03, r = 0.012
+    const sh = new THREE.Shape()
+    sh.moveTo(-bw / 2 + r, -bh / 2); sh.lineTo(bw / 2 - r, -bh / 2); sh.quadraticCurveTo(bw / 2, -bh / 2, bw / 2, -bh / 2 + r)
+    sh.lineTo(bw / 2, bh / 2 - r); sh.quadraticCurveTo(bw / 2, bh / 2, bw / 2 - r, bh / 2); sh.lineTo(-bw / 2 + r, bh / 2)
+    sh.quadraticCurveTo(-bw / 2, bh / 2, -bw / 2, bh / 2 - r); sh.lineTo(-bw / 2, -bh / 2 + r); sh.quadraticCurveTo(-bw / 2, -bh / 2, -bw / 2 + r, -bh / 2)
+    const hole = new THREE.Path()
+    hole.moveTo(-W / 2, -H / 2); hole.lineTo(W / 2, -H / 2); hole.lineTo(W / 2, H / 2); hole.lineTo(-W / 2, H / 2); hole.closePath()
+    sh.holes.push(hole)
+    return new THREE.ExtrudeGeometry(sh, { depth: 0.012, bevelEnabled: true, bevelSize: 0.003, bevelThickness: 0.003, bevelSegments: 2 })
+  }, [W, H])
+  useEffect(() => () => bezel.dispose(), [bezel])
   return (
     <group position={CARPLAY.pos} rotation={CARPLAY.rot}>
-      <mesh position={[0, 0, -0.012]}>
-        <boxGeometry args={[W + 0.02, H + 0.02, 0.02]} />
-        <meshStandardMaterial color="#05070a" roughness={0.3} metalness={0.5} />
+      <mesh geometry={bezel} position={[0, 0, -0.004]} renderOrder={1001}>
+        <meshStandardMaterial depthTest={false} color="#1a1a1a" roughness={0.75} metalness={0.1} />
       </mesh>
-      {/* stand that fixes the screen to the dash */}
-      <mesh position={[0, -H / 2 - 0.05, -0.02]}>
-        <boxGeometry args={[W * 0.35, 0.1, 0.03]} />
-        <meshStandardMaterial color="#0a0c10" roughness={0.5} />
+      {/* the display sits slightly behind the bezel's front edge */}
+      <mesh position={[0, 0, -0.007]} renderOrder={1000}>
+        <boxGeometry args={[W + 0.004, H + 0.004, 0.004]} />
+        <meshStandardMaterial depthTest={false} color="#05070a" roughness={0.4} />
       </mesh>
-      <mesh ref={mapMesh}>
+      {/* housing that joins the screen to the dash: no gap underneath, it runs down into the dashboard */}
+      <mesh position={[0, -H / 2 - 0.07, -0.05]}>
+        <boxGeometry args={[W + 0.03, 0.16, 0.09]} />
+        <meshStandardMaterial color="#1a1a1a" roughness={0.75} metalness={0.1} />
+      </mesh>
+      <mesh ref={mapMesh} position={[0, 0, -0.003]} renderOrder={1002}>
         <planeGeometry args={[W, H]} />
-        <meshBasicMaterial map={tex.t} toneMapped={false} />
+        <meshBasicMaterial depthTest={false} map={tex.t} toneMapped={false} />
+      </mesh>
+      {/* anti-glare glass: a clear, glossy skin that picks up soft reflections */}
+      <mesh position={[0, 0, 0.001]} renderOrder={1003}>
+        <planeGeometry args={[W, H]} />
+        <meshPhysicalMaterial depthTest={false} color="#ffffff" transparent opacity={0.06} roughness={0.12} metalness={0} clearcoat={0.8} clearcoatRoughness={0.1} depthWrite={false} />
       </mesh>
     </group>
   )

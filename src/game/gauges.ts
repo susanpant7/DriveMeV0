@@ -55,8 +55,8 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
 
   // deep glass background with a faint vignette
   const bg = g.createRadialGradient(w * 0.5, h * 0.5, h * 0.1, w * 0.5, h * 0.5, w * 0.6)
-  bg.addColorStop(0, '#0b121c')
-  bg.addColorStop(1, '#020407')
+  bg.addColorStop(0, '#101a26')
+  bg.addColorStop(1, '#05080d')
   g.fillStyle = bg
   g.fillRect(0, 0, w, h)
 

@@ -21,6 +21,8 @@ const fabric = new THREE.MeshStandardMaterial({ color: '#cbbfae', roughness: 0.9
 const redLeather = new THREE.MeshStandardMaterial({ color: '#b8895a', roughness: 0.5 })
 const chrome = new THREE.MeshStandardMaterial({ color: '#d8dce2', roughness: 0.12, metalness: 1 })
 const glassMat = new THREE.MeshStandardMaterial({ color: '#cfe6ff', transparent: true, opacity: 0.07, roughness: 0.02, metalness: 0, envMapIntensity: 3, depthWrite: false })
+const brushed = new THREE.MeshStandardMaterial({ color: '#b9bec6', metalness: 0.9, roughness: 0.2 })
+const ambientCyan = new THREE.MeshStandardMaterial({ color: '#00e5ff', emissive: '#00e5ff', emissiveIntensity: 0.3, roughness: 0.4 })
 const matteBlack = new THREE.MeshStandardMaterial({ color: '#0b0b0d', roughness: 0.85 })
 
 // --- static geometry ------------------------------------------------------
@@ -319,6 +321,7 @@ function useCabinModel() {
               mats.forEach((mm) => {
                 const m = mm as THREE.MeshStandardMaterial
                 m.envMapIntensity = 0.35
+                m.roughness = 0.75; m.metalness = 0.05 // dark soft-touch, matte
                 // a richer two-tone cabin: soft-touch dark dash, light stitched leather seats, metal-look trim
                 const p = undefined as [string, number, number] | undefined
                 if (p) { m.color.set(p[0]); m.roughness = p[1]; m.metalness = p[2] }
@@ -346,7 +349,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       {model && <primitive object={model.shell} />}
       {model && (
         <group position={[model.wheelPos.x, model.wheelPos.y, model.wheelPos.z]} quaternion={model.q}>
-          <group ref={wheel}>
+          <group ref={wheel} name="SteeringWheel_Node">
             <group quaternion={qInv}>
               <primitive object={model.wheel} position={[0, 0, 0]} />
             </group>
@@ -418,7 +421,7 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <mesh position={[0, 0, -0.1]} rotation={[Math.PI / 2, 0, 0]} material={plastic}>
           <cylinderGeometry args={[0.032, 0.04, 0.2, 14]} />
         </mesh>
-        <group ref={wheel}>
+        <group ref={wheel} name="SteeringWheel_Node">
           <mesh material={leather}>
             <torusGeometry args={[0.185, 0.0235, 16, 56]} />
           </mesh>
@@ -471,6 +474,9 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
         <boxGeometry args={[1.9, 0.4, 0.05]} />
       </mesh>
       <Displays />
+      {/* brushed-aluminium trim along the dash, and a faint cyan ambient light line */}
+      <mesh position={[0.18, 0.955, -0.9]} rotation={[-0.06, 0, 0]} material={brushed}><boxGeometry args={[1.45, 0.008, 0.012]} /></mesh>
+      <mesh position={[0.18, 0.935, -0.895]} rotation={[-0.06, 0, 0]} material={ambientCyan}><boxGeometry args={[1.4, 0.004, 0.006]} /></mesh>
       <DoorCard sd={-1} />
       <DoorCard sd={1} />
       <BodySide sd={-1} />

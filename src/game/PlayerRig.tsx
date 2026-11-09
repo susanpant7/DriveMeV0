@@ -49,7 +49,9 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       vertexShader: m.vertexShader,
       fragmentShader: m.fragmentShader,
     })
+    mat.depthTest = false
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(Ws, Hs), mat)
+    mesh.renderOrder = 1002
     mesh.frustumCulled = false
     return { mesh, mat }
   }, [cfg, glass])
