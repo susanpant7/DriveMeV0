@@ -34,7 +34,6 @@ export interface NavHud {
   arrived: number
 }
 
-export interface DlState { phase: 'idle' | 'connecting' | 'downloading' | 'processing' | 'done' | 'error'; message: string; place: string }
 
 interface GameState {
   status: Status
@@ -49,9 +48,6 @@ interface GameState {
   pauseReason: 'user' | 'offroad'
   mode: Mode
   nav: NavHud
-  world: 'grid' | 'real'
-  realName: string
-  dl: DlState
   /** the highway course: which scenario is being driven, and a counter that changes whenever a new one is built */
   hwType: string
   hwVersion: number
@@ -101,9 +97,6 @@ export const useGame = create<GameState>(() => ({
   pauseReason: 'user',
   mode: load<Mode>('driveme.mode', 'city', (v) => v === 'city' || v === 'roundabout' || v === 'junction' || v === 'lanes' || v === 'highway'),
   nav: { text: '', sub: '', icon: 'S', dist: 0, arrived: 0 },
-  world: 'grid',
-  realName: '',
-  dl: { phase: 'idle', message: '', place: '' },
   hwType: 'merge',
   hwVersion: 0,
   adjusting: false,

@@ -7,7 +7,7 @@
 export const B = 200 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
 export const P = B * G // period of the world
-export const LANE_W = 4.7 // 15.4 ft: a generous arterial lane (US standard is 11-12 ft)
+export const LANE_W = 5.2 // 17 ft: a very generous lane (US standard is 11-12 ft)
 export const LANES = 3 // lanes in each direction at a signalised junction approach
 export const LANES_MID = 2 // lanes in each direction on an ordinary stretch of road
 export const HALF_MID = LANES_MID * LANE_W // half the width of the ordinary 2-lane road
@@ -33,7 +33,10 @@ export function rbShift(d: number) {
 }
 export const RB_SHIFT = RB_ISLAND[0][1]
 export const flare = (d: number) => (d <= FLARE ? 1 : d >= FLARE + TAPER ? 0 : 1 - (d - FLARE) / TAPER)
-export const BOX = 17 // half size of a signalised junction
+export const BOX = 25 // half size of a signalised junction (its four corners are rounded)
+/** half width of the widened approach road at the junction, and the radius of the rounded corners (BOX minus that half width) */
+export const CORNER_H = 3 * LANE_W + 0.5
+export const CORNER_R = BOX - CORNER_H
 export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
 
 /** Direction indices: 0 = east, 1 = north, 2 = west, 3 = south (counter-clockwise on the map). */
@@ -507,7 +510,12 @@ export function onAsphalt(x: number, z: number) {
   if (nn.spec) {
     const r = Math.hypot(nn.rx, nn.rz)
     if (r < nn.spec.outer) return r > nn.spec.island
-  } else if (Math.abs(nn.rx) < BOX + 0.2 && Math.abs(nn.rz) < BOX + 0.2) return true
+  } else if (Math.abs(nn.rx) < BOX + 0.2 && Math.abs(nn.rz) < BOX + 0.2) {
+    // the junction is a cross with rounded corners
+    const u = Math.abs(nn.rx), v = Math.abs(nn.rz)
+    if (u <= CORNER_H + 0.2 || v <= CORNER_H + 0.2) return true
+    return Math.hypot(u - (CORNER_H + CORNER_R), v - (CORNER_H + CORNER_R)) >= CORNER_R - 0.2
+  }
   // vertical road (runs south): +v side is west
   {
     const i = Math.round(x / B)

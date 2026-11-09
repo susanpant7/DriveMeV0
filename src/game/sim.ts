@@ -2,12 +2,7 @@ import { crashSound, initAudio, tick } from './audio'
 import { WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { nav, navJunctionExit, navUpdate, startRoute } from './nav'
-import { realNavUpdate, rnav, startRealRoute } from '../real/nav'
-import { locate } from '../real/player'
-import { realSignal, axisOf } from '../real/signals'
-import { initRealTraffic, setRealCount, stepRealTraffic } from '../real/traffic'
-import { edgeAt } from '../real/graph'
-import { WORLD, inRealBuilding } from '../real/world'
+import { WORLD } from './course'
 import { LD1, NB_EDGE_L, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z, forkShift, scen, type HwType, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
 import { clearLane, initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
@@ -215,17 +210,17 @@ const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, merge
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 const normAngle = (a: number) => mod(a + Math.PI, Math.PI * 2) - Math.PI
-const playerObs = () => (WORLD.real || WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: sim.speed } : { x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
+const playerObs = () => (WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: sim.speed } : { x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
 
 /* ---------- lifecycle ---------- */
 export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   const keep = keepScore ? sim.score : 0
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
-  WORLD.highway = !WORLD.real && useGame.getState().mode === 'highway'
-  if (!WORLD.real) WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
+  WORLD.highway = useGame.getState().mode === 'highway'
+  WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
-  const pose = WORLD.real ? startRealRoute() : WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
+  const pose = WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
@@ -236,16 +231,14 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   input.up = input.down = input.left = input.right = false
   input.free = false
   input.yaw = input.pitch = 0
-  if (WORLD.real) initRealTraffic()
-  else if (WORLD.highway) { setHighwayCount(useGame.getState().traffic); initHighwayTraffic(pose.z) }
+  if (WORLD.highway) { setHighwayCount(useGame.getState().traffic); initHighwayTraffic(pose.z) }
   else initTraffic()
   applyTraffic()
 }
 export function applyTraffic() {
   const n = TRAFFIC_LEVELS[useGame.getState().traffic - 1]
   if (WORLD.highway) return
-  if (WORLD.real) setRealCount(Math.round(n * 0.55), playerObs()) // real streets are narrower: fewer cars than the grid city for the same feel
-  else setActiveCount(n, playerObs())
+  setActiveCount(n, playerObs())
 }
 resetSim()
 
@@ -285,22 +278,6 @@ function recoverToRoad() {
     const p = recoverPose(sim.x, sim.z)
     Object.assign(sim, { x: p.x, z: p.z, h: p.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, signal: 0, man: null, offRoadT: 0, yawRate: 0 })
     for (const c of cars) if (c.active && Math.hypot(c.x - p.x, c.z - p.z) < 30) c.active = false
-    return
-  }
-  if (WORLD.real) {
-    // nearest real road: the lane on its right, facing the way we were heading, at rest
-    const n = WORLD.index!.nearest(sim.x, sim.z) ?? { edge: WORLD.graph!.edges[0], s: 5, d: 0, side: 0 }
-    let e = n.edge
-    const t = { x: 0, z: 0, dx: 0, dz: 0 }
-    edgeAt(e, n.s, t)
-    let s = Math.min(Math.max(n.s, 6), e.len - 6)
-    if (t.dx * -Math.sin(sim.h) + t.dz * -Math.cos(sim.h) < 0 && e.reverse >= 0) { e = WORLD.graph!.edges[e.reverse]; s = Math.min(Math.max(e.len - n.s, 6), e.len - 6) }
-    edgeAt(e, s, t)
-    const lane = e.oneWay ? Math.floor((e.lanes - 1) / 2) : e.lanes - 1
-    const off = e.oneWay ? (lane - (e.lanes - 1) / 2) * 3.4 : (lane + 0.5) * 3.4
-    const x = t.x - t.dz * off, z = t.z + t.dx * off
-    Object.assign(sim, { x, z, h: Math.atan2(-t.dx, -t.dz), speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, signal: 0, man: null, jn: null, stop: null, offRoadT: 0 })
-    for (const c of cars) if (c.active && Math.hypot(c.x - x, c.z - z) < 20) c.active = false
     return
   }
   const nn = nearestNode(sim.x, sim.z)
@@ -358,7 +335,7 @@ export function stepSim(dt: number) {
   if (status !== 'playing') return
   sim.t += dt
 
-  const onRoad = WORLD.real ? WORLD.onRoad(sim.x, sim.z) : WORLD.highway ? hwOnRoad(sim.x, sim.z) : onAsphalt(sim.x, sim.z)
+  const onRoad = WORLD.highway ? hwOnRoad(sim.x, sim.z) : onAsphalt(sim.x, sim.z)
 
   // ---- pedals and longitudinal dynamics ----
   if (input.down) sim.cruise = 0 // the brake switches cruise control off
@@ -449,7 +426,7 @@ export function stepSim(dt: number) {
   if (sim.look !== 'front' && sim.t - sim.lookSince >= GLANCE_TIME) sim.lastCheck[sim.look === 'blindL' ? 'left' : sim.look === 'blindR' ? 'right' : sim.look] = sim.t
 
   // ---- hard obstacles ----
-  if (!WORLD.real && !WORLD.highway && inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])
+  if (!WORLD.highway && inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
   const rx = Math.cos(sim.h)
@@ -457,15 +434,14 @@ export function stepSim(dt: number) {
   for (const [a, b] of [[2, 0.9], [2, -0.9], [-2, 0.9], [-2, -0.9], [0, 0]]) {
     const bx = sim.x + fx * a + rx * b, bz = sim.z + fz * a + rz * b
     if (WORLD.highway) continue
-    if (WORLD.real ? !WORLD.onRoad(bx, bz) && inRealBuilding(bx, bz) : insideBuilding(bx, bz)) return crash('You hit a building.', ['Stay on the road.'])
+    if (insideBuilding(bx, bz)) return crash('You hit a building.', ['Stay on the road.'])
   }
   // leaving the road stops the game (resume puts you back on it)
   sim.offRoadT = onRoad ? 0 : sim.offRoadT + dt
   if (sim.offRoadT > 0.5) return pauseOffRoad()
 
   // ---- traffic ----
-  if (WORLD.real) stepRealTraffic(dt, sim.t, playerObs())
-  else if (WORLD.highway) stepHighwayTraffic(dt, sim.t, playerObs())
+  if (WORLD.highway) stepHighwayTraffic(dt, sim.t, playerObs())
   else stepTraffic(dt, sim.t, playerObs())
   for (const c of cars) {
     if (c.active && hits(c)) return crashInto(c)
@@ -474,9 +450,6 @@ export function stepSim(dt: number) {
   // ---- navigation ----
   if (WORLD.highway) {
     // (the highway course keeps its own instructions, see trackHighway)
-  } else if (WORLD.real) {
-    const m = realNavUpdate(sim.x, sim.z, sim.h)
-    if (m) say(m, m.startsWith('You have') ? 'good' : 'warn')
   } else {
     const arrivedAt = navUpdate(sim.x, sim.z)
     if (arrivedAt) say(`You have arrived: ${arrivedAt}`, 'good')
@@ -484,7 +457,6 @@ export function stepSim(dt: number) {
 
   // ---- rules ----
   if (WORLD.highway) { if (trackHighway()) return }
-  else if (WORLD.real) trackRealRules()
   else {
     trackLane()
     trackJunction()
@@ -726,36 +698,9 @@ function trackStop() {
   sim.stop = null
 }
 
-/** Rules on real streets: wrong side of the road, and red lights at signals. */
-const rstop = { edge: -1, prev: 99, done: false }
-function trackRealRules() {
-  const loc = locate(sim.x, sim.z, sim.h)
-  if (!loc || loc.d > loc.e.width / 2 + 0.5) return
-  const { e, s, d, side } = loc
-  // two-way road: keep to the right of the centre line
-  if (!e.oneWay && sim.speed > 2 && d > 0.8 && side < -0.3) {
-    if (sim.t - sim.warnT.wrong > 3) { sim.warnT.wrong = sim.t; say('You are on the wrong side of the road!', 'warn') }
-  }
-  // red light: crossing the stop line (about 11 m before the junction) while the light is red
-  const node = WORLD.graph!.nodes.get(e.to)!
-  const toEnd = e.len - s
-  if (!node.signal) { rstop.edge = -1; return }
-  if (rstop.edge !== e.id) { rstop.edge = e.id; rstop.prev = toEnd; rstop.done = false }
-  edgeAt(e, e.len - 0.5, {x: 0, z: 0, dx: 0, dz: 0})
-  const t = { x: 0, z: 0, dx: 0, dz: 0 }
-  edgeAt(e, e.len - 0.5, t)
-  const col = realSignal(node.id, axisOf(t.dx, t.dz), sim.t)
-  if (!rstop.done && rstop.prev >= 11 && toEnd < 11) {
-    rstop.done = true
-    if (col === 2 && sim.speed > 0.5) say('You ran a red light!', 'warn')
-  }
-  rstop.prev = toEnd
-}
-
 function currentLimit() {
   if (WORLD.highway) return scen.type === 'merge' && sim.z > Z_GORE + 30 ? 40 : 31.3 // 70 mph on the highway; the on-ramp lets you build speed
-  if (!WORLD.real) return LIMIT
-  return locate(sim.x, sim.z, sim.h)?.e.speed ?? LIMIT
+  return LIMIT
 }
 
 function trackSpeed(dt: number) {
@@ -793,4 +738,4 @@ function syncHud() {
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __rnav: rnav, __world: WORLD, __edgeAt: edgeAt, __realSignal: realSignal, __axisOf: axisOf, __navfn: { startRoute, navUpdate, navJunctionExit } })
+if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __world: WORLD, __navfn: { startRoute, navUpdate, navJunctionExit } })

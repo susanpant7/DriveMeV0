@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { armClosed, hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
+import { CORNER_H, CORNER_R, armClosed, hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -444,7 +444,22 @@ export function buildCity() {
   // Ordinary roads are 2 lanes each way; on the approach to a signalised junction the road widens (outward) for a third lane.
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
     const cx = i * B, cz = j * B
-    if (nodeKind(i, j) === 'signal') asphalt.rect(cx - BOX, cz - BOX, cx + BOX, cz + BOX, 0, [1, 1, 1])
+    if (nodeKind(i, j) === 'signal') {
+      // a cross, with a rounded corner (a kerb return) between every pair of roads
+      asphalt.rect(cx - BOX, cz - CORNER_H, cx + BOX, cz + CORNER_H, 0, [1, 1, 1])
+      asphalt.rect(cx - CORNER_H, cz - BOX, cx + CORNER_H, cz + BOX, 0, [1, 1, 1])
+      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const h = CORNER_H, R = CORNER_R
+        const W = (u: number, v: number): [number, number] => [cx + sx * u, -(cz + sz * v)]
+        const pts: Array<[number, number]> = [W(h, h), W(h + R, h)]
+        for (let k = 1; k <= 14; k++) { const a = (3 * Math.PI) / 2 - (k / 14) * (Math.PI / 2); pts.push(W(h + R + R * Math.cos(a), h + R + R * Math.sin(a))) }
+        const sh = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)))
+        const g = new THREE.ShapeGeometry(sh)
+        g.rotateX(-Math.PI / 2)
+        g.translate(0, 0.0005, 0)
+        asphalt.addGeometry(g, [1, 1, 1], 4)
+      }
+    }
     else {
       const rs = rbSpec(i, j)!
       const ring = new THREE.RingGeometry(rs.island - 1, rs.outer, 72, 1)
@@ -617,43 +632,6 @@ export function buildCity() {
         if (!sig) continue
         for (const k of [0, 2]) roadText(ax, az, d, uEnd - ds * 38, ds, v0sign * laneOff(k), 2.2, 4.6, SIGN.only)
       }
-      // crosswalks: across the full road width at that end (3 lanes on the approach to a signal, 2 elsewhere)
-      const cwB = fB ? rbShift(13.5) : 0 // where a roundabout crosswalk sits
-      const cwA = fA ? rbShift(13.5) : 0
-      const ext1 = kB === 'signal' ? HALF_ROAD - 0.3 : HALF_MID - 0.2 + cwB
-      const ext0 = kA === 'signal' ? HALF_ROAD - 0.3 : HALF_MID - 0.2 + cwA
-      const back1 = HALF_MID - 0.2 + cwB // the other (leaving) side of the road
-      const back0 = HALF_MID - 0.2 + cwA
-      for (let v = -back1; v <= ext1; v += 1.2) {
-        const o1 = roundEnd1 ? 7.4 : 0 // one car length back from a roundabout's yield line
-        mk(ax, az, d, S1 - 7.6 - o1, S1 - 4.6 - o1, v - 0.3, v + 0.3, WHITE)
-      }
-      for (let v = -ext0; v <= back0; v += 1.2) {
-        const o0 = roundEnd0 ? 7.4 : 0
-        mk(ax, az, d, S0 + 4.6 + o0, S0 + 7.6 + o0, v - 0.3, v + 0.3, WHITE)
-      }
-      // sidewalks follow the road edge, stepping out where the turn lane is added
-      {
-        const SW = 3
-        const horizontal = dz === 0
-        for (const sg of [1, -1] as const) {
-          const runs: Array<[number, number, number]> = []
-          // near a signalised junction the corner pavement (with its rounded kerb return) takes over, so the strip starts after it
-          const U0 = kA === 'signal' ? S0 + 5.8 : S0, U1 = kB === 'signal' ? S1 - 5.8 : S1
-          for (let u = U0; u < U1 - 0.01; u += 6) {
-            const um = Math.min(u + 6, U1)
-            const h = sgh((u + um) / 2)
-            const off = (sg === 1 ? h.right : h.left) + 0.5 + SW / 2
-            const last = runs[runs.length - 1]
-            if (last && Math.abs(last[2] - off) < 0.05) last[1] = um
-            else runs.push([u, um, off])
-          }
-          for (const [r0, r1, off] of runs) {
-            const [wx, wz] = at(ax, az, d, (r0 + r1) / 2, sg * off)
-            solid.box(wx, 0, wz, horizontal ? r1 - r0 + 0.02 : SW, 0.15, horizontal ? SW : r1 - r0 + 0.02, 0, CONC)
-          }
-        }
-      }
       // speed-limit signs on the right-hand verge in both directions, mid-block. Each one stands where ITS side of the
       // road is still 2 lanes wide (not inside the widened approach to a signalised junction or a roundabout flare).
       {
@@ -784,28 +762,6 @@ export function buildCity() {
           guide(S, E, stz === 0 ? [X[0], E[1]] : [E[0], X[1]], X)
         }
       }
-      // the four corners of the junction: pavement with a rounded kerb return (like a real corner), instead of a square slab sticking out
-      {
-        const Ke = HALF_ROAD + 0.5 // kerb line along the widened approach roads
-        const R = 8 // kerb return radius
-        const Ln = BOX + 14.2 - Ke // out to where the old blocks ended
-        for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-          const W = (u: number, v: number): [number, number] => [cx + sx * u, -(cz + sz * v)]
-          const sh = new THREE.Shape()
-          sh.moveTo(...W(Ke + R, Ke))
-          sh.lineTo(...W(Ke + Ln, Ke))
-          sh.lineTo(...W(Ke + Ln, Ke + Ln))
-          sh.lineTo(...W(Ke, Ke + Ln))
-          sh.lineTo(...W(Ke, Ke + R))
-          for (let k = 1; k <= 10; k++) {
-            const a = Math.PI + (k / 10) * (Math.PI / 2) // quarter circle around the corner centre, from the v-side back to the u-side
-            sh.lineTo(...W(Ke + R + R * Math.cos(a), Ke + R + R * Math.sin(a)))
-          }
-          const g = new THREE.ExtrudeGeometry(sh, { depth: 0.15, bevelEnabled: false })
-          g.rotateX(-Math.PI / 2)
-          solid.addGeometry(g, CONC)
-        }
-      }
     } else {
       const spec = rbSpec(i, j)!
       const L = spec.laneR.length
@@ -887,9 +843,8 @@ export function buildCity() {
         }
       }
       // kerbed pavement around the outside, between the arms
-      // kerbed sections between the arms, plus a section across the mouth of every closed arm
+      // a kerbed seal across the mouth of every closed arm (no pedestrian pavement)
       const kerbSecs: Array<[number, number]> = []
-      for (let q = 0; q < 4; q++) kerbSecs.push([(q * Math.PI) / 2 + armHalf, ((q + 1) * Math.PI) / 2 - armHalf])
       for (let d = 0; d < 4; d++) if (armClosed(i, j, d)) kerbSecs.push([(d * Math.PI) / 2 - armHalf - 0.02, (d * Math.PI) / 2 + armHalf + 0.02])
       for (const [a0, a1] of kerbSecs) {
         const sh = new THREE.Shape()
@@ -933,7 +888,6 @@ export function buildCity() {
       }
       side(clr + 62, 2.6, 1.1, 1.1, kind === 'signal' ? SIGN.sigWarn : SIGN.rbWarn)
       side(clr + 30, 2.4, 0.85, 1.05, SIGN.speed)
-      side(clr + 11, 2.3, 0.95, 0.95, SIGN.ped)
       if (kind === 'signal') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
       if (kind === 'signal') {
         side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows)

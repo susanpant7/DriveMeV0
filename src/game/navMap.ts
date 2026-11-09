@@ -1,8 +1,6 @@
-import { armClosed, B, BOX, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
+import { CORNER_H, CORNER_R, armClosed, B, BOX, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
 import { fmtDist, nav, type Step } from './nav'
 import { sim } from './sim'
-import { drawRealWorld } from './navMapReal'
-import { WORLD } from '../real/world'
 
 /* ------------------------------------------------------------------ */
 /* Static map geometry, built once as Path2D (one period of the city)  */
@@ -54,7 +52,15 @@ function buildPaths(): MapPaths {
         islands.arc(cx, cz, spec.island, 0, Math.PI * 2)
       }
     } else {
-      roads.rect(cx - BOX, cz - BOX, 2 * BOX, 2 * BOX)
+      roads.rect(cx - BOX, cz - CORNER_H, 2 * BOX, 2 * CORNER_H)
+      roads.rect(cx - CORNER_H, cz - BOX, 2 * CORNER_H, 2 * BOX)
+      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        const h = CORNER_H, R = CORNER_R
+        roads.moveTo(cx + sx * h, cz + sz * h)
+        roads.lineTo(cx + sx * (h + R), cz + sz * h)
+        for (let k = 1; k <= 12; k++) { const t = (3 * Math.PI) / 2 - (k / 12) * (Math.PI / 2); roads.lineTo(cx + sx * (h + R + R * Math.cos(t)), cz + sz * (h + R + R * Math.sin(t))) }
+        roads.closePath()
+      }
       signals.rect(cx - 5, cz - 5, 10, 10)
     }
     for (const d of [0, 3]) {
@@ -258,8 +264,7 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   for (let ci = ci0; ci <= ci1; ci++) for (let cj = cj0; cj <= cj1; cj++) copies.push([ci * P, cj * P])
 
   g.lineJoin = 'round'
-  if (WORLD.real) drawRealWorld(g, view.x, view.z, S, R, view.h)
-  else for (const [ox, oz] of copies) {
+  for (const [ox, oz] of copies) {
     g.save()
     g.translate(ox, oz)
     g.fillStyle = '#16212e'; g.fill(pth.land)
@@ -277,7 +282,7 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   }
 
   // street names along the roads, kept upright
-  if (!WORLD.real && S > 0.5) {
+  if (S > 0.5) {
     g.fillStyle = 'rgba(235,242,250,.9)'
     g.font = '600 11px system-ui, sans-serif'
     g.textAlign = 'center'; g.textBaseline = 'middle'
@@ -303,7 +308,7 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   }
 
   // the route
-  const pts = WORLD.real ? [] : routePoints(sim.x, sim.z)
+  const pts = routePoints(sim.x, sim.z)
   if (pts.length > 1) {
     g.lineCap = 'round'
     g.beginPath()

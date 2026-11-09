@@ -70,6 +70,31 @@ A 2D screen at the bottom right, drawn on top of the game (heading-up, smoothly 
 outlines and street names, roundabouts are drawn with their real shape, and the blue route follows the actual arc around
 a roundabout and the rounded corner through a junction.
 
+## Traffic signals
+Four-phase signals with protected left turns, on a 54 s cycle: north-south through + right (left turns red), north-south left arrow
+(through red), then the same two phases for east-west. The left lane has its own arrow head; the other lanes show round lamps.
+
+## Lanes
+Ordinary roads are 2 lanes each way. About 110 m before a signalised junction the road widens over 30 m on the approaching side
+and a third, outer lane opens: left lane = left turn, middle = straight, outer = right turn only (painted arrows and the
+lane-use sign match). Roundabout approaches stay 2 lanes; AI cars enter from the outer lane.
+
+## Roundabouts
+Four different designs, one per roundabout in the city:
+- **Two-lane** (big, 42 m radius, 5 m lanes): left lane straight / left (inner ring lane), right lane right / straight (outer lane).
+- **Signalised** two-lane (46 m): traffic lights and stop bars at every entry, plus the yield to circulating traffic.
+- **Single-lane** (31 m): one wide circulating lane with a one-lane entry: the left approach lane is closed with hatching and traffic merges right before the entry.
+- **Mini** (16 m): a small domed island ringed with paint, painted splitters, no raised kerbs.
+
+Every arm has a splitter island (raised, with a keep-right sign, except at the mini roundabout), a crosswalk set back from a
+dashed yield line (white "shark teeth"), and roadside signs. Entrances flare outward so each lane keeps its full width.
+AI cars slow down on approach, stop at the yield line if a car is coming round, and go when it is clear.
+
+## Navigation map
+A 2D screen at the bottom right, drawn on top of the game (heading-up, smoothly moving, zooming out with speed). Roads have
+outlines and street names, roundabouts are drawn with their real shape, and the blue route follows the actual arc around
+a roundabout and the rounded corner through a junction.
+
 ## Real cities
 On the menu choose **Real city**: search any place, or pick a preset (Palo Alto, Austin, Boston, Seattle, Chicago, San Diego,
 Paris, Berlin). The game downloads about 1 km² of OpenStreetMap data (roads, junctions, traffic signals, buildings), saves it on

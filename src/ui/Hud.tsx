@@ -3,7 +3,6 @@ import { gasTapFn } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import { setMode, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
-import { CityPicker } from './CityPicker'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
 import { useViewport } from './useViewport'
@@ -153,7 +152,6 @@ const modeTitle = (m: Mode) => MODES.find((x) => x.id === m)?.title ?? ''
 function PlayingHud() {
   const hud = useGame((s) => s.hud)
   const mode = useGame((s) => s.mode)
-  const world = useGame((s) => s.world)
   const messages = useGame((s) => s.messages)
   const { touch } = useViewport()
   const [help, setHelp] = useState(true)
@@ -164,7 +162,7 @@ function PlayingHud() {
   return (
     <>
       <div className="tl">
-        {mode === 'highway' && world === 'grid' && <div className="pts"><small>POINTS</small><b>{Math.floor(hud.score)}</b></div>}
+        {mode === 'highway' && <div className="pts"><small>POINTS</small><b>{Math.floor(hud.score)}</b></div>}
         <div className="toasts">
           {messages.map((m) => (
             <div key={m.id} className={`toast ${m.kind}`}>{m.text}</div>
@@ -206,10 +204,6 @@ export function Hud() {
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
   const adjusting = useGame((s) => s.adjusting)
-  const world = useGame((s) => s.world)
-  const realName = useGame((s) => s.realName)
-  const dlPhase = useGame((s) => s.dl.phase)
-  const loading = dlPhase === 'connecting' || dlPhase === 'downloading' || dlPhase === 'processing'
   const { touch, portrait } = useViewport()
 
   // phones and tablets play in landscape: pause and ask for a rotation
@@ -235,18 +229,12 @@ export function Hud() {
           <div className="panel wide">
             <header>
               <div className="logo">Drive<span>Me</span></div>
-              <p>Learn to drive in a real city: lanes, traffic lights, junctions and roundabouts. Check your mirrors, signal, then move. A crash ends the run. Mistakes are flagged as you make them.</p>
+              <p>Learn to drive: lanes, traffic lights, junctions and roundabouts. Check your mirrors, signal, then move. A crash ends the run. Mistakes are flagged as you make them.</p>
             </header>
             <section className="practice">
-              <h3>Where do you want to drive?</h3>
-              <CityPicker />
+              <h3>What do you want to practise?</h3>
+              <ModePicker />
             </section>
-            {world === 'grid' && (
-              <section className="practice">
-                <h3>What do you want to practise?</h3>
-                <ModePicker />
-              </section>
-            )}
             <div className="cols">
               <section>
                 <h3>Controls</h3>
@@ -257,7 +245,7 @@ export function Hud() {
                 <Settings />
               </section>
             </div>
-            <button className="primary" onClick={start} disabled={loading}>{loading ? 'Loading the map…' : world === 'real' ? `Drive in ${realName}` : `Start: ${modeTitle(mode)}`} <Key>Enter</Key></button>
+            <button className="primary" onClick={start}>Start: {modeTitle(mode)} <Key>Enter</Key></button>
           </div>
         </div>
       )}

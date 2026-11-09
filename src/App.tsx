@@ -5,7 +5,6 @@ import { ToneMappingMode } from 'postprocessing'
 import { installInput } from './game/input'
 import { PlayerRig } from './game/PlayerRig'
 import { City } from './game/City'
-import { RealCity } from './real/RealCity'
 import { Highway } from './highway/Highway'
 import { useGame } from './game/store'
 import { HORIZON, Sky, SunLight } from './game/Scenery'
@@ -20,8 +19,6 @@ const LOWFX = IS_COARSE || (typeof location !== 'undefined' && new URLSearchPara
 
 export default function App() {
   useEffect(() => installInput(), [])
-  const world = useGame((s) => s.world)
-  const realName = useGame((s) => s.realName)
   const mode = useGame((s) => s.mode)
   return (
     <>
@@ -33,7 +30,7 @@ export default function App() {
         <SunLight />
         <Simulation />
         <Ground />
-        {world === 'real' ? <RealCity key={realName} /> : mode === 'highway' ? <Highway /> : <City />}
+        {mode === 'highway' ? <Highway /> : <City />}
         <Traffic />
         <PlayerRig />
         {!LOWFX && (

@@ -5,7 +5,6 @@ import { CARPLAY } from './cabinConfig'
 import { drawNavMap } from './navMap'
 import { sim } from './sim'
 import { useGame } from './store'
-import { WORLD } from '../real/world'
 import { drawHighwayMap } from '../highway/hwMap'
 
 const CW = 675, CH = 400
@@ -35,7 +34,7 @@ export function CarPlay() {
     g.setTransform(1, 0, 0, 1, 0, 0)
     g.fillStyle = '#0b1018'
     g.fillRect(0, 0, CW, CH)
-    if (useGame.getState().mode === 'highway' && !WORLD.real) {
+    if (useGame.getState().mode === 'highway') {
       g.save(); g.translate(86, 0); g.beginPath(); g.rect(0, 0, CW - 86, CH); g.clip()
       drawHighwayMap(g, CW - 86, CH)
       g.restore()
