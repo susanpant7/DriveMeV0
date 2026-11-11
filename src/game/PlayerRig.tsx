@@ -204,7 +204,7 @@ export function PlayerRig() {
       }
       t = { yaw, pitch, fov: front.fov, lean }
     }
-    const k = 1 - Math.exp(-14 * dt)
+    const k = 1 - Math.exp(-(input.slow ? 7 : 14) * dt)
     const v = view.current
     v.yaw += (t.yaw - v.yaw) * k
     v.pitch += (t.pitch - v.pitch) * k

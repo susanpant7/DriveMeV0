@@ -1,9 +1,10 @@
 import { toggleMute } from './audio'
 import { adjust, mirrorAdj, saveMirrors } from './cabinConfig'
 import { input, pauseGame, resumeGame, startGame, toggleSignal } from './sim'
-import { setTraffic, setUnits, useGame, type Look } from './store'
+import { setTraffic, setUnits, useGame } from './store'
 
-const LOOK_KEYS: Record<string, Look> = { KeyA: 'blindL', KeyW: 'center', KeyD: 'blindR' }
+// A / D turn the head left / right, W tilts it up, and the head moves gradually while the key is held (A + W = left and up)
+const LOOK_KEYS: Record<string, 'kA' | 'kW' | 'kD'> = { KeyA: 'kA', KeyW: 'kW', KeyD: 'kD' }
 
 const SENS = 0.0028 // rad of head turn per pixel of mouse movement
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
@@ -20,7 +21,7 @@ export function installInput() {
   // ---- free look: press and drag the mouse, or swipe with two fingers on a trackpad, to turn your head ----
   // (holding C or the right mouse button also works). Let go and your head returns to the road.
   let lookHeld = false
-  const lastTap = [0, 0, 0]
+  const lastTap = [0, 0, 0, 0]
   const gasTapCheck = () => { const now = performance.now(); if (now - lastTap[2] < 320) { input.gasTap = true; lastTap[2] = 0 } else lastTap[2] = now }
   gasTapFn = gasTapCheck
   let drag: { x: number; y: number } | null = null // a left-button press that has not moved far enough to count as a drag yet
@@ -115,7 +116,7 @@ export function installInput() {
     }
     if (e.code === 'KeyR' && !e.repeat && useGame.getState().status === 'playing') { startGame(); return }
     if (e.code === 'KeyC' && !e.repeat) startLook(true)
-    if (LOOK_KEYS[e.code] && !input.free) input.look = LOOK_KEYS[e.code]
+    if (LOOK_KEYS[e.code]) input[LOOK_KEYS[e.code]] = true
     if (adjust.sel && useGame.getState().adjusting) {
       const a = mirrorAdj[adjust.sel]
       const step = 0.012
@@ -130,7 +131,11 @@ export function installInput() {
       return
     }
     if (e.code === 'ArrowUp') { input.up = true; if (!e.repeat) gasTapCheck() }
-    if (e.code === 'ArrowDown') input.down = true
+    if (e.code === 'ArrowDown') {
+      input.down = true
+      // a quick double press of the down arrow puts the wheel back to straight
+      if (!e.repeat) { const now = performance.now(); if (now - lastTap[3] < 320) { input.recentre = true; lastTap[3] = 0 } else lastTap[3] = now }
+    }
     if (e.code === 'Space' && !e.repeat) input.recentre = true
     if (e.code === 'ArrowLeft') input.left = true
     if (e.code === 'ArrowRight') input.right = true
@@ -149,7 +154,7 @@ export function installInput() {
   const up = (e: KeyboardEvent) => {
     if (e.code === 'KeyC') stopLook()
     if (typing(e)) return
-    if (LOOK_KEYS[e.code] && input.look === LOOK_KEYS[e.code]) input.look = 'front'
+    if (LOOK_KEYS[e.code]) input[LOOK_KEYS[e.code]] = false
     if (e.code === 'ArrowUp') input.up = false
     if (e.code === 'ArrowDown') input.down = false
     if (e.code === 'ArrowLeft') input.left = false
@@ -158,6 +163,7 @@ export function installInput() {
   const release = () => {
     stopLook()
     input.look = 'front'
+    input.kA = input.kW = input.kD = false
     input.up = input.down = input.left = input.right = false
     input.free = false
     input.yaw = input.pitch = 0
@@ -187,33 +193,48 @@ export function installInput() {
   }
 }
 
-/* ---------- phone tilt steering (gyroscope / accelerometer) ---------- */
-let gyroHandler: ((e: DeviceMotionEvent) => void) | null = null
-/** Turn the phone like a steering wheel. The angle of gravity in the screen plane gives the wheel angle, so it works in either landscape
- *  direction. The position when you switch it on is "straight ahead". Returns false if the device has no motion sensor / permission denied. */
-export async function setGyro(on: boolean): Promise<boolean> {
-  if (gyroHandler) { window.removeEventListener('devicemotion', gyroHandler); gyroHandler = null }
-  input.gyro = null
+/* ---------- phone motion: look around by moving the phone (instead of the eye icon) ---------- */
+let motionHandler: ((e: DeviceOrientationEvent) => void) | null = null
+const motion = { on: false, base: null as null | { yaw: number; pitch: number } }
+export const motionActive = () => motion.on
+/** forget where the phone was pointing: the direction it points now is "straight ahead" */
+export function recentreMotion() { motion.base = null }
+/**
+ * Like a window onto the car: point the phone left / right / up and the view follows. It uses the direction of the back camera, so it works
+ * in either landscape direction. Returns false if the device has no motion sensor or permission was denied.
+ */
+export async function setMotionLook(on: boolean): Promise<boolean> {
+  if (motionHandler) { window.removeEventListener('deviceorientation', motionHandler); motionHandler = null }
+  if (motion.on) { motion.on = false; input.free = false; input.yaw = input.pitch = 0; input.look = 'front' }
   if (!on) return true
-  const DM = DeviceMotionEvent as unknown as { requestPermission?: () => Promise<'granted' | 'denied'> }
+  const DO = DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<'granted' | 'denied'> }
   try {
-    if (typeof DM.requestPermission === 'function' && (await DM.requestPermission()) !== 'granted') return false
+    if (typeof DO.requestPermission === 'function' && (await DO.requestPermission()) !== 'granted') return false
   } catch { return false }
-  let phi0: number | null = null
-  let smooth = 0
-  gyroHandler = (e) => {
-    const a = e.accelerationIncludingGravity
-    if (!a || a.x == null || a.y == null) return
-    const phi = Math.atan2(a.x, a.y)
-    if (phi0 === null) phi0 = phi
-    let d = phi - phi0
-    d = Math.atan2(Math.sin(d), Math.cos(d))
-    // clockwise turn of the phone = steer right; about 40 degrees is full lock; small dead zone
-    let v = Math.max(-1, Math.min(1, -d / 0.7))
-    if (Math.abs(v) < 0.05) v = 0
-    smooth += (v - smooth) * 0.35
-    input.gyro = smooth
+  motion.base = null
+  motion.on = true
+  let sy = 0, sp = 0
+  motionHandler = (e) => {
+    if (e.alpha == null || e.beta == null || e.gamma == null) return
+    const r = Math.PI / 180
+    const al = e.alpha * r, be = e.beta * r, ga = e.gamma * r
+    // direction the back camera points, in world coordinates (x east, y north, z up)
+    const vx = Math.sin(ga) * Math.cos(al) + Math.cos(ga) * Math.sin(be) * Math.sin(al)
+    const vy = Math.sin(ga) * Math.sin(al) - Math.cos(ga) * Math.sin(be) * Math.cos(al)
+    const vz = Math.cos(ga) * Math.cos(be)
+    const heading = Math.atan2(-vx, -vy)
+    const pitch = Math.asin(Math.max(-1, Math.min(1, -vz)))
+    if (!motion.base) motion.base = { yaw: heading, pitch }
+    let dy = heading - motion.base.yaw
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy))
+    const tY = clamp(-dy * 1.6, -2.0, 2.0) // turning the phone right turns your head right (game yaw + = left); a little amplified
+    const tP = clamp((pitch - motion.base.pitch) * 1.4, -0.3, 0.95)
+    sy += (tY - sy) * 0.4
+    sp += (tP - sp) * 0.4
+    input.free = true
+    input.yaw = sy
+    input.pitch = sp
   }
-  window.addEventListener('devicemotion', gyroHandler)
+  window.addEventListener('deviceorientation', motionHandler)
   return true
 }

@@ -47,6 +47,8 @@ interface GameState {
   crashDiag: RbDiag | null
   units: Units
   traffic: 1 | 2 | 3 | 4 | 5
+  /** how you look around on a phone: the eye icon, or by moving the phone */
+  lookMode: 'eye' | 'motion'
   /** steering sensitivity 1 (gentle) .. 5 (quick) */
   steerSens: 1 | 2 | 3 | 4 | 5
   pauseReason: 'user' | 'offroad'
@@ -106,6 +108,7 @@ export const useGame = create<GameState>(() => ({
   hwVersion: 0,
   adjusting: false,
   units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
+  lookMode: load<'eye' | 'motion'>('driveme.look', 'eye', (v) => v === 'eye' || v === 'motion'),
   steerSens: load<1 | 2 | 3 | 4 | 5>('driveme.steer', 2, (v) => [1, 2, 3, 4, 5].includes(v as number)),
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))
@@ -113,6 +116,10 @@ export const useGame = create<GameState>(() => ({
 export const setUnits = (u: Units) => {
   save('driveme.units', u)
   useGame.setState({ units: u })
+}
+export const setLookMode = (m: 'eye' | 'motion') => {
+  save('driveme.look', m)
+  useGame.setState({ lookMode: m })
 }
 export const setSteerSens = (n: 1 | 2 | 3 | 4 | 5) => {
   save('driveme.steer', n)

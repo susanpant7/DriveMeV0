@@ -1,9 +1,9 @@
 import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
-import { gasTapFn, setGyro, steerTap } from '../game/input'
+import { gasTapFn, motionActive, recentreMotion, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
-import { setMode, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
+import { setLookMode, setMode, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
 import { useViewport } from './useViewport'
@@ -16,6 +16,8 @@ function Settings() {
   const traffic = useGame((s) => s.traffic)
   const units = useGame((s) => s.units)
   const steerSens = useGame((s) => s.steerSens)
+  const lookMode = useGame((s) => s.lookMode)
+  const { touch } = useViewport()
   return (
     <div className="settings">
       <div className="setting">
@@ -28,6 +30,18 @@ function Settings() {
           <button className={units === 'mph' ? 'on' : ''} onClick={() => setUnits('mph')}>mph</button>
         </div>
       </div>
+      {touch && (
+        <div className="setting">
+          <div className="setting-head">
+            <span>Look around</span>
+            <span className="muted">{lookMode === 'eye' ? 'Eye icon' : 'Move the phone'}</span>
+          </div>
+          <div className="seg" role="group" aria-label="Look around">
+            <button className={lookMode === 'eye' ? 'on' : ''} onClick={() => setLookMode('eye')}>Eye icon</button>
+            <button className={lookMode === 'motion' ? 'on' : ''} onClick={async () => { if (await setMotionLook(true)) setLookMode('motion') }}>Phone motion</button>
+          </div>
+        </div>
+      )}
       <div className="setting">
         <div className="setting-head">
           <span>Steering sensitivity</span>
@@ -63,7 +77,7 @@ function ControlsList() {
       <li><span><Key>←</Key><Key>→</Key></span> Steer <em>each press turns the wheel a little and it stays there (hold for more); <Key>Space</Key> centres it</em></li>
       <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator</li>
       <li><span>Drag</span> Look around <em>press and drag with the mouse, or swipe with two fingers on a trackpad (the view holds, tap to look ahead again); aim at a mirror to check it</em></li>
-      <li><span><Key>A</Key><Key>W</Key><Key>D</Key></span> Quick glance at a mirror <em>(optional shortcut)</em></li>
+      <li><span><Key>A</Key><Key>W</Key><Key>D</Key></span> Turn your head: <Key>A</Key> left, <Key>D</Key> right, <Key>W</Key> up <em>(hold: the head moves gradually, and keys combine, e.g. A + W looks left and up; let go and it returns)</em></li>
       <li><span><Key>Esc</Key></span> Pause <span className="gap" /><Key>M</Key> mute</li>
     </ul>
   )
@@ -98,19 +112,23 @@ function HoldButton({ label, onDown, onUp, className = '', active = false, child
  */
 function TouchControls() {
   const signal = useGame((s) => s.hud.signal)
-  const [tilt, setTilt] = useState(false)
-  useEffect(() => () => { void setGyro(false) }, [])
+  const lookMode = useGame((s) => s.lookMode)
+  useEffect(() => {
+    if (lookMode === 'motion') void setMotionLook(true)
+    return () => { void setMotionLook(false) }
+  }, [lookMode])
   const hold = (key: 'up' | 'down') => ({ onDown: () => { input[key] = true }, onUp: () => { input[key] = false } })
   return (
     <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
       <div className="tleft">
         <div className="eyerow">
           <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}>◀</HoldButton>
-          <EyeControl />
+          {lookMode === 'eye' ? <EyeControl /> : (
+            <button className="tbtn tilt" aria-label="Recentre the view" onClick={async () => { if (motionActive()) recentreMotion(); else await setMotionLook(true) }}>⌖ View</button>
+          )}
           <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
         </div>
-        <button className={`tbtn tilt${tilt ? ' on' : ''}`} aria-label="Tilt steering" onClick={async () => { const ok = await setGyro(!tilt); if (ok) setTilt(!tilt) }}>{tilt ? 'Tilt: on' : 'Tilt steer'}</button>
-        <div className="steerrow" style={tilt ? { display: 'none' } : undefined}>
+        <div className="steerrow">
           <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}>◀</HoldButton>
           <button className="tbtn steer centre" aria-label="Centre the wheel" onPointerDown={() => { input.recentre = true }}>⦿</button>
           <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}>▶</HoldButton>
@@ -132,7 +150,7 @@ function TouchHelp() {
     <ul className="controls">
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
       <li><span><b>Steer</b></span> Bottom left: each tap of ◀ ▶ turns the wheel a little and it stays there; ⦿ centres it</li>
-      <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror)</li>
+      <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror). Or choose "Phone motion" in Settings and just move the phone to look around</li>
       <li><span><b>◀ ▶</b></span> Either side of the eye: left and right indicators (tap to switch on or off)</li>
     </ul>
   )

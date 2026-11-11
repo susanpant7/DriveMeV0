@@ -30,16 +30,21 @@ export const input = {
   free: false,
   /** set by a double tap of an arrow key: -1 = move one lane left, 1 = one lane right */
   laneShift: 0 as -1 | 0 | 1,
+  /** head keys: A (left), W (up), D (right) */
+  kA: false,
+  kW: false,
+  kD: false,
+  /** true while the head is being moved by the keys (the camera then follows a little more slowly) */
+  slow: false,
   /** a quick tap on the Space key / centre button: wheel back to straight */
   recentre: false,
-  /** phone tilt steering, -1 (full left) .. 1 (full right); null = off */
-  gyro: null as number | null,
   /** a quick double tap of the accelerator: toggles cruise control */
   gasTap: false,
   yaw: 0,
   pitch: 0,
 }
 let freeWas = false
+let headFree = false
 const GAZE_TOL = 0.42 // rad (about 24 degrees): how close the head must point to a mirror to count as looking at it
 
 interface Maneuver {
@@ -95,6 +100,8 @@ export const sim = {
   warnT: { off: -99, centre: -99, wrong: -99, speed: -99 },
   speedingFor: 0,
   yawRate: 0,
+  /** the head position set by the A / W / D keys (rad) */
+  head: { yaw: 0, pitch: 0 },
   /** the steering wheel position, -1 .. 1 (+/- 1.5 turns); it stays where you leave it */
   wheel: 0,
   /** roundabout lane tracking: which node, and which circulating lane (0 inner, 1 outer) the car first took */
@@ -234,7 +241,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
     score: keep, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
-    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0, wheel: 0, cruise: 0, rbl: { node: -1, lane: -1 },
+    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0, head: { yaw: 0, pitch: 0 }, wheel: 0, cruise: 0, rbl: { node: -1, lane: -1 },
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
@@ -366,8 +373,8 @@ export function stepSim(dt: number) {
   const sens = [0.32, 0.46, 0.62, 0.82, 1.05][useGame.getState().steerSens - 1]
   // The arrow keys / buttons turn the wheel a little and it STAYS there (like holding a real wheel); Space centres it.
   if (input.recentre) { sim.wheel = 0; input.recentre = false }
-  if (input.gyro === null && !autoLane.on) sim.wheel = clamp(sim.wheel + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 0.45 * dt, -1, 1)
-  let target = input.gyro !== null ? input.gyro : sim.wheel
+  if (!autoLane.on) sim.wheel = clamp(sim.wheel + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 0.45 * dt, -1, 1)
+  let target = sim.wheel
   // double-tap lane change: the car steers itself over to the next lane, then straightens up
   if (input.laneShift) {
     if (sim.speed > 2) {
@@ -415,7 +422,18 @@ export function stepSim(dt: number) {
     if (sim.tickT > 0.35) { sim.tickT = 0; tick() }
   } else sim.tickT = 0
 
-  // ---- touch free-look: what the head is facing decides which mirror you are looking at ----
+  // ---- head keys: A / D turn the head gradually, W tilts it up; letting go brings it gently back (like a person's head) ----
+  {
+    const dyaw = (input.kA ? 1 : 0) - (input.kD ? 1 : 0)
+    if (dyaw) sim.head.yaw = clamp(sim.head.yaw + dyaw * 1.25 * dt, -2.3, 2.3)
+    else sim.head.yaw *= Math.exp(-2.2 * dt)
+    if (input.kW) sim.head.pitch = clamp(sim.head.pitch + 0.9 * dt, 0, 0.95)
+    else sim.head.pitch *= Math.exp(-2.2 * dt)
+    const moving = Math.abs(sim.head.yaw) > 0.012 || Math.abs(sim.head.pitch) > 0.012 || input.kA || input.kW || input.kD
+    if (moving && (!input.free || headFree)) { input.free = true; headFree = true; input.slow = true; input.yaw = sim.head.yaw; input.pitch = sim.head.pitch }
+    else if (headFree) { headFree = false; input.slow = false; input.free = false; input.yaw = input.pitch = 0 }
+  }
+  // ---- free-look (touch, mouse or keys): what the head is facing decides which mirror you are looking at ----
   if (input.free) {
     const gy = input.yaw, gp = FRONT_PITCH + input.pitch
     let best: Look = 'front'
@@ -424,6 +442,8 @@ export function stepSim(dt: number) {
       const d = Math.hypot(gy - MIRROR_AIM[k].yaw, gp - MIRROR_AIM[k].pitch)
       if (d < bd) { bd = d; best = k }
     }
+    if (best === 'front' && input.yaw > 1.5) best = 'blindL' // looking over the shoulder counts as a blind-spot check
+    else if (best === 'front' && input.yaw < -1.5) best = 'blindR'
     input.look = best
     freeWas = true
   } else if (freeWas) {
