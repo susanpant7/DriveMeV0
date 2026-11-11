@@ -71,8 +71,23 @@ function buildModel(d: ModelDef) {
 
 const tyreGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.25, 18)
 tyreGeo.rotateZ(Math.PI / 2)
-const rimGeo = new THREE.CylinderGeometry(0.21, 0.21, 0.27, 12)
-rimGeo.rotateZ(Math.PI / 2)
+// the rim: a light disc with five dark spokes (vertex colours), so you can see the wheel turn
+const rimGeo = (() => {
+  const disc = new THREE.CylinderGeometry(0.21, 0.21, 0.27, 20)
+  disc.rotateZ(Math.PI / 2)
+  const parts: THREE.BufferGeometry[] = [disc.toNonIndexed()]
+  for (let k = 0; k < 5; k++) {
+    const sp = new THREE.BoxGeometry(0.29, 0.065, 0.2)
+    sp.translate(0, 0, 0.1)
+    sp.rotateX((k * 2 * Math.PI) / 5)
+    parts.push(sp.toNonIndexed())
+  }
+  const cols: number[] = []
+  parts.forEach((g, gi) => { const n = g.getAttribute('position').count; for (let q = 0; q < n; q++) cols.push(gi === 0 ? 0.78 : 0.07, gi === 0 ? 0.8 : 0.07, gi === 0 ? 0.84 : 0.08) })
+  const m = mergeGeometries(parts)!
+  m.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3))
+  return m
+})()
 const lampGeo = new THREE.BoxGeometry(0.42, 0.13, 0.05)
 const blinkGeo = new THREE.BoxGeometry(0.22, 0.11, 0.07) // amber indicator at a front / rear corner
 const repeaterGeo = new THREE.BoxGeometry(0.05, 0.09, 0.22) // side repeater
@@ -80,7 +95,7 @@ const repeaterGeo = new THREE.BoxGeometry(0.05, 0.09, 0.22) // side repeater
 const paintMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.32, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.12 })
 const darkMat = new THREE.MeshStandardMaterial({ color: '#10141a', roughness: 0.18, metalness: 0.8 })
 const tyreMat = new THREE.MeshStandardMaterial({ color: '#0c0c0d', roughness: 0.95 })
-const rimMat = new THREE.MeshStandardMaterial({ color: '#b9bec6', roughness: 0.28, metalness: 0.9 })
+const rimMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.6 })
 const headMat = new THREE.MeshBasicMaterial({ color: '#fff3d0', toneMapped: false })
 const tailMat = new THREE.MeshBasicMaterial({ color: '#ffffff', toneMapped: false })
 const amberMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.25, 0.05), toneMapped: false })
@@ -88,6 +103,7 @@ const amberMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.6, 1.25,
 const _m = new THREE.Matrix4()
 const _w = new THREE.Matrix4()
 const _l = new THREE.Matrix4()
+const _s2 = new THREE.Vector3()
 const _p = new THREE.Vector3()
 const _q = new THREE.Quaternion()
 const _s = new THREE.Vector3(1, 1, 1)
@@ -101,8 +117,8 @@ const colorOf = (hex: string) => {
   return c
 }
 
-interface Motion { h: number; pitch: number; roll: number; speed: number; rawH: number; x: number; z: number; ok: boolean }
-const motion: Motion[] = Array.from({ length: MAX_CARS }, () => ({ h: 0, pitch: 0, roll: 0, speed: 0, rawH: 0, x: 0, z: 0, ok: false }))
+interface Motion { spin: number; h: number; pitch: number; roll: number; speed: number; rawH: number; x: number; z: number; ok: boolean }
+const motion: Motion[] = Array.from({ length: MAX_CARS }, () => ({ spin: 0, h: 0, pitch: 0, roll: 0, speed: 0, rawH: 0, x: 0, z: 0, ok: false }))
 const _e = new THREE.Euler(0, 0, 0, 'YXZ')
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a))
 
@@ -203,6 +219,7 @@ export function Traffic() {
       const accel = (c.speed - mo.speed) / step
       const yaw = angDiff(mo.rawH, c.h) / step
       mo.speed = c.speed; mo.rawH = c.h; mo.x = c.x; mo.z = c.z
+      mo.spin = (mo.spin + (c.speed * step) / 0.34) % (Math.PI * 2) // the wheels roll as far as the car travels
       mo.h += angDiff(mo.h, c.h) * (1 - Math.exp(-14 * step))
       const kk = 1 - Math.exp(-6 * step)
       mo.pitch += (Math.max(-9, Math.min(4, accel)) * 0.0045 - mo.pitch) * kk
@@ -232,7 +249,8 @@ export function Traffic() {
       const tyreR = gm ? gm.r : md.d.tyre
       const tsc = tyreR / 0.34
       for (const [wx, wz] of wheelsAt) {
-        _l.makeScale(tsc, tsc, tsc)
+        _l.makeRotationX(-mo.spin)
+        _l.scale(_s2.set(tsc, tsc, tsc))
         _l.setPosition(wx, tyreR, wz)
         _w.multiplyMatrices(_m, _l)
         tyres.current.setMatrixAt(nw, _w)
