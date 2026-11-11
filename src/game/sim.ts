@@ -1,7 +1,7 @@
 import { crashSound, initAudio, tick } from './audio'
-import { WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { setLayout, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
-import { nav, navJunctionExit, navUpdate, startRoute } from './nav'
+import { nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
 import { LD1, NB_EDGE_L, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z, forkShift, scen, type HwType, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
 import { clearLane, initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
@@ -30,6 +30,10 @@ export const input = {
   free: false,
   /** set by a double tap of an arrow key: -1 = move one lane left, 1 = one lane right */
   laneShift: 0 as -1 | 0 | 1,
+  /** a quick tap on the Space key / centre button: wheel back to straight */
+  recentre: false,
+  /** phone tilt steering, -1 (full left) .. 1 (full right); null = off */
+  gyro: null as number | null,
   /** a quick double tap of the accelerator: toggles cruise control */
   gasTap: false,
   yaw: 0,
@@ -91,6 +95,10 @@ export const sim = {
   warnT: { off: -99, centre: -99, wrong: -99, speed: -99 },
   speedingFor: 0,
   yawRate: 0,
+  /** the steering wheel position, -1 .. 1 (+/- 1.5 turns); it stays where you leave it */
+  wheel: 0,
+  /** roundabout lane tracking: which node, and which circulating lane (0 inner, 1 outer) the car first took */
+  rbl: { node: -1, lane: -1 },
   /** cruise control: the set speed in m/s, 0 = off */
   cruise: 0,
   trip: 0,
@@ -220,12 +228,13 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
+  setLayout(useGame.getState().mode === 'roundabout')
   const pose = WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
     score: keep, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
-    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0, cruise: 0,
+    warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0, wheel: 0, cruise: 0, rbl: { node: -1, lane: -1 },
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
@@ -238,14 +247,14 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
 export function applyTraffic() {
   const n = TRAFFIC_LEVELS[useGame.getState().traffic - 1]
   if (WORLD.highway) return
-  setActiveCount(n, playerObs())
+  setActiveCount(useGame.getState().mode === 'roundabout' ? Math.round(n * 0.4) : n, playerObs()) // the roundabout course is a small loop: fewer cars keep it flowing
 }
 resetSim()
 
 export function startGame() {
   initAudio()
   resetSim()
-  useGame.setState({ status: 'playing', pauseReason: 'user', adjusting: false, messages: [], crashReason: '', crashTips: [], hud: { ...initialHud } })
+  useGame.setState({ status: 'playing', pauseReason: 'user', adjusting: false, messages: [], crashReason: '', crashTips: [], crashDiag: null, hud: { ...initialHud } })
 }
 
 export function goMenu() {
@@ -355,7 +364,10 @@ export function stepSim(dt: number) {
 
   // ---- steering (bicycle model) ----
   const sens = [0.32, 0.46, 0.62, 0.82, 1.05][useGame.getState().steerSens - 1]
-  let target = (input.right ? 1 : 0) - (input.left ? 1 : 0)
+  // The arrow keys / buttons turn the wheel a little and it STAYS there (like holding a real wheel); Space centres it.
+  if (input.recentre) { sim.wheel = 0; input.recentre = false }
+  if (input.gyro === null && !autoLane.on) sim.wheel = clamp(sim.wheel + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 0.45 * dt, -1, 1)
+  let target = input.gyro !== null ? input.gyro : sim.wheel
   // double-tap lane change: the car steers itself over to the next lane, then straightens up
   if (input.laneShift) {
     if (sim.speed > 2) {
@@ -382,7 +394,7 @@ export function stepSim(dt: number) {
       sim.h = autoLane.h0; sim.yawRate = 0; sim.steerIn = 0
       const dx = err * rxv, dz = err * rzv; sim.x += dx; sim.z += dz
     }
-    if (done || sim.speed < 1.5 || input.down || (autoLane.t > 0.6 && (input.left || input.right))) { autoLane.on = false; target = (input.right ? 1 : 0) - (input.left ? 1 : 0); if (autoLane.sig && sim.signal === autoLane.dir) sim.signal = 0 }
+    if (done || sim.speed < 1.5 || input.down || (autoLane.t > 0.6 && (input.left || input.right))) { autoLane.on = false; sim.wheel = done ? 0 : sim.wheel; target = sim.wheel; if (autoLane.sig && sim.signal === autoLane.dir) sim.signal = 0 }
   }
   const rate = target ? 1.5 + sens : 3
   // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
@@ -462,6 +474,7 @@ export function stepSim(dt: number) {
     trackJunction()
     trackStop()
   }
+  if (useGame.getState().mode === 'roundabout' && !WORLD.highway) { if (trackRbLane()) return }
   trackSpeed(dt)
 
   sim.hudTimer += dt
@@ -615,6 +628,47 @@ function finishManeuver(m: Maneuver) {
   if (m.infractions.length === 0) sim.clean++
 }
 
+/* ---------- rules: lanes inside a two-lane roundabout ---------- */
+/** the lane the rules want for a manoeuvre: right turn = right (outer) lane, left turn or going back = left (inner) lane, straight on = either */
+const lanePref = (turn: 'right' | 'straight' | 'left' | 'back'): 'inner' | 'outer' | 'either' => (turn === 'right' ? 'outer' : turn === 'straight' ? 'either' : 'inner')
+function trackRbLane(): boolean {
+  const nn = nearestNode(sim.x, sim.z)
+  const spec = nn.spec
+  if (!spec || spec.laneR.length < 2) return false
+  const r = Math.hypot(nn.rx, nn.rz)
+  if (r > spec.outer + 3) { sim.rbl.node = -1; sim.rbl.lane = -1; return false }
+  if (r < spec.laneR[0] - 3 || r > spec.laneR[1] + 3.5) return false
+  const ang = Math.atan2(-nn.rz, nn.rx)
+  const off = Math.abs(mod(ang + Math.PI / 4, Math.PI / 2) - Math.PI / 4) // angular distance from the nearest arm
+  if (off < ringDelta(spec, 1) + 0.12) return false // still in the entry / exit zone of an arm
+  const mid = (spec.laneR[0] + spec.laneR[1]) / 2
+  if (Math.abs(r - mid) < 0.8 || sim.speed < 1) return false
+  const lane = r < mid ? 0 : 1
+  if (sim.rbl.node !== nn.n) {
+    sim.rbl.node = nn.n
+    sim.rbl.lane = lane
+    const st = nav.steps[nav.k]
+    if (st && st.i === nn.i && st.j === nn.j) {
+      const turn = turnName(st.din, st.out)
+      const want = lanePref(turn)
+      if ((want === 'outer' && lane !== 1) || (want === 'inner' && lane !== 0)) {
+        useGame.setState({ crashDiag: { correct: { turn, lane: want }, took: { turn, lane: lane === 0 ? 'inner' : 'outer' } } })
+        crash('You were in the wrong lane for that exit.', [`You were asked: "${nav.text}". ${want === 'outer' ? 'To turn right (the 1st exit) use the right-hand (outer) lane.' : 'To take the 3rd exit, or to go back the way you came, use the left-hand (inner) lane.'}`, 'Choose your lane before you enter: the arrows on the road show it. Stay in that lane until you leave.'])
+        return true
+      }
+    }
+    return false
+  }
+  if (lane !== sim.rbl.lane) {
+    const st = nav.steps[nav.k]
+    const turn = st ? turnName(st.din, st.out) : 'straight'
+    useGame.setState({ crashDiag: { correct: { turn, lane: sim.rbl.lane === 0 ? 'inner' : 'outer' }, took: { turn, lane: lane === 0 ? 'inner' : 'outer' } } })
+    crash('You changed lanes inside the roundabout.', ['Pick the right lane before you enter and stay in it all the way round.', 'You may only move across when you are leaving, once you are past the last exit before yours and have checked and signalled.'])
+    return true
+  }
+  return false
+}
+
 /* ---------- rules: turns and roundabouts ---------- */
 function trackJunction() {
   const nn = nearestNode(sim.x, sim.z)
@@ -633,7 +687,17 @@ function trackJunction() {
     sim.jn = null
     // which way did we leave? (from where we are relative to the junction: more reliable than the heading mid-turn)
     const dOut = Math.abs(nn.rx) > Math.abs(nn.rz) ? (nn.rx > 0 ? 0 : 2) : nn.rz > 0 ? 3 : 1
-    if (navJunctionExit(jn.i, jn.j, dOut) === 'wrong') say('Wrong turn: recalculating the route', 'warn')
+    const asked = nav.text
+    const stBefore = nav.steps[nav.k]
+    const res = navJunctionExit(jn.i, jn.j, dOut)
+    if (useGame.getState().mode === 'roundabout' && jn.kind === 'round') {
+      if (res === 'wrong' && stBefore) {
+        const lane = sim.rbl.lane === 0 ? 'inner' : sim.rbl.lane === 1 ? 'outer' : 'either'
+        useGame.setState({ crashDiag: { correct: { turn: turnName(stBefore.din, stBefore.out), lane: lanePref(turnName(stBefore.din, stBefore.out)) }, took: { turn: turnName(stBefore.din, dOut), lane } } })
+      }
+      if (res === 'wrong') return crash('You took the wrong exit.', [`The instruction was: "${asked}". Count the exits from where you entered: 1st is on your right, 2nd straight on, 3rd on your left, 4th takes you back the way you came.`])
+      if (res === 'ok') { sim.score += 100; say(`Correct exit! +100`, 'good') }
+    } else if (res === 'wrong') say('Wrong turn: recalculating the route', 'warn')
     const dh = normAngle(sim.h - jn.h0) // positive = turned left
     if (jn.kind === 'signal') {
       if (Math.abs(dh) < 0.6) return

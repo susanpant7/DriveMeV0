@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { CORNER_H, CORNER_R, armClosed, hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
+import { WEDGE_FULL, WEDGE_LEN, wedgeSpan, CORNER_H, CORNER_R, armClosed, hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, mod, nodeIndex, nodeKind } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -126,7 +126,7 @@ export const ATLAS_W = 2048
 export const ATLAS_H = 1280
 const cell = (i: number): Rect => ({ x: i * 256, y: 0, w: 256, h: 256 })
 const cell2 = (i: number): Rect => ({ x: i * 256, y: 896, w: 256, h: 256 })
-export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2) }
+export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7) }
 export const PLATE = (i: number): Rect => ({ x: i * 256, y: 256, w: 256, h: 128 })
 
 function arrowHead(g: CanvasRenderingContext2D, x: number, y: number, ang: number, s: number) {
@@ -171,6 +171,25 @@ export function makeAtlas(units: 'kmh' | 'mph') {
   const diamond = (r: Rect) => {
     g.fillStyle = '#111'; g.beginPath(); g.moveTo(r.x + 128, r.y + 4); g.lineTo(r.x + 252, r.y + 128); g.lineTo(r.x + 128, r.y + 252); g.lineTo(r.x + 4, r.y + 128); g.closePath(); g.fill()
     g.fillStyle = '#f7c600'; g.beginPath(); g.moveTo(r.x + 128, r.y + 16); g.lineTo(r.x + 240, r.y + 128); g.lineTo(r.x + 128, r.y + 240); g.lineTo(r.x + 16, r.y + 128); g.closePath(); g.fill()
+  }
+  // W4-2 "lane ends": the left of two lanes merges into the right lane
+  diamond(SIGN.laneEnds)
+  {
+    const r = SIGN.laneEnds
+    g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineCap = 'butt'
+    g.lineWidth = 12
+    g.beginPath(); g.moveTo(r.x + 150, r.y + 205); g.lineTo(r.x + 150, r.y + 80); g.stroke() // the lane that continues
+    g.lineWidth = 10
+    g.beginPath(); g.moveTo(r.x + 100, r.y + 205); g.lineTo(r.x + 100, r.y + 140); g.quadraticCurveTo(r.x + 100, r.y + 115, r.x + 136, r.y + 92); g.stroke() // the lane that ends
+    g.beginPath(); g.moveTo(r.x + 150, r.y + 52); g.lineTo(r.x + 124, r.y + 88); g.lineTo(r.x + 176, r.y + 88); g.closePath(); g.fill()
+  }
+  // plate under it: "LEFT LANE ENDS / MERGE RIGHT"
+  {
+    const r = SIGN.laneEndsText
+    g.fillStyle = '#f7c600'; roundRect(g, r.x + 8, r.y + 60, 240, 136, 14); g.fill()
+    g.strokeStyle = '#111'; g.lineWidth = 8; roundRect(g, r.x + 16, r.y + 68, 224, 120, 9); g.stroke()
+    g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 34px Arial, sans-serif'
+    g.fillText('LEFT LANE', r.x + 128, r.y + 100, 200); g.fillText('ENDS', r.x + 128, r.y + 134, 200); g.font = '800 30px Arial, sans-serif'; g.fillText('MERGE RIGHT', r.x + 128, r.y + 168, 204)
   }
   // roundabout ahead
   diamond(SIGN.rbWarn)
@@ -357,7 +376,7 @@ export interface TreeDef { x: number; z: number; s: number }
 
 type Pt2 = [number, number]
 /** polygons (in the lane's travel frame: a = forward, b = toward the travel-right) for each arrow kind */
-const ARROW_SHAPES: Record<'L' | 'S' | 'R' | 'SR' | 'SL', Pt2[][]> = (() => {
+const ARROW_SHAPES: Record<'L' | 'S' | 'R' | 'SR' | 'SL' | 'M', Pt2[][]> = (() => {
   const straight: Pt2[][] = [[[0, -0.15], [2.6, -0.15], [2.6, 0.15], [0, 0.15]], [[2.5, -0.62], [2.5, 0.62], [3.9, 0]]]
   const right: Pt2[][] = [[[1.25, 0.9], [2.05, 0.9], [2.05, 1.5]], [[1.25, 0.9], [2.05, 1.5], [1.25, 1.5]]]
   const mir = (shapes: Pt2[][]): Pt2[][] => shapes.map((poly) => poly.map(([a, b]) => [a, -b] as Pt2))
@@ -372,7 +391,9 @@ const ARROW_SHAPES: Record<'L' | 'S' | 'R' | 'SR' | 'SL', Pt2[][]> = (() => {
   void right; void mir
   const sr: Pt2[][] = [...straight, [[1.45, 0], [1.8, 0], [1.8, 1.1], [1.45, 1.1]], [[1.1, 1.05], [2.15, 1.05], [1.62, 1.8]]]
   const sl: Pt2[][] = sr.map((poly) => poly.map(([a, b]) => [a, -b] as Pt2))
-  return { S: straight, L: turn(-1), R: turn(1), SR: sr, SL: sl }
+  // merge arrow: a short shaft that bends towards the right (travel-right) lane, with an arrowhead
+  const m: Pt2[][] = [[[0, -0.15], [1.5, -0.15], [1.5, 0.15], [0, 0.15]], [[1.3, -0.15], [1.3, 0.15], [3.2, 1.65], [3.2, 1.35]], [[2.69, 1.94], [3.55, 1.98], [3.31, 1.16]]]
+  return { S: straight, L: turn(-1), R: turn(1), SR: sr, SL: sl, M: m }
 })()
 
 /** every sign / signal post placed (for checking that none stands on the road) */
@@ -458,6 +479,13 @@ export function buildCity() {
         g.rotateX(-Math.PI / 2)
         g.translate(0, 0.0005, 0)
         asphalt.addGeometry(g, [1, 1, 1], 4)
+        // white edge line following the curved kerb return
+        const cxp = h + R, N = 18
+        for (let k = 0; k < N; k++) {
+          const a0 = (3 * Math.PI) / 2 - (k / N) * (Math.PI / 2), a1 = (3 * Math.PI) / 2 - ((k + 1) / N) * (Math.PI / 2)
+          const q = (r: number, a: number): [number, number] => { const [wx, wy] = W(cxp + r * Math.cos(a), cxp + r * Math.sin(a)); return [wx, -wy] }
+          marks.upQuad([q(R + 0.15, a0), q(R + 0.15, a1), q(R + 0.35, a1), q(R + 0.35, a0)], 0.02, WHITE)
+        }
       }
     }
     else {
@@ -489,7 +517,7 @@ export function buildCity() {
     marks.upQuad([at(ax, az, d, u0, v0), at(ax, az, d, u1, v0), at(ax, az, d, u1, v1), at(ax, az, d, u0, v1)], y, color)
 
   /** painted arrow on a lane: tail at road coordinate u0, pointing along `ds` (+1/-1), lane centre at v0 */
-  const arrow = (ax: number, az: number, d: number, u0: number, ds: 1 | -1, v0: number, kind: 'L' | 'S' | 'R' | 'SR' | 'SL') => {
+  const arrow = (ax: number, az: number, d: number, u0: number, ds: 1 | -1, v0: number, kind: 'L' | 'S' | 'R' | 'SR' | 'SL' | 'M') => {
     for (const poly of ARROW_SHAPES[kind]) {
       const pts = poly.map(([a, b]) => at(ax, az, d, u0 + ds * a, v0 + ds * b))
       if (pts.length === 3) marks.upQuad([pts[0], pts[1], pts[2], pts[2]], 0.02, WHITE)
@@ -608,23 +636,28 @@ export function buildCity() {
           for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneOff(k) + (round && flE ? rbShift(back) : 0)), kind)
         })
         if (round && !twoLane) {
-          // hatched "gore" over the closed left lane: edge lines and diagonal stripes, from 52 m out to the island
-          const sh = (back: number) => (flE ? rbShift(back) : 0)
-          const vIn = (back: number) => v0sign * (0.45 + sh(back))
-          const vOut = (back: number) => v0sign * (LANE_W - 0.05 + sh(back))
-          const SL = 52
-          for (let back = 1.2; back < SL; back += 3) {
-            const b1 = Math.min(back + 3, SL)
-            for (const vf of [vIn, vOut]) {
-              marks.upQuad([at(ax, az, d, uEnd - ds * back, vf(back) - 0.09 * v0sign), at(ax, az, d, uEnd - ds * b1, vf(b1) - 0.09 * v0sign), at(ax, az, d, uEnd - ds * b1, vf(b1) + 0.09 * v0sign), at(ax, az, d, uEnd - ds * back, vf(back) + 0.09 * v0sign)], 0.02, WHITE)
+          // The left lane really ends: a raised island starts as a point 130 m out and widens until it fills the lane at 60 m, so the
+          // two lanes merge into one (like a zipper merge). Merge arrows and signs warn well before it.
+          const pts = (inset: number): Array<[number, number]> => {
+            const a: Array<[number, number]> = [], bk: Array<[number, number]> = []
+            for (let back = WEDGE_LEN - 0.5; back >= 1.2; back -= back > WEDGE_FULL ? 4 : 10) {
+              const sp = wedgeSpan(back, !!flE)
+              if (!sp || sp[1] - sp[0] < 2 * inset + 0.05) continue
+              a.push(at(ax, az, d, uEnd - ds * back, v0sign * (sp[0] + inset)))
+              bk.push(at(ax, az, d, uEnd - ds * back, v0sign * (sp[1] - inset)))
             }
+            return [...a, ...bk.reverse()]
           }
-          for (let back = 2; back < SL - 2; back += 2.6) {
-            const slope = 2.4 // how far along the road each stripe leans
-            marks.upQuad([at(ax, az, d, uEnd - ds * back, vIn(back)), at(ax, az, d, uEnd - ds * (back + 0.4), vIn(back)), at(ax, az, d, uEnd - ds * (back + 0.4 + slope), vOut(back + slope)), at(ax, az, d, uEnd - ds * (back + slope), vOut(back + slope))], 0.02, WHITE)
+          for (const [inset, h, color] of [[0, 0.16, [0.62, 0.62, 0.64]], [0.3, 0.19, [0.32, 0.46, 0.26]]] as Array<[number, number, V3]>) {
+            const poly = pts(inset)
+            if (poly.length < 3) continue
+            const shp = new THREE.Shape(poly.map(([x, z]) => new THREE.Vector2(x, -z)))
+            const g = new THREE.ExtrudeGeometry(shp, { depth: h, bevelEnabled: false })
+            g.rotateX(-Math.PI / 2)
+            solid.addGeometry(g, color)
           }
-          // a single-lane-ahead merge arrow well before the hatching
-          arrow(ax, az, d, uEnd - ds * 88, ds, v0sign * (laneOff(0) + sh(88)), 'R')
+          // merge arrows in the closing lane, well before the taper
+          for (const back of [158, 140]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneOff(0) + (flE ? rbShift(back) : 0)), 'M')
         }
       }
       // "ONLY" on the turn-only lanes (left lane and the added right lane) of a signalised approach
@@ -815,6 +848,18 @@ export function buildCity() {
           marks.upQuad([P(rMid - 0.075, th), P(rMid - 0.075, t1), P(rMid + 0.075, t1), P(rMid + 0.075, th)], 0.02, WHITE)
         }
       }
+      // two circulating lanes are separated by a dotted (broken white) circle
+      if (spec.laneR.length === 2) {
+        const rd = (spec.laneR[0] + spec.laneR[1]) / 2
+        const da = 3.2 / rd, gap = 4.6 / rd
+        for (let t = 0; t < Math.PI * 2; t += da + gap) {
+          const mid = t + da / 2
+          const off = Math.abs(mod(mid + Math.PI / 4, Math.PI / 2) - Math.PI / 4)
+          if (off < armHalf + 0.03) continue // not across the mouths of the roads
+          const pt = (r: number, a: number): V2 => [cx + r * Math.cos(a), cz - r * Math.sin(a)]
+          marks.upQuad([pt(rd - 0.09, t), pt(rd - 0.09, t + da), pt(rd + 0.09, t + da), pt(rd + 0.09, t)], 0.02, WHITE)
+        }
+      }
       // curved counter-clockwise arrows in each lane, between the arms (they follow the curve of the ring)
       if (!spec.domed) {
         for (let q = 0; q < 4; q++) {
@@ -896,6 +941,12 @@ export function buildCity() {
         post(rx2, rz2, 2.5)
         signQuad(rx2 + ox * 0.08, 2.15, rz2 + oz * 0.08, 0.8, 0.98, face, SIGN.rightOnly)
       } else if (rbSpec(i, j)!.laneR.length === 2) side(clr + 50, 2.5, 1.3, 1.3, SIGN.rbLanes) // roundabout lane-use sign (matches the painted arrows)
+      else {
+        // one-lane roundabout: warn that the left lane ends and traffic must merge right, well before it
+        side(clr + 150, 2.6, 1.1, 1.1, SIGN.laneEnds)
+        side(clr + 128, 1.7, 1.3, 1.3, SIGN.laneEndsText)
+        side(clr + 96, 2.6, 1.1, 1.1, SIGN.laneEnds)
+      }
 
       if (kind === 'signal') {
         // Signals hang ACROSS the road on the FAR side of the junction, facing the waiting traffic: a tapered pole on the far

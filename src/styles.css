@@ -256,6 +256,7 @@ canvas { touch-action: none; }
 
 /* ================= touch: eye (look) and steering wheel at the lower left ================= */
 .tleft { pointer-events: none; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.hud.touch .tbtn.tilt { min-width: 0; height: clamp(30px, 8vh, 40px); font-size: 12px; padding: 0 12px; border-radius: 12px; }
 .steerrow { display: flex; gap: 10px; pointer-events: none; }
 .hud.touch .steerrow .tbtn.steer { min-width: clamp(70px, 24vh, 110px); height: clamp(40px, 11vh, 56px); font-size: 20px; border-radius: 14px; }
 .eyerow { display: flex; align-items: center; gap: 8px; pointer-events: none; }
@@ -290,3 +291,9 @@ canvas { touch-action: none; }
 .pts { display: flex; align-items: baseline; gap: 8px; padding: 6px 14px; border-radius: 12px; background: var(--glass-strong); border: 1px solid var(--stroke); backdrop-filter: blur(8px); }
 .pts small { font-size: 10px; font-weight: 800; letter-spacing: .12em; color: var(--muted); }
 .pts b { font-size: 22px; font-variant-numeric: tabular-nums; }
+
+.rbdiag { margin: 4px auto 10px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.rbdiag svg { border-radius: 14px; background: #1c2430; }
+.rbdiag figcaption { display: flex; flex-direction: column; gap: 2px; font-size: 13px; text-align: center; }
+.rbdiag .ok { color: #4ade80; font-weight: 700; }
+.rbdiag .bad { color: #f87171; font-weight: 700; }

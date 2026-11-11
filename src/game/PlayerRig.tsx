@@ -177,7 +177,7 @@ export function PlayerRig() {
     const g = rig.current
     g.position.set(sim.x, 0, sim.z)
     g.rotation.y = sim.h
-    wheel.current.rotation.z = -sim.steerIn * 2.6
+    wheel.current.rotation.z = -sim.steerIn * Math.PI * 2 * 1.5 // like a real car: three turns from lock to lock
 
     // touch free-look turns the head to wherever the thumb points; the keys snap to a mirror. The lens never zooms.
     const front = LOOK_TARGETS.front

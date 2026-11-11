@@ -4,7 +4,7 @@
  * no rendering. Coordinates: x east, z south (top-down map has north up, so north = -z).
  */
 
-export const B = 200 // distance between junction centres
+export const B = 250 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
 export const P = B * G // period of the world
 export const LANE_W = 5.2 // 17 ft: a very generous lane (US standard is 11-12 ft)
@@ -33,7 +33,7 @@ export function rbShift(d: number) {
 }
 export const RB_SHIFT = RB_ISLAND[0][1]
 export const flare = (d: number) => (d <= FLARE ? 1 : d >= FLARE + TAPER ? 0 : 1 - (d - FLARE) / TAPER)
-export const BOX = 25 // half size of a signalised junction (its four corners are rounded)
+export const BOX = 32 // half size of a signalised junction (its four corners are rounded)
 /** half width of the widened approach road at the junction, and the radius of the rounded corners (BOX minus that half width) */
 export const CORNER_H = 3 * LANE_W + 0.5
 export const CORNER_R = BOX - CORNER_H
@@ -52,10 +52,15 @@ export const mod = (a: number, n: number) => ((a % n) + n) % n
  */
 const CLOSED_ROADS = new Set(['2,2,0', '2,1,3', '2,2,3', '0,1,3', '0,2,3', '1,0,0'])
 /** is the road leaving node (i, j) in direction d (an "arm") closed? */
+/** the roundabout course: every junction is a roundabout with four exits, and there are no buildings (open country) */
+export const LAYOUT = { rb: false, version: 0 }
+/** the roundabout course: a mix of designs, some with only three or two exits (these roads are closed) */
+const CLOSED_RB = new Set(['0,0,0', '2,1,0', '1,2,3', '3,3,3', '2,3,0'])
 export function armClosed(i: number, j: number, d: number) {
+  const set = LAYOUT.rb ? CLOSED_RB : CLOSED_ROADS
   const dd = mod(d, 4)
   const [dx, dz] = DIRS[dd]
-  return dd === 0 || dd === 3 ? CLOSED_ROADS.has(`${mod(i, G)},${mod(j, G)},${dd}`) : CLOSED_ROADS.has(`${mod(i + dx, G)},${mod(j + dz, G)},${(dd + 2) % 4}`)
+  return dd === 0 || dd === 3 ? set.has(`${mod(i, G)},${mod(j, G)},${dd}`) : set.has(`${mod(i + dx, G)},${mod(j + dz, G)},${(dd + 2) % 4}`)
 }
 /** wrap a coordinate difference into [-P/2, P/2) so "nearest copy" maths works */
 /** the world repeats every `period` metres (the grid city); a real city does not repeat, so its period is effectively infinite */
@@ -64,7 +69,7 @@ export const wrapD = (d: number) => mod(d + WORLD_PERIOD.v / 2, WORLD_PERIOD.v) 
 export const nodeIndex = (i: number, j: number) => mod(i, G) * G + mod(j, G)
 export const nodeIJ = (n: number): [number, number] => [Math.floor(n / G), n % G]
 export type NodeKind = 'round' | 'signal'
-export const nodeKind = (i: number, j: number): NodeKind => (mod(i, G) % 2 === 0 && mod(j, G) % 2 === 0 ? 'round' : 'signal')
+export const nodeKind = (i: number, j: number): NodeKind => (LAYOUT.rb || (mod(i, G) % 2 === 0 && mod(j, G) % 2 === 0) ? 'round' : 'signal')
 
 /** The roundabout designs. Each of the four roundabouts in the city is a different one. */
 export type RbVariant = 'two' | 'signal' | 'single' | 'mini'
@@ -86,8 +91,16 @@ export const RB_SPECS: Record<RbVariant, RbSpec> = {
   single: { variant: 'single', label: 'Single-lane roundabout', outer: 31, island: 17, apron: 21.5, laneR: [26.7], signals: false, splitter: true, aiLanes: [1], domed: false },
   mini: { variant: 'mini', label: 'Mini roundabout', outer: 19, island: 4.5, apron: 5.5, laneR: [12.4], signals: false, splitter: false, aiLanes: [1], domed: true },
 }
+/** the roundabout course: two-lane, signalised, single-lane and mini roundabouts, spread around the loop */
+const RB_AT_RB: Record<string, RbVariant> = {
+  '0,0': 'two', '1,0': 'single', '2,0': 'signal', '3,0': 'mini',
+  '0,1': 'mini', '1,1': 'two', '2,1': 'single', '3,1': 'two',
+  '0,2': 'two', '1,2': 'signal', '2,2': 'two', '3,2': 'single',
+  '0,3': 'single', '1,3': 'two', '2,3': 'mini', '3,3': 'two',
+}
 const RB_AT: Record<string, RbVariant> = { '0,0': 'two', '2,0': 'signal', '0,2': 'two', '2,2': 'two' }
 export function rbSpec(i: number, j: number): RbSpec | undefined {
+  if (LAYOUT.rb) return RB_SPECS[RB_AT_RB[`${mod(i, G)},${mod(j, G)}`] ?? 'two']
   return nodeKind(i, j) === 'round' ? RB_SPECS[RB_AT[`${mod(i, G)},${mod(j, G)}`] ?? 'two'] : undefined
 }
 export const rbSpecOfNode = (n: number) => { const [i, j] = nodeIJ(n); return rbSpec(i, j)! }
@@ -331,7 +344,11 @@ function buildPieces() {
     }
   }
 }
-buildPieces()
+function buildAll() {
+  PIECES.length = 0
+  EDGE_IDS.length = 0
+  for (const m of Object.values(LINKS)) m.clear()
+  buildPieces()
 // lanes that lead nowhere (T-junctions: no straight-on from the stem, no right turn into a closed road) are not used by traffic
 {
   for (const p of PIECES) {
@@ -341,6 +358,18 @@ buildPieces()
     if (!can) p.aiOk = false
   }
   for (let k = EDGE_IDS.length - 1; k >= 0; k--) if (!PIECES[EDGE_IDS[k]].aiOk) EDGE_IDS.splice(k, 1)
+}
+}
+buildAll()
+/** switch between the city and the roundabout course (rebuilds the road data; returns true if anything changed) */
+export function setLayout(rb: boolean) {
+  if (LAYOUT.rb === rb) return false
+  LAYOUT.rb = rb
+  LAYOUT.version++
+  buildAll()
+  LOTS.length = 0
+  LOTS.push(...buildLots())
+  return true
 }
 
 /** Position and unit direction at distance `s` along a piece. */
@@ -440,7 +469,7 @@ function buildLots(): Lot[] {
           const z0 = bz0 + b * LOT_PITCH + 3
           const x1 = x0 + LOT_PITCH - 6
           const z1 = z0 + LOT_PITCH - 6
-          let park = hash(i * 3 + a, j * 3 + b) < 0.16
+          let park = LAYOUT.rb || hash(i * 3 + a, j * 3 + b) < 0.16
           for (const [ci, cj] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) {
             if (nodeKind(ci, cj) !== 'round') continue
             const cx = ci * B
@@ -463,7 +492,7 @@ function buildLots(): Lot[] {
   }
   return lots
 }
-export const LOTS = buildLots()
+export const LOTS: Lot[] = buildLots()
 
 /** Is this point (any world coordinates) inside a building? */
 export function insideBuilding(x: number, z: number) {
@@ -505,6 +534,24 @@ export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number
   }
 }
 
+/** A one-lane roundabout: the approach's left lane is physically closed by a raised island that starts as a point 130 m out and
+ *  widens until it fills the lane at 60 m, so the two lanes really merge into one. Returns the island's sideways span (metres from the
+ *  road centre, positive) at `back` metres before the roundabout, or null. */
+export const WEDGE_LEN = 130
+export const WEDGE_FULL = 60
+export function wedgeSpan(back: number, flare: boolean): [number, number] | null {
+  if (back < 1.2 || back >= WEDGE_LEN) return null
+  const sh = flare ? rbShift(back) : 0
+  const vIn = 0.45 + sh, vFull = LANE_W - 0.05 + sh
+  const f = back <= WEDGE_FULL ? 1 : (WEDGE_LEN - back) / (WEDGE_LEN - WEDGE_FULL)
+  return [vIn, vIn + f * (vFull - vIn)]
+}
+const wedgeHit = (back: number, v: number, rb: RbSpec | undefined) => {
+  if (!rb || rb.laneR.length !== 1) return false
+  const s = wedgeSpan(back, rb.splitter)
+  return !!s && v >= s[0] && v <= s[1]
+}
+
 export function onAsphalt(x: number, z: number) {
   const nn = nearestNode(x, z)
   if (nn.spec) {
@@ -528,6 +575,7 @@ export function onAsphalt(x: number, z: number) {
     const cB = clearance(i, jA + 1)
     if (!armClosed(i, jA, 3) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
       const h = segHalves(kA, kB, cA, cB, u, flareOf(i, jA), flareOf(i, jA + 1))
+      if (wedgeHit(B - cB - u, -lat, rbSpec(i, jA + 1)) || wedgeHit(u - cA, lat, rbSpec(i, jA))) return false // on the island that closes a lane
       if (Math.abs(lat) < (lat < 0 ? h.right : h.left) + 0.2) return true
     }
   }
@@ -543,6 +591,7 @@ export function onAsphalt(x: number, z: number) {
     const cB = clearance(iA + 1, j)
     if (!armClosed(iA, j, 0) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
       const h = segHalves(kA, kB, cA, cB, u, flareOf(iA, j), flareOf(iA + 1, j))
+      if (wedgeHit(B - cB - u, lat, rbSpec(iA + 1, j)) || wedgeHit(u - cA, -lat, rbSpec(iA, j))) return false
       if (Math.abs(lat) < (lat > 0 ? h.right : h.left) + 0.2) return true
     }
   }

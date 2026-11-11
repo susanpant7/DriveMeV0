@@ -4,7 +4,7 @@ import { B, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, 
 export type Mode = 'city' | 'roundabout' | 'junction' | 'lanes' | 'highway'
 export const MODES: Array<{ id: Mode; title: string; blurb: string }> = [
   { id: 'city', title: 'City driving', blurb: 'Follow the map across town: junctions, roundabouts and lane changes together.' },
-  { id: 'roundabout', title: 'Roundabouts', blurb: 'Give way, pick the right exit and signal out. Several in a row.' },
+  { id: 'roundabout', title: 'Roundabouts', blurb: 'A country route of roundabouts only. You are told which exit to take (1st to 4th): take the wrong one and it is game over.' },
   { id: 'junction', title: 'Junctions & lights', blurb: 'Turn left and right at traffic lights: stop lines, arrows, mirrors and signals.' },
   { id: 'highway', title: 'Highway merge', blurb: 'Take the ramp, signal, match speed and merge into highway traffic before the lane ends. Big trucks too.' },
   { id: 'lanes', title: 'Lane changes', blurb: 'A long multi-lane road. Mirror, signal, then move. Overtake slow traffic.' },
@@ -60,7 +60,8 @@ function walk(mode: Mode, i: number, j: number, d: number, count: number): Step[
     const r = Math.random()
     const turn = () => (Math.random() < 0.5 ? mod(d + 1, 4) : mod(d + 3, 4))
     if (mode === 'roundabout') {
-      if (kind === 'round') out = r < 0.4 ? d : r < 0.7 ? mod(d + 1, 4) : mod(d + 3, 4)
+      // exits counted from the entry: 1st = right, 2nd = straight on, 3rd = left, 4th = back the way you came
+      if (kind === 'round') out = r < 0.25 ? mod(d + 3, 4) : r < 0.55 ? d : r < 0.8 ? mod(d + 1, 4) : mod(d + 2, 4)
     } else if (mode === 'junction') {
       if (mod(i, 2) === 1 && mod(j, 2) === 1 && r < 0.8) out = turn()
     } else if (mode === 'city') {
@@ -127,7 +128,7 @@ export function startRoute(mode: Mode) {
   let i0 = 0, j0 = 0
   for (let tries = 0; tries < 40; tries++) {
     dir = rnd(2) === 0 ? 0 : 2 // east or west
-    if (mode === 'roundabout') { i0 = 2 * rnd(2); j0 = 2 * rnd(2) }
+    if (mode === 'roundabout') { dir = rnd(4); i0 = rnd(4); j0 = rnd(4) }
     else if (mode === 'junction') { i0 = 1 + 2 * rnd(2); j0 = 1 + 2 * rnd(2) }
     else { i0 = rnd(4); j0 = 1 + 2 * rnd(2) }
     if (!armClosed(i0, j0, mod(dir + 2, 4))) break // the road we start on must exist
@@ -149,6 +150,12 @@ function setSteps(steps: Step[]) {
 /* ------------------------------------------------------------------ */
 /* Following the route                                                 */
 /* ------------------------------------------------------------------ */
+/** the number of the exit that this step asks for (1st is on the right) */
+export function exitNumber(step: Step) {
+  const order = [mod(step.din + 3, 4), step.din, mod(step.din + 1, 4), mod(step.din + 2, 4)]
+  return order.slice(0, order.indexOf(step.out) + 1).filter((o) => !armClosed(step.i, step.j, o)).length || 1
+}
+export const turnName = (din: number, out: number): 'right' | 'straight' | 'left' | 'back' => (['straight', 'left', 'back', 'right'] as const)[mod(out - din, 4)]
 export function describe(step: Step | undefined, last: boolean) {
   if (!step) return { text: '', sub: '', icon: 'S' }
   if (last) return { text: 'Destination ahead', sub: nodeName(step.i, step.j), icon: 'F' }

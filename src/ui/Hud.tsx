@@ -1,7 +1,8 @@
 import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
-import { gasTapFn } from '../game/input'
+import { gasTapFn, setGyro, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
+import type { RbDiag, RbPath } from '../game/store'
 import { setMode, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
@@ -59,7 +60,7 @@ function ControlsList() {
     <ul className="controls">
       <li><span><Key>↑</Key></span> Accelerator <em>hold to speed up, release to slow down</em></li>
       <li><span><Key>↓</Key></span> Brake</li>
-      <li><span><Key>←</Key><Key>→</Key></span> Steer</li>
+      <li><span><Key>←</Key><Key>→</Key></span> Steer <em>each press turns the wheel a little and it stays there (hold for more); <Key>Space</Key> centres it</em></li>
       <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator</li>
       <li><span>Drag</span> Look around <em>press and drag with the mouse, or swipe with two fingers on a trackpad (the view holds, tap to look ahead again); aim at a mirror to check it</em></li>
       <li><span><Key>A</Key><Key>W</Key><Key>D</Key></span> Quick glance at a mirror <em>(optional shortcut)</em></li>
@@ -97,6 +98,8 @@ function HoldButton({ label, onDown, onUp, className = '', active = false, child
  */
 function TouchControls() {
   const signal = useGame((s) => s.hud.signal)
+  const [tilt, setTilt] = useState(false)
+  useEffect(() => () => { void setGyro(false) }, [])
   const hold = (key: 'up' | 'down') => ({ onDown: () => { input[key] = true }, onUp: () => { input[key] = false } })
   return (
     <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
@@ -106,9 +109,11 @@ function TouchControls() {
           <EyeControl />
           <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
         </div>
-        <div className="steerrow">
-          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true }} onUp={() => { input.left = false }}>◀</HoldButton>
-          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true }} onUp={() => { input.right = false }}>▶</HoldButton>
+        <button className={`tbtn tilt${tilt ? ' on' : ''}`} aria-label="Tilt steering" onClick={async () => { const ok = await setGyro(!tilt); if (ok) setTilt(!tilt) }}>{tilt ? 'Tilt: on' : 'Tilt steer'}</button>
+        <div className="steerrow" style={tilt ? { display: 'none' } : undefined}>
+          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}>◀</HoldButton>
+          <button className="tbtn steer centre" aria-label="Centre the wheel" onPointerDown={() => { input.recentre = true }}>⦿</button>
+          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}>▶</HoldButton>
         </div>
       </div>
 
@@ -126,7 +131,7 @@ function TouchHelp() {
   return (
     <ul className="controls">
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
-      <li><span><b>Steer</b></span> Bottom left: hold the left or right arrow to steer</li>
+      <li><span><b>Steer</b></span> Bottom left: each tap of ◀ ▶ turns the wheel a little and it stays there; ⦿ centres it</li>
       <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror)</li>
       <li><span><b>◀ ▶</b></span> Either side of the eye: left and right indicators (tap to switch on or off)</li>
     </ul>
@@ -149,6 +154,42 @@ function ModePicker() {
 
 const modeTitle = (m: Mode) => MODES.find((x) => x.id === m)?.title ?? ''
 
+/** A small picture of a two-lane roundabout: the correct route (green) and the route you took (red, dashed). You enter from the bottom. */
+function RbDiagram({ diag }: { diag: RbDiag }) {
+  const path = (p: RbPath) => {
+    const inner = p.lane === 'inner'
+    const x = inner ? 111 : 129
+    const R = inner ? 52 : 70
+    const dy = Math.sqrt(R * R - 81)
+    const a = `A${R},${R} 0 0 0`
+    const start = `M${x},240 L${x},${120 + dy}`
+    if (p.turn === 'right') return `${start} ${a} ${120 + dy},129 L240,129`
+    if (p.turn === 'straight') return `${start} ${a} ${120 + R},120 ${a} 129,${120 - dy} L129,0`
+    if (p.turn === 'left') return `${start} ${a} ${120 + R},120 ${a} 120,${120 - R} ${a} ${120 - dy},111 L0,111`
+    return `${start} ${a} ${120 + R},120 ${a} 120,${120 - R} ${a} ${120 - R},120 ${a} 111,${120 + dy} L111,240`
+  }
+  const words = { right: '1st exit: right', straight: '2nd exit: straight on', left: '3rd exit: left', back: '4th exit: back' }
+  const lane = (p: RbPath) => (p.lane === 'either' ? 'either lane' : `${p.lane} lane`)
+  return (
+    <figure className="rbdiag">
+      <svg viewBox="0 0 240 240" width="200" height="200" role="img" aria-label="Roundabout diagram">
+        <rect x="102" y="150" width="36" height="90" fill="#59606b" /><rect x="102" y="0" width="36" height="90" fill="#59606b" />
+        <rect x="0" y="102" width="90" height="36" fill="#59606b" /><rect x="150" y="102" width="90" height="36" fill="#59606b" />
+        <circle cx="120" cy="120" r="82" fill="#59606b" /><circle cx="120" cy="120" r="61" fill="none" stroke="#fff" strokeWidth="1.5" strokeDasharray="6 6" />
+        <circle cx="120" cy="120" r="44" fill="#3f7a4b" />
+        {diag.took && <path d={path(diag.took)} fill="none" stroke="#ef4444" strokeWidth="5" strokeDasharray="9 6" strokeLinecap="round" />}
+        <path d={path(diag.correct)} fill="none" stroke="#22c55e" strokeWidth="5" strokeLinecap="round" />
+        {[['1', 226, 124], ['2', 124, 14], ['3', 14, 124], ['4', 100, 232]].map(([t, x, y]) => <text key={t} x={x as number} y={y as number} fontSize="16" fontWeight="700" fill="#fff" textAnchor="middle">{t}</text>)}
+        <text x="120" y="126" fontSize="12" fill="#fff" textAnchor="middle">you enter ↑</text>
+      </svg>
+      <figcaption>
+        <span className="ok">Correct: {words[diag.correct.turn]}, {lane(diag.correct)}</span>
+        {diag.took && <span className="bad">You: {words[diag.took.turn]}, {lane(diag.took)}</span>}
+      </figcaption>
+    </figure>
+  )
+}
+
 function PlayingHud() {
   const hud = useGame((s) => s.hud)
   const mode = useGame((s) => s.mode)
@@ -162,7 +203,7 @@ function PlayingHud() {
   return (
     <>
       <div className="tl">
-        {mode === 'highway' && <div className="pts"><small>POINTS</small><b>{Math.floor(hud.score)}</b></div>}
+        {(mode === 'highway' || mode === 'roundabout') && <div className="pts"><small>POINTS</small><b>{Math.floor(hud.score)}</b></div>}
         <div className="toasts">
           {messages.map((m) => (
             <div key={m.id} className={`toast ${m.kind}`}>{m.text}</div>
@@ -200,6 +241,7 @@ export function Hud() {
   const reason = useGame((s) => s.crashReason)
   const pauseReason = useGame((s) => s.pauseReason)
   const tips = useGame((s) => s.crashTips)
+  const diag = useGame((s) => s.crashDiag)
   const start = startGame
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
@@ -293,6 +335,7 @@ export function Hud() {
             <div className="badge">Game over</div>
             <h2>You crashed</h2>
             <p className="reason">{reason}</p>
+            {diag && <RbDiagram diag={diag} />}
             {tips.length > 0 && (
               <ul className="tips">
                 {tips.map((t) => <li key={t}>{t}</li>)}

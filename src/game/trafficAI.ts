@@ -1,4 +1,4 @@
-import { B, EDGE_IDS, LANES, LANE_W, LINKS, P, PIECES, SPEED_LIMIT, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
+import { WEDGE_LEN, B, EDGE_IDS, LANES, LANE_W, LINKS, P, PIECES, SPEED_LIMIT, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
 
 export const MAX_CARS = 900
 export const CAR_L = 4.4
@@ -110,6 +110,7 @@ const canRight = (p: Piece) => LINKS.connR.has(`${p.node}:${p.arm}:${LANES - 1}`
 
 function planEdge(c: AiCar, p: Piece) {
   c.plan = 'S'
+  if (p.kind === 'edge' && p.toKind === 'round' && p.lane === 0 && rbSpecOfNode(p.node).laneR.length === 1) c.cool = 0 // start merging out of the closing lane at once
   if (p.kind !== 'edge' || p.toKind !== 'signal') return
   const r = Math.random()
   if (r < 0.18 && hasLeft(p)) c.plan = 'L'
@@ -234,7 +235,7 @@ function chooseNext(c: AiCar, p: Piece): number | undefined {
     // pick an exit among the roads this roundabout really has: with one circulating lane any exit; with two, the right lane
     // takes the first exit or straight on and the left lane straight on or the third exit. A one-exit roundabout turns you round.
     const open = (arm: number) => LINKS.exitC.has(`${p.node}:${arm}:0`)
-    const prefs = rbSpecOfNode(p.node).laneR.length === 1 ? [1, 2, 3] : p.lane === 1 ? [1, 2] : [2, 3]
+    const prefs = rbSpecOfNode(p.node).laneR.length === 1 ? [1, 2, 3, 0] : p.lane === 1 ? [1, 2] : [2, 3, 0] // 4th exit = back the way it came (from the left lane)
     let cand = prefs.map((o) => (p.arm + o) % 4).filter(open)
     if (!cand.length) cand = [1, 2, 3, 0].map((o) => (p.arm + o) % 4).filter(open)
     c.exitArm = cand.length ? cand[Math.floor(Math.random() * cand.length)] : p.arm
@@ -243,34 +244,37 @@ function chooseNext(c: AiCar, p: Piece): number | undefined {
 }
 
 /** Is any vehicle circulating just upstream of this roundabout entry? */
-export function ringBusy(node: number, arm: number, player: Obstacle | null): boolean {
+export function ringBusy(node: number, arm: number, player: Obstacle | null, ownSpeed = 0): boolean {
   const [i, j] = nodeIJ(node)
   const cx = i * B
   const cz = j * B
   const spec = rbSpecOfNode(node)
   const rMid = spec.laneR.reduce((a, b) => a + b, 0) / spec.laneR.length
-  const win = Math.min(2.6, Math.max(1.2, 55 / rMid)) // look back about 55 m along the ring
   const entryAng = (arm * Math.PI) / 2
-  const check = (x: number, z: number) => {
+  // Judge each circulating vehicle by how long it takes to reach this entry: a driver who is already rolling needs a smaller gap
+  // than one who is stopped, and anything that has just passed the entry (or is leaving first) is no obstacle.
+  const tGap = ownSpeed > 2 ? 2.0 : 2.8
+  const conflict = (x: number, z: number, speed: number, exitArm: number, isPlayer: boolean) => {
     const dx = wrapD(x - cx)
     const dz = wrapD(z - cz)
     const r = Math.hypot(dx, dz)
     if (r > spec.outer + 3 || r < spec.apron - 3) return false
     const ang = Math.atan2(-dz, dx)
-    const d = mod(entryAng - ang, Math.PI * 2)
-    return d < win || d > Math.PI * 2 - 0.2
+    const toEntry = mod(entryAng - ang, Math.PI * 2) // how far round it still has to go to reach this entry
+    if (toEntry > Math.PI * 2 - 0.12) return false // just passed the entry: we can slot in behind it
+    const dist = toEntry * rMid
+    if (dist > 60) return false
+    if (!isPlayer && exitArm !== arm) {
+      const toExit = mod((exitArm * Math.PI) / 2 - ang, Math.PI * 2)
+      if (toExit < toEntry - 0.1) return false // it leaves the roundabout before it gets here
+    }
+    return dist < 8 || dist / Math.max(speed, 1.5) < tGap
   }
   for (const ci of ringCars.get(node) ?? []) {
     const c = cars[ci]
-    if (!check(c.x, c.z)) continue
-    // a car that is about to leave the roundabout before it reaches this entry is no conflict
-    const ang = Math.atan2(-wrapD(c.z - cz), wrapD(c.x - cx))
-    const toExit = mod((c.exitArm * Math.PI) / 2 - ang, Math.PI * 2)
-    const toEntry = mod(entryAng - ang, Math.PI * 2)
-    if (toExit < toEntry - 0.1 && c.exitArm !== arm) continue
-    return true
+    if (conflict(c.x, c.z, c.speed, c.exitArm, false)) return true
   }
-  return !!player && check(player.x, player.z)
+  return !!player && conflict(player.x, player.z, player.speed, -1, true)
 }
 
 /* ---------------- IDM car following ---------------- */
@@ -338,7 +342,10 @@ function startChange(c: AiCar, p: Piece, dir: -1 | 1) {
 function decideLane(c: AiCar, p: Piece, gap: number, lv: number, toEnd: number) {
   let want: -1 | 0 | 1 = 0
   let urgent = false
-  if (p.toKind === 'signal') {
+  if (p.toKind === 'round' && p.lane === 0 && rbSpecOfNode(p.node).laneR.length === 1) {
+    want = 1 // the left lane is closed ahead (one-lane roundabout): merge right in good time
+    urgent = true
+  } else if (p.toKind === 'signal') {
     const req = reqLane(c, p)
     if (p.lane !== req) {
       want = req > p.lane ? 1 : -1
@@ -472,10 +479,10 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       const consider = (ox: number, oz: number, speed: number, isPlayer = false) => {
         let rx = ox - c.x
         let rz = oz - c.z
-        if (rx > 400) rx -= 800
-        else if (rx < -400) rx += 800
-        if (rz > 400) rz -= 800
-        else if (rz < -400) rz += 800
+        if (rx > P / 2) rx -= P
+        else if (rx < -P / 2) rx += P
+        if (rz > P / 2) rz -= P
+        else if (rz < -P / 2) rz += P
         if (rx * rx + rz * rz > 2100) return // beyond 45 m
         const along = rx * fx + rz * fz
         if (along < 0.5 || along > 45) return
@@ -548,7 +555,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
             lv = 0
           }
         }
-        const busy = ringBusy(p.node, p.arm, player)
+        const busy = ringBusy(p.node, p.arm, player, c.speed)
         if (busy) {
           c.rbWait = 1
           if (line > -0.5 && line < gap) {
@@ -561,6 +568,12 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       }
     }
 
+    // a car still in the closing lane of a one-lane roundabout stops at the nose of the island until it can merge right
+    const wedgeWait = p.kind === 'edge' && p.toKind === 'round' && p.lane === 0 && rbSpecOfNode(p.node).laneR.length === 1 && c.ghost <= 0
+    if (wedgeWait) {
+      const dist = toEnd - WEDGE_LEN - 3
+      if (dist > -1 && dist < gap) { gap = Math.max(dist, 0.05); lv = 0 }
+    }
     // 3. turns: slow down, give way when turning left across oncoming traffic
     if (p.kind === 'edge' && p.toKind === 'signal') {
       const m = maneuver(c, p)
@@ -608,7 +621,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
             c.cool = 1.5
           }
         }
-      } else if (c.cool <= 0 && c.speed > 3 && c.s > 12 && toEnd > 34 && c.ghost <= 0 && p.sibs) decideLane(c, p, gap, lv, toEnd)
+      } else if (c.cool <= 0 && (c.speed > 3 || wedgeWait) && c.s > 12 && toEnd > 34 && c.ghost <= 0 && p.sibs) decideLane(c, p, gap, lv, toEnd)
     } else if (p.kind === 'ring') {
       c.turnSig = p.ringType === 'between' && c.exitArm === p.arm ? 1 : 0
     } else if (p.entry) c.turnSig = 0

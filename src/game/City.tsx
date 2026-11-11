@@ -294,9 +294,9 @@ export function City() {
           {data.signs.map((g, n) => <mesh key={'g' + n} geometry={g} material={res.signs} />)}
           <instancedMesh ref={(m) => { trunks.current[k] = m }} args={[trunkGeo, trunkMat, data.trees.length]} frustumCulled={false} />
           <instancedMesh ref={(m) => { leaves.current[k] = m }} args={[leafGeo, leafMat, data.trees.length]} frustumCulled={false} />
-          <instancedMesh ref={(m) => { lampMeshes.current[k] = m }} args={[lampGeo, lampMat, data.lamps.length]} frustumCulled={false} />
-          <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, arrowMat, data.lamps.length]} frustumCulled={false} />
-          <instancedMesh ref={(m) => { glowMeshes.current[k] = m }} args={[glowGeo, glowMat, data.lamps.length]} frustumCulled={false} renderOrder={4} />
+          {data.lamps.length > 0 && <instancedMesh ref={(m) => { lampMeshes.current[k] = m }} args={[lampGeo, lampMat, data.lamps.length]} frustumCulled={false} />}
+          {data.lamps.length > 0 && <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, arrowMat, data.lamps.length]} frustumCulled={false} />}
+          {data.lamps.length > 0 && <instancedMesh ref={(m) => { glowMeshes.current[k] = m }} args={[glowGeo, glowMat, data.lamps.length]} frustumCulled={false} renderOrder={4} />}
         </group>
       ))}
     </>

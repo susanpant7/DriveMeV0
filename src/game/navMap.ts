@@ -1,4 +1,4 @@
-import { CORNER_H, CORNER_R, armClosed, B, BOX, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
+import { LAYOUT, CORNER_H, CORNER_R, armClosed, B, BOX, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
 import { fmtDist, nav, type Step } from './nav'
 import { sim } from './sim'
 
@@ -18,6 +18,7 @@ interface MapPaths {
   labels: Array<{ x: number; z: number; ang: number; text: string }>
 }
 let paths: MapPaths | null = null
+let pathsVer = -1
 
 type V2 = [number, number]
 const at = (ax: number, az: number, d: number, u: number, v: number): V2 => {
@@ -147,7 +148,8 @@ function bez3(p0: V2, p1: V2, p2: V2, p3: V2, n: number): V2[] {
 }
 
 function routePoints(px: number, pz: number): V2[] {
-  const steps = nav.steps.slice(nav.k)
+  // roundabout course: only the roundabout you are working on; the next one appears once this one is done
+  const steps = nav.mode === 'roundabout' ? nav.steps.slice(nav.k, nav.k + 1) : nav.steps.slice(nav.k)
   if (!steps.length) return []
   const pts: V2[] = []
   steps.forEach((st) => stepPath(st).forEach((q) => pts.push(q)))
@@ -232,7 +234,7 @@ export function drawBanner(g: CanvasRenderingContext2D, w: number, units: 'kmh' 
 }
 
 export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt: number, units: 'kmh' | 'mph', compact = false, banner = true) {
-  if (!paths) paths = buildPaths()
+  if (!paths || pathsVer !== LAYOUT.version) { paths = buildPaths(); pathsVer = LAYOUT.version }
   const pth = paths
 
   // smoothed camera (position, heading, zoom out with speed)

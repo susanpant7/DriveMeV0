@@ -6,6 +6,8 @@ export type Look = 'front' | 'left' | 'center' | 'right' | 'blindL' | 'blindR'
 export type Signal = -1 | 0 | 1
 export type Units = 'kmh' | 'mph'
 
+export interface RbPath { turn: 'right' | 'straight' | 'left' | 'back'; lane: 'inner' | 'outer' | 'either' }
+export interface RbDiag { correct: RbPath; took?: RbPath }
 export interface Msg {
   id: number
   text: string
@@ -41,6 +43,8 @@ interface GameState {
   messages: Msg[]
   crashReason: string
   crashTips: string[]
+  /** a diagram for the game-over screen: the correct way through a roundabout, and what the player did */
+  crashDiag: RbDiag | null
   units: Units
   traffic: 1 | 2 | 3 | 4 | 5
   /** steering sensitivity 1 (gentle) .. 5 (quick) */
@@ -94,6 +98,7 @@ export const useGame = create<GameState>(() => ({
   messages: [],
   crashReason: '',
   crashTips: [],
+  crashDiag: null,
   pauseReason: 'user',
   mode: load<Mode>('driveme.mode', 'city', (v) => v === 'city' || v === 'roundabout' || v === 'junction' || v === 'lanes' || v === 'highway'),
   nav: { text: '', sub: '', icon: 'S', dist: 0, arrived: 0 },

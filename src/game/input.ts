@@ -10,6 +10,12 @@ const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
 
 /** Wires keyboard and mouse controls. Returns a cleanup function. */
 export let gasTapFn: () => void = () => {}
+/** a tap of a steer button (phones): a quick second tap on the same side asks for a lane change */
+const steerTaps = [0, 0]
+export function steerTap(dir: -1 | 1) {
+  const d = dir < 0 ? 0 : 1, now = performance.now()
+  if (now - steerTaps[d] < 380) { input.laneShift = dir; steerTaps[d] = 0 } else steerTaps[d] = now
+}
 export function installInput() {
   // ---- free look: press and drag the mouse, or swipe with two fingers on a trackpad, to turn your head ----
   // (holding C or the right mouse button also works). Let go and your head returns to the road.
@@ -125,6 +131,7 @@ export function installInput() {
     }
     if (e.code === 'ArrowUp') { input.up = true; if (!e.repeat) gasTapCheck() }
     if (e.code === 'ArrowDown') input.down = true
+    if (e.code === 'Space' && !e.repeat) input.recentre = true
     if (e.code === 'ArrowLeft') input.left = true
     if (e.code === 'ArrowRight') input.right = true
     if (!e.repeat && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
@@ -178,4 +185,35 @@ export function installInput() {
     window.removeEventListener('blur', blur)
     document.removeEventListener('visibilitychange', hidden)
   }
+}
+
+/* ---------- phone tilt steering (gyroscope / accelerometer) ---------- */
+let gyroHandler: ((e: DeviceMotionEvent) => void) | null = null
+/** Turn the phone like a steering wheel. The angle of gravity in the screen plane gives the wheel angle, so it works in either landscape
+ *  direction. The position when you switch it on is "straight ahead". Returns false if the device has no motion sensor / permission denied. */
+export async function setGyro(on: boolean): Promise<boolean> {
+  if (gyroHandler) { window.removeEventListener('devicemotion', gyroHandler); gyroHandler = null }
+  input.gyro = null
+  if (!on) return true
+  const DM = DeviceMotionEvent as unknown as { requestPermission?: () => Promise<'granted' | 'denied'> }
+  try {
+    if (typeof DM.requestPermission === 'function' && (await DM.requestPermission()) !== 'granted') return false
+  } catch { return false }
+  let phi0: number | null = null
+  let smooth = 0
+  gyroHandler = (e) => {
+    const a = e.accelerationIncludingGravity
+    if (!a || a.x == null || a.y == null) return
+    const phi = Math.atan2(a.x, a.y)
+    if (phi0 === null) phi0 = phi
+    let d = phi - phi0
+    d = Math.atan2(Math.sin(d), Math.cos(d))
+    // clockwise turn of the phone = steer right; about 40 degrees is full lock; small dead zone
+    let v = Math.max(-1, Math.min(1, -d / 0.7))
+    if (Math.abs(v) < 0.05) v = 0
+    smooth += (v - smooth) * 0.35
+    input.gyro = smooth
+  }
+  window.addEventListener('devicemotion', gyroHandler)
+  return true
 }
