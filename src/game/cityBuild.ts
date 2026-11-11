@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, CORNER_H, CORNER_R, armClosed, hasLeftArrow, onAsphalt, FLARE, HALF_MID, RB_SHIFT, TAPER, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, mod, nodeIndex, nodeKind } from './map'
+import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medFac, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -468,26 +468,21 @@ export function buildCity() {
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
     const cx = i * B, cz = j * B
     if (nodeKind(i, j) === 'signal') {
-      // a cross, with a rounded corner (a kerb return) between every pair of roads
-      asphalt.rect(cx - BOX, cz - CORNER_H, cx + BOX, cz + CORNER_H, 0, [1, 1, 1])
-      asphalt.rect(cx - CORNER_H, cz - BOX, cx + CORNER_H, cz + BOX, 0, [1, 1, 1])
-      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-        const h = CORNER_H, R = CORNER_R
-        const W = (u: number, v: number): [number, number] => [cx + sx * u, -(cz + sz * v)]
-        const pts: Array<[number, number]> = [W(h, h), W(h + R, h)]
-        for (let k = 1; k <= 14; k++) { const a = (3 * Math.PI) / 2 - (k / 14) * (Math.PI / 2); pts.push(W(h + R + R * Math.cos(a), h + R + R * Math.sin(a))) }
-        const sh = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)))
-        const g = new THREE.ShapeGeometry(sh)
-        g.rotateX(-Math.PI / 2)
-        g.translate(0, 0.0005, 0)
-        asphalt.addGeometry(g, [1, 1, 1], 4)
-        // white edge line following the curved kerb return
-        const cxp = h + R, N = 18
-        for (let k = 0; k < N; k++) {
-          const a0 = (3 * Math.PI) / 2 - (k / N) * (Math.PI / 2), a1 = (3 * Math.PI) / 2 - ((k + 1) / N) * (Math.PI / 2)
-          const q = (r: number, a: number): [number, number] => { const [wx, wy] = W(cxp + r * Math.cos(a), cxp + r * Math.sin(a)); return [wx, -wy] }
-          marks.upQuad([q(R + 0.65, a0), q(R + 0.65, a1), q(R + 0.85, a1), q(R + 0.85, a0)], 0.02, WHITE) // lines up exactly with the road edge lines (0.65 m inside the pavement edge)
-        }
+      // the four road mouths joined by rounded kerb returns that start exactly on each road's edge
+      const { pts, corners } = junctionOutline(i, j)
+      const sh = new THREE.Shape(pts.map(([x, z]) => new THREE.Vector2(cx + x, -(cz + z))))
+      const g = new THREE.ShapeGeometry(sh)
+      g.rotateX(-Math.PI / 2)
+      g.translate(0, 0.0005, 0)
+      asphalt.addGeometry(g, [1, 1, 1], 4)
+      // white edge line following each kerb return (0.65 .. 0.85 m inside the pavement edge, like the road edge lines)
+      for (const cv of corners) for (let k = 0; k < cv.length - 1; k++) {
+        const [x0, z0] = cv[k], [x1, z1] = cv[k + 1]
+        const tx = x1 - x0, tz = z1 - z0, tl = Math.hypot(tx, tz) || 1
+        let nx = -tz / tl, nz = tx / tl
+        if (nx * (-x0) + nz * (-z0) < 0) { nx = -nx; nz = -nz } // towards the junction centre
+        const q = (x: number, z: number, o: number): [number, number] => [cx + x + nx * o, cz + z + nz * o]
+        marks.upQuad([q(x0, z0, 0.65), q(x1, z1, 0.65), q(x1, z1, 0.85), q(x0, z0, 0.85)], 0.02, WHITE)
       }
     }
     else {
@@ -548,21 +543,34 @@ export function buildCity() {
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz) // lanes flare beside a splitter island at these ends
       const sgh = (u: number) => segHalves(kA, kB, S0, B - S1, u, fA, fB)
-      mk(ax, az, d, S0, S1, -0.27, -0.13, YELLOW)
-      mk(ax, az, d, S0, S1, 0.13, 0.27, YELLOW)
+      // Each carriageway sits one lane out from the centre line (the median) so the through lanes run straight across junctions. The median's
+      // two edge lines (yellow) meet in the middle as the left-turn lanes open up in it near a signalised junction.
+      const medAt = (u: number) => LANE_W * medFac(kA, kB, S0, B - S1, u)
+      const aSh = (u: number) => (kA === 'signal' ? LANE_W * flare(u - S0) : 0) // pocket width at A's end
+      const bSh = (u: number) => (kB === 'signal' ? LANE_W * flare(S1 - u) : 0) // pocket width at B's end
+      for (let u = S0; u < S1 - 0.01; u += 3) {
+        const ue = Math.min(u + 3, S1)
+        const yAB = (x: number) => Math.max(0, medAt(x) - bSh(x)), yBA = (x: number) => -Math.max(0, medAt(x) - aSh(x))
+        marks.upQuad([at(ax, az, d, u, yAB(u) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.27), at(ax, az, d, u, yAB(u) + 0.27)], 0.02, YELLOW)
+        marks.upQuad([at(ax, az, d, u, yBA(u) - 0.27), at(ax, az, d, ue, yBA(ue) - 0.27), at(ax, az, d, ue, yBA(ue) - 0.13), at(ax, az, d, u, yBA(u) - 0.13)], 0.02, YELLOW)
+      }
       // dashed divider between the two ordinary lanes, both directions
       const shiftAt = (u: number) => Math.max(fA ? rbShift(u - S0) : 0, fB ? rbShift(S1 - u) : 0)
       for (const sg of [-1, 1]) {
-        for (let u = S0 + 4; u + 3 < S1 - 12; u += 12) {
-          // approaching a signalised junction the through lanes shift outward, so the divider between them follows (W -> 2W)
-          const fl = (uu: number) => (sg === 1 ? (kB === 'signal' ? flare(S1 - uu) : 0) : kA === 'signal' ? flare(uu - S0) : 0)
-          const v0 = sg * (LANE_W * (1 + fl(u)) + shiftAt(u)), v1 = sg * (LANE_W * (1 + fl(u + 3)) + shiftAt(u + 3))
+        // near a roundabout the divider is drawn closer together (3 m dash, 3 m gap) and right up to the entry line
+        const uLo = S0 + (kA === 'round' && sg === -1 ? 3 : 4), uHi = S1 - (kB === 'round' && sg === 1 ? 4 : 12)
+        for (let u = uLo; u + 3 < uHi; ) {
+          const v0 = sg * (LANE_W + medAt(u) + shiftAt(u)), v1 = sg * (LANE_W + medAt(u + 3) + shiftAt(u + 3))
           marks.upQuad([at(ax, az, d, u, v0 - 0.075), at(ax, az, d, u + 3, v1 - 0.075), at(ax, az, d, u + 3, v1 + 0.075), at(ax, az, d, u, v0 + 0.075)], 0.02, WHITE)
+          const toRound = sg === 1 ? (kB === 'round' ? S1 - u : 1e9) : kA === 'round' ? u - S0 : 1e9
+          u += toRound < 70 ? 6 : 12
         }
       }
-      // the new left-turn lane (next to the centre line): its own dashed divider, only where that lane exists
-      if (kB === 'signal') for (let u = S1 - FLARE + 2; u + 3 < S1 - 12; u += 12) mk(ax, az, d, u, u + 3, LANE_W - 0.075, LANE_W + 0.075, WHITE)
-      if (kA === 'signal') for (let u = S0 + 12; u + 3 < S0 + FLARE - 2; u += 12) mk(ax, az, d, u, u + 3, -LANE_W - 0.075, -LANE_W + 0.075, WHITE)
+      // the left-turn lane's own dashed divider (the median's edge, where the pocket lane meets the first through lane)
+      for (let u = S0 + 4; u + 3 < S1 - 12; u += 12) {
+        if (kB === 'signal' && bSh(u + 3) > 0.4) mk(ax, az, d, u, u + 3, medAt(u) - 0.075, medAt(u) + 0.075, WHITE)
+        if (kA === 'signal' && aSh(u) > 0.4) mk(ax, az, d, u, u + 3, -medAt(u) - 0.075, -medAt(u) + 0.075, WHITE)
+      }
       // edge lines follow the widening road
       for (let u = S0; u < S1 - 0.01; u += 3) {
         const ue = Math.min(u + 3, S1)
@@ -591,7 +599,8 @@ export function buildCity() {
         }
       }
       const island = (uEnd: number, ds: 1 | -1) => {
-        const pts: Pt2[] = [[0.6, -1.9], [0.6, 1.9], [9, 1.55], [20, 0.7], [29, 0.15], [20, -0.7], [9, -1.55]]
+        const half = RB_ISLAND.slice(0, 4) // [distance from the ring, half-width] down to the nose
+        const pts: Pt2[] = [[0.6, -half[0][1]], ...half.map(([a, b]) => [a, b] as Pt2), ...half.slice(1, 3).reverse().map(([a, b]) => [a, -b] as Pt2)]
         const shape = new THREE.Shape()
         pts.forEach(([a, b], k) => {
           const [wx, wz] = at(ax, az, d, uEnd - ds * a, b)
@@ -674,8 +683,8 @@ export function buildCity() {
       {
         const fdv = dirv(d)
         const mid = (S0 + S1) / 2
-        const uPlus = Math.max(S0 + 36, kB === 'signal' ? S1 - FLARE - TAPER - 8 : mid) // right side: widens before node B
-        const uMinus = Math.min(S1 - 36, kA === 'signal' ? S0 + FLARE + TAPER + 8 : mid) // left side: widens after node A
+        const uPlus = Math.max(S0 + 36, mid) // signs stand mid-block, clear of the junctions
+        const uMinus = Math.min(S1 - 36, mid)
         for (const sgv of [1, -1] as const) {
           const uSign = sgv === 1 ? uPlus : uMinus
           const [sx, sz] = at(ax, az, d, uSign, sgv * ((sgv === 1 ? sgh(uSign).right : sgh(uSign).left) + 1.7)) // beside the road as wide as it is right there
@@ -764,7 +773,7 @@ export function buildCity() {
     const clr = clearance(i, j)
 
     if (kind === 'signal') {
-      // dashed turn-guide lines through the junction box: they show the path of a left turn (left lane) and a right turn
+      // dashed turn-guide lines through the junction box: they show the path of a left turn (new left lane) only
       const guide = (S: V2, E: V2, ctrl: V2, X: V2) => {
         const pts: V2[] = [S, E]
         for (let t = 1 / 26; t <= 1.0001; t += 1 / 26) {
@@ -789,7 +798,7 @@ export function buildCity() {
         // Guides run along the lane EDGE on the side toward the other lanes, not down the lane's middle: a left turn starts on the
         // line between the left lane and its neighbour (at the stop line) and sweeps in one wide curve onto the matching line of the
         // lane it turns into; a right turn does the same from the line between the right-turn lane and its neighbour.
-        for (const [e, oEdge, xEdge] of [[(tt + 1) % 4, LANE_W, LANE_W], [(tt + 3) % 4, 2 * LANE_W, LANE_W]] as Array<[number, number, number]>) {
+        for (const [e, oEdge, xEdge] of [[(tt + 1) % 4, LANE_W / 2, 1.5 * LANE_W]] as Array<[number, number, number]>) { // left turns only: no guide lines for right turns or straight on
           const o = oEdge
           const E: V2 = [cx + aox * BOX + alx * o, cz + aoz * BOX + alz * o]
           const [eox, eoz] = dirv(e), [erx, erz] = dirv(e - 1)
@@ -802,7 +811,6 @@ export function buildCity() {
     } else {
       const spec = rbSpec(i, j)!
       const L = spec.laneR.length
-      const rMid = spec.laneR.reduce((p, q) => p + q, 0) / L
       // central island
       if (spec.domed) {
         // mini roundabout: a small mountable dome ringed with white paint
@@ -839,29 +847,18 @@ export function buildCity() {
         marks.addGeometry(apronEdge, [0.9, 0.9, 0.87], 3)
       }
       const armHalf = Math.asin(Math.min(0.95, (HALF_MID + (spec.splitter ? RB_SHIFT : 0) + 1.0) / spec.outer)) + 0.06 // angular half-width of an arm mouth
-      // dashed line between two circulating lanes (not drawn across the arm mouths)
-      const armDist = (th: number) => {
-        const m = ((th % (Math.PI / 2)) + Math.PI / 2) % (Math.PI / 2)
-        return Math.min(m, Math.PI / 2 - m)
-      }
+      // two circulating lanes are separated by a dotted white circle all the way round (it only stops across the mouths of the roads that
+      // really open onto the roundabout, where traffic crosses it)
       if (L === 2) {
-        for (let th = 0; th < Math.PI * 2; th += 6 / rMid) {
-          const t1 = th + 3 / rMid
-          if (armDist(th) < armHalf + 0.1 || armDist(t1) < armHalf + 0.1) continue
-          const P = (r: number, t: number): V2 => [cx + r * Math.cos(t), cz - r * Math.sin(t)]
-          marks.upQuad([P(rMid - 0.075, th), P(rMid - 0.075, t1), P(rMid + 0.075, t1), P(rMid + 0.075, th)], 0.02, WHITE)
-        }
-      }
-      // two circulating lanes are separated by a dotted (broken white) circle
-      if (spec.laneR.length === 2) {
         const rd = (spec.laneR[0] + spec.laneR[1]) / 2
-        const da = 3.2 / rd, gap = 4.6 / rd
-        for (let t = 0; t < Math.PI * 2; t += da + gap) {
-          const mid = t + da / 2
-          const off = Math.abs(mod(mid + Math.PI / 4, Math.PI / 2) - Math.PI / 4)
-          if (off < armHalf + 0.03) continue // not across the mouths of the roads
-          const pt = (r: number, a: number): V2 => [cx + r * Math.cos(a), cz - r * Math.sin(a)]
-          marks.upQuad([pt(rd - 0.09, t), pt(rd - 0.09, t + da), pt(rd + 0.09, t + da), pt(rd + 0.09, t)], 0.02, WHITE)
+        const nDash = Math.max(12, Math.round((2 * Math.PI * rd) / 5.2)) // one dash + gap every ~5 m, a whole number round the circle
+        const step = (Math.PI * 2) / nDash
+        const pt = (r: number, a: number): V2 => [cx + r * Math.cos(a), cz - r * Math.sin(a)]
+        for (let k = 0; k < nDash; k++) {
+          const t0 = k * step, t1 = t0 + step * 0.5
+          const mid = (t0 + t1) / 2
+          void mid // the dotted circle runs unbroken all the way round
+          marks.upQuad([pt(rd - 0.1, t0), pt(rd - 0.1, t1), pt(rd + 0.1, t1), pt(rd + 0.1, t0)], 0.02, WHITE)
         }
       }
       // curved counter-clockwise arrows in each lane, between the arms (they follow the curve of the ring)
@@ -935,12 +932,13 @@ export function buildCity() {
         post(ax2, az2, 3.0, 0.11)
         signQuad(ax2 + ox * 0.09, 2.45, az2 + oz * 0.09, 1.9, 0.95, face, PLATE(crossIdx))
       }
-      side(clr + 62, 2.6, 1.1, 1.1, kind === 'signal' ? SIGN.sigWarn : SIGN.rbWarn)
+      side(clr + 62, 2.6, kind === 'signal' ? 1.1 : 1.5, kind === 'signal' ? 1.1 : 1.5, kind === 'signal' ? SIGN.sigWarn : SIGN.rbWarn)
+      if (kind !== 'signal') side(clr + 120, 2.6, 1.5, 1.5, SIGN.rbWarn) // an early warning as well
       side(clr + 30, 2.4, 0.85, 1.05, SIGN.speed)
       if (kind === 'signal') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
       if (kind === 'signal') {
         side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows)
-      } else if (rbSpec(i, j)!.laneR.length === 2) side(clr + 50, 2.5, 1.3, 1.3, SIGN.rbLanes) // roundabout lane-use sign (matches the painted arrows)
+      } else if (rbSpec(i, j)!.laneR.length === 2) side(clr + 50, 2.5, 1.7, 1.7, SIGN.rbLanes) // roundabout lane-use sign (matches the painted arrows)
       else {
         // one-lane roundabout: warn that the left lane ends and traffic must merge right, well before it
         side(clr + 150, 2.6, 1.1, 1.1, SIGN.laneEnds)
@@ -998,8 +996,8 @@ export function buildCity() {
         const rsp = rbSpec(i, j)!
         const [yx, yz] = P(clr + 2.5, HW + 1.7 + (rsp.splitter ? rbShift(2.5) : 0))
         post(yx, yz, 3.9)
-        signQuad(yx + ox * 0.08, 2.6, yz + oz * 0.08, 1.1, 1.1, face, SIGN.yield)
-        signQuad(yx + ox * 0.08, 3.75, yz + oz * 0.08, 0.95, 0.95, face, SIGN.rbMust)
+        signQuad(yx + ox * 0.08, 2.6, yz + oz * 0.08, 1.4, 1.4, face, SIGN.yield)
+        signQuad(yx + ox * 0.08, 4.0, yz + oz * 0.08, 1.2, 1.2, face, SIGN.rbMust)
         if (rsp.signals) {
           const axis = a % 2 === 0 ? 0 : 1
           const lensY = HEAD_LENSY

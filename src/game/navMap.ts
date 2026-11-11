@@ -1,4 +1,4 @@
-import { LAYOUT, CORNER_H, CORNER_R, armClosed, B, BOX, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
+import { LAYOUT, junctionOutline, armClosed, B, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
 import { fmtDist, nav, type Step } from './nav'
 import { sim } from './sim'
 
@@ -53,15 +53,9 @@ function buildPaths(): MapPaths {
         islands.arc(cx, cz, spec.island, 0, Math.PI * 2)
       }
     } else {
-      roads.rect(cx - BOX, cz - CORNER_H, 2 * BOX, 2 * CORNER_H)
-      roads.rect(cx - CORNER_H, cz - BOX, 2 * CORNER_H, 2 * BOX)
-      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-        const h = CORNER_H, R = CORNER_R
-        roads.moveTo(cx + sx * h, cz + sz * h)
-        roads.lineTo(cx + sx * (h + R), cz + sz * h)
-        for (let k = 1; k <= 12; k++) { const t = (3 * Math.PI) / 2 - (k / 12) * (Math.PI / 2); roads.lineTo(cx + sx * (h + R + R * Math.cos(t)), cz + sz * (h + R + R * Math.sin(t))) }
-        roads.closePath()
-      }
+      const { pts } = junctionOutline(i, j)
+      pts.forEach(([x, z], k) => (k === 0 ? roads.moveTo(cx + x, cz + z) : roads.lineTo(cx + x, cz + z)))
+      roads.closePath()
       signals.rect(cx - 5, cz - 5, 10, 10)
     }
     for (const d of [0, 3]) {

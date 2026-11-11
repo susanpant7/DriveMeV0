@@ -254,9 +254,9 @@ function sideTexture(flip: boolean) {
 }
 
 const pillarGrey = new THREE.MeshStandardMaterial({ color: '#9c9388', roughness: 0.85 })
-const cardDark = new THREE.MeshStandardMaterial({ color: '#3b2f28', roughness: 0.6 })
-const cardMid = new THREE.MeshStandardMaterial({ color: '#7a5a3e', roughness: 0.55 })
-const cardLight = new THREE.MeshStandardMaterial({ color: '#6b4528', roughness: 0.5 })
+const cardDark = new THREE.MeshStandardMaterial({ color: '#26282c', roughness: 0.6 })
+const cardMid = new THREE.MeshStandardMaterial({ color: '#4a4d52', roughness: 0.55 })
+const cardLight = new THREE.MeshStandardMaterial({ color: '#34373c', roughness: 0.55 }) // the sill trim band is dark grey like the rest of the door, not a loud brown strip
 
 /** A door card: dark upper panel with a light trim band, chrome sill and handle, armrest and map pocket. sd = -1 driver's side. */
 function DoorCard({ sd }: { sd: -1 | 1 }) {
@@ -368,14 +368,14 @@ export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
       </>}
 
       {/* A-pillars, header, roof */}
-      <Beam from={[-0.93, 0.99, -0.97]} to={[-0.82, 1.62, -0.6]} t={0.1} material={pillarGrey} />
-      <Beam from={[0.93, 0.99, -0.97]} to={[0.84, 1.62, -0.6]} t={0.06} material={pillarGrey} />
+      <Beam from={[-0.93, 1.03, -0.96]} to={[-0.82, 1.62, -0.6]} t={0.08} material={pillarGrey} />
+      <Beam from={[0.93, 1.03, -0.96]} to={[0.84, 1.62, -0.6]} t={0.05} material={pillarGrey} />
       <mesh position={[0, 1.61, -0.64]} material={fabric}>
         <boxGeometry args={[1.72, 0.07, 0.1]} />
       </mesh>
       <Windshield />
       {/* the rear-view mirror hangs from the middle of the windshield header */}
-      <Beam from={[0.0, 1.61, -0.66]} to={[0.0, 1.48, -0.72]} t={0.035} material={plastic} />
+      <Beam from={[0.0, 1.61, -0.66]} to={[0.0, 1.545, -0.72]} t={0.035} material={plastic} />
       {!hasModel && <CenterStack />}
       <mesh position={[0, 1.65, 0.4]} material={headliner}>
         <boxGeometry args={[1.9, 0.05, 2.0]} />

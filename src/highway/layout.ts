@@ -22,11 +22,11 @@ export const MEDIAN_X = -5.5
 
 export const Z_TOP = 2200 // the carriageways exist from here...
 export const Z_FINISH = -3600 // ...to here
-export const Z_START = 903 // merge: start of the on-ramp (0.3 mile ahead of the gore)
+export const Z_START = 1110 // merge: start of the on-ramp (a long run up to the gore, about 0.43 mile)
 export const Z_GORE = 420 // merge space: where the ramp becomes the merge lane
-/** the ramp is one straight road meeting the highway at 10 degrees */
-export const RAMP_ANGLE = (10 * Math.PI) / 180
-export const RAMP_EASE = 160 // length of the curve where the ramp straightens into the merge lane
+/** the ramp is one straight road meeting the highway at 8 degrees */
+export const RAMP_ANGLE = (8 * Math.PI) / 180
+export const RAMP_EASE = 400 // length of the long, gentle curve where the ramp straightens into the merge lane
 export const RAMP_K = 1 / Math.cos(RAMP_ANGLE) // sideways width of the ramp measured along x
 export const Z_TAPER = 120
 export const Z_END = 20 // merge: the merge lane ends

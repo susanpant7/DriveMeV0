@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { setLayout, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { flare, medFac, nodeKind, setLayout, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -40,6 +40,9 @@ export const input = {
   slow: false,
   /** a quick tap on the Space key / centre button: wheel back to straight */
   recentre: false,
+  /** a double press of A (+1) / D (-1): look over that shoulder into the blind spot */
+  blind: 0 as 0 | 1 | -1,
+  space: false, // Space (or the ⦿ button) is held: keep the car in the middle of its lane
   /** a quick double tap of the accelerator: toggles cruise control */
   gasTap: false,
   yaw: 0,
@@ -48,6 +51,8 @@ export const input = {
 let freeWas = false
 let headFree = false
 const headSet = { y: 0, p: 0 }
+let blindGoal: number | null = null // where a double-pressed A / D is turning the head (rad)
+let blindHeld = false
 const GAZE_TOL = 0.42 // rad (about 24 degrees): how close the head must point to a mirror to count as looking at it
 
 interface Maneuver {
@@ -105,7 +110,7 @@ export const sim = {
   yawRate: 0,
   /** the head position set by the A / W / D keys (rad) */
   head: { yaw: 0, pitch: 0 },
-  /** the steering wheel position, -1 .. 1 (+/- 1.5 turns); it stays where you leave it */
+  /** the steering wheel position, -1 .. 1 (+/- 1.5 turns); it turns while a key is held and returns to 0 on release */
   wheel: 0,
   /** roundabout lane tracking: which node, and which circulating lane (0 inner, 1 outer) the car first took */
   rbl: { node: -1, lane: -1 },
@@ -123,13 +128,8 @@ function award(n: number) { if (n > 0) sim.score += n }
 /** Move on to the next scenario: back to the start of the course, with the traffic carried along (the plain highway looks the same). */
 function advanceHighway() {
   const cur = scen.type
-  if (cur === 'exit' && hw.exitTaken) {
-    award(100)
-    say('You joined a new highway.', 'info')
-    resetSim('merge', true) // the exit ramp leads onto another highway's on-ramp
-    return
-  }
-  award(cur === 'fork' ? 50 : cur === 'merge' || (cur === 'lanedrop' && hw.crossed) ? 100 : 0)
+  if (cur === 'exit' && hw.exitTaken) say('You took the exit and are back on the highway.', 'info') // no second merge: the course just carries on
+  award(cur === 'fork' ? 50 : cur === 'merge' || (cur === 'exit' && hw.exitTaken) || (cur === 'lanedrop' && hw.crossed) ? 100 : 0)
   if (cur === 'fork') say(sim.x > 12 ? 'You are now on I-405 East.' : 'You are now on I-5 North.', 'info')
   const pool: HwType[] = ['exit', 'fork', 'lanedrop']
   const next: HwType = pool[Math.floor(Math.random() * pool.length)]
@@ -224,7 +224,7 @@ function fail(reason: string, tips: string[]) {
 const autoLane = { t: 0, on: false, h0: 0, dir: 1 as -1 | 1, p0: 0, w: 4.7, sig: false }
 
 /** Space: an "auto" mode that steers the car smoothly into the middle of its lane and straightens it, then lets go */
-const autoCentre = { on: false, t: 0, ok: 0 }
+const autoCentre = { on: false, t: 0, ok: 0, prevH: NaN, dhS: 0 }
 
 /** state of the highway merge attempt */
 const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false, exitTaken: false, warned: false, lane: -99, alertT: -99 }
@@ -379,8 +379,16 @@ export function stepSim(dt: number) {
   // ---- steering (bicycle model) ----
   const sens = [0.32, 0.46, 0.62, 0.82, 1.05][useGame.getState().steerSens - 1]
   // The arrow keys / buttons turn the wheel a little and it STAYS there (like holding a real wheel); Space centres it.
-  if (input.recentre) { sim.wheel = 0; sim.head.yaw = 0; sim.head.pitch = 0; input.recentre = false; autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0 }
-  if (!autoLane.on && !autoCentre.on) sim.wheel = clamp(sim.wheel + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 0.45 * dt, -1, 1)
+  if (input.recentre) { blindGoal = null; sim.wheel = 0; sim.head.yaw = 0; sim.head.pitch = 0; input.recentre = false; autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN; sim.signal = 0 /* Space also cancels the indicator */ }
+  // while Space is HELD the car keeps itself in the middle of its lane, on straights, curves and roundabouts (steering by hand, braking or
+  // slowing right down hands control back until the key is let go and pressed again)
+  if (input.space && !autoLane.on && !autoCentre.on && !input.left && !input.right && !input.down && sim.speed >= 1.5) { autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN; autoCentre.dhS = 0 }
+  if (!autoLane.on && !autoCentre.on) {
+    // the wheel keeps turning while an arrow (or the on-screen button) is held and springs back to straight when it is released
+    const dirIn = (input.right ? 1 : 0) - (input.left ? 1 : 0)
+    if (dirIn) sim.wheel = clamp(sim.wheel + dirIn * 0.45 * dt, -1, 1)
+    else sim.wheel = Math.abs(sim.wheel) < 1.4 * dt ? 0 : sim.wheel - Math.sign(sim.wheel) * 1.4 * dt
+  }
   let target = sim.wheel
   // double-tap lane change: the car steers itself over to the next lane, then straightens up
   if (input.laneShift) {
@@ -413,16 +421,27 @@ export function stepSim(dt: number) {
   if (autoCentre.on && !autoLane.on) {
     autoCentre.t += dt
     const lt = laneTarget()
-    if (!lt || sim.speed < 1.5 || input.down || input.left || input.right || autoCentre.t > 12) { autoCentre.on = false; sim.wheel = 0 }
+    const hold = input.space
+    if (!lt || sim.speed < 1.5 || input.down || input.left || input.right || (!hold && autoCentre.t > 12)) { autoCentre.on = false; autoCentre.prevH = NaN; sim.wheel = 0 }
     else {
       const rx = Math.cos(lt.h), rz = -Math.sin(lt.h)
       const e = (sim.x - lt.x) * rx + (sim.z - lt.z) * rz // how far to the right of the lane centre the car is
       const hrel = Math.atan2(Math.sin(sim.h - lt.h), Math.cos(sim.h - lt.h))
+      // how fast the lane itself is turning (a bend or a roundabout): steer for it ahead of time instead of lagging behind
+      const dhRaw = Number.isNaN(autoCentre.prevH) ? 0 : Math.atan2(Math.sin(lt.h - autoCentre.prevH), Math.cos(lt.h - autoCentre.prevH)) / Math.max(dt, 1e-3)
+      autoCentre.prevH = lt.h
+      autoCentre.dhS += (clamp(dhRaw, -1.5, 1.5) - autoCentre.dhS) * (1 - Math.exp(-dt / 0.35)) // smoothed: the lane's heading is read off short straight pieces
+      const dh = autoCentre.dhS
+      const gain = (0.55 * sens) / (1 + (sim.speed / 9) ** 2)
+      const ff = (-Math.atan((WHEELBASE * dh) / Math.max(sim.speed, 1.5)) / gain)
       const des = clamp(e * 0.04, -0.08, 0.08)
-      target = -clamp(((des - hrel) * 4 * 0.7 - sim.yawRate * 0.9) / sens, -1, 1) // the yaw-rate term damps it so it settles without wobbling
+      const fb = -clamp(((des - hrel) * 4 * 0.7 - (sim.yawRate - dh) * 0.9) / sens, -1, 1) // the yaw-rate term damps it so it settles without wobbling
+      target = clamp(ff + fb, -1, 1)
       sim.wheel = 0
-      // once it has settled in the middle of the lane, pointing along it, for a moment, hand control back
-      if (Math.abs(e) < 0.1 && Math.abs(hrel) < 0.012 && Math.abs(sim.yawRate) < 0.015) { autoCentre.ok += dt; if (autoCentre.ok > 0.8) { autoCentre.on = false; target = 0 } } else autoCentre.ok = 0
+      // once it has settled in the middle of the lane, pointing along it, for a moment, hand control back (unless Space is still held)
+      if (!hold) {
+        if (Math.abs(e) < 0.1 && Math.abs(hrel) < 0.012 && Math.abs(sim.yawRate - dh) < 0.015) { autoCentre.ok += dt; if (autoCentre.ok > 0.8) { autoCentre.on = false; target = 0 } } else autoCentre.ok = 0
+      }
     }
   }
   const rate = target ? 1.5 + sens : 3
@@ -448,7 +467,14 @@ export function stepSim(dt: number) {
   {
     if (headFree && (input.yaw !== headSet.y || input.pitch !== headSet.p)) { headFree = false; input.slow = false; sim.head.yaw = sim.head.pitch = 0 } // the mouse / finger took over
     // like the steering wheel: each press turns the head a little and it STAYS there; Space brings it (and the wheel) back to straight
-    const dyaw = (input.kA ? 1 : 0) - (input.kD ? 1 : 0)
+    let dyaw = (input.kA ? 1 : 0) - (input.kD ? 1 : 0)
+    if (input.blind) { blindGoal = input.blind * 2.09; blindHeld = true; input.blind = 0 } // 120 degrees round
+    if (blindGoal !== null) {
+      if (!input.kA && !input.kD) blindHeld = false
+      else if (!blindHeld) blindGoal = null // a fresh press of A / D takes over again
+      dyaw = 0
+      if (blindGoal !== null) sim.head.yaw += clamp(blindGoal - sim.head.yaw, -6 * dt, 6 * dt)
+    }
     if (dyaw) sim.head.yaw = clamp(sim.head.yaw + dyaw * 1.25 * dt, -2.3, 2.3)
     const dpit = (input.kW ? 1 : 0) - (input.kS ? 1 : 0)
     if (dpit) sim.head.pitch = clamp(sim.head.pitch + dpit * 0.9 * dt, -0.3, 0.95)
@@ -618,7 +644,32 @@ function laneInfo() {
   if (d < 0) return null
   // near a roundabout the lanes flare outward beside the splitter island: measure from the shifted lane edge
   if (nn.kind === 'round' && r > 0) r = Math.max(0, r - rbShift((d % 2 === 0 ? Math.abs(xm) : Math.abs(zm)) - clr))
-  return { d, r, k: r < 0 ? -1 : r < LANE_W ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3 }
+  // Between signalised junctions each carriageway sits one lane out from the centre line (a median); the left-turn lane opens up in
+  // that median ahead of a junction. Lane 0 is then the turn lane, and the through lanes sit beyond it.
+  const alongZ = Math.abs(fz) > 0.9
+  const pos = alongZ ? sim.z : sim.x
+  const fwd = alongZ ? fz : fx
+  const cell = Math.floor(pos / B)
+  const behind = fwd > 0 ? cell : cell + 1, ahead = fwd > 0 ? cell + 1 : cell
+  const ci = alongZ ? Math.round(sim.x / B) : Math.round(sim.z / B)
+  const nodeAt = (c: number) => (alongZ ? [ci, c] : [c, ci]) as [number, number]
+  const kB = nodeKind(...nodeAt(behind)), kA = nodeKind(...nodeAt(ahead))
+  const med = LANE_W * medFac(kB, kA, clearance(...nodeAt(behind)), clearance(...nodeAt(ahead)), Math.abs(pos - behind * B))
+  if (med > 0.01) {
+    const pocket = kA === 'signal' ? LANE_W * flare(Math.abs(pos - ahead * B) - clearance(...nodeAt(ahead))) : 0 // width of the turn lane
+    const yellow = Math.max(0, med - pocket)
+    let k: number, e: number
+    if (r < yellow) { k = -1; e = r - yellow }
+    else if (r < med) { k = 0; e = r - (yellow + med) / 2 }
+    else {
+      const j = Math.floor((r - med) / LANE_W)
+      k = j + (pocket > 0.01 ? 1 : 0)
+      e = r - med - LANE_W * (j + 0.5)
+    }
+    return { d, r, k, e }
+  }
+  const k = r < 0 ? -1 : r < LANE_W ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
+  return { d, r, k, e: k < 0 ? r : r - laneOff(k) }
 }
 
 function trackLane() {
@@ -627,10 +678,10 @@ function trackLane() {
     sim.man = null
     return
   }
-  const { k, r } = L
+  const { k, e: err } = L
   if (!sim.man) {
     if (k >= 0 && k <= 2) {
-      const e = r - laneOff(k)
+      const e = err
       if (Math.abs(e) > 1.15) {
         const dir: -1 | 1 = e < 0 ? -1 : 1
         const target = k + dir
@@ -648,8 +699,8 @@ function trackLane() {
     return
   }
   const m = sim.man
-  if (k === m.target && Math.abs(r - laneOff(k)) < 0.9) finishManeuver(m)
-  else if (k === m.k0 && Math.abs(r - laneOff(k)) < 0.5) sim.man = null // changed their mind
+  if (k === m.target && Math.abs(err) < 0.9) finishManeuver(m)
+  else if (k === m.k0 && Math.abs(err) < 0.5) sim.man = null // changed their mind
   else if (k !== m.k0 && k !== m.target) sim.man = null
 }
 

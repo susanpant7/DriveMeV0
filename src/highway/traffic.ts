@@ -20,7 +20,8 @@ interface Hw {
 const hw: Hw[] = []
 let ncars = 0
 let level = 1
-const DENSITY = [0.5, 0.8, 1, 1.4, 1.9]
+const DENSITY = [1.0, 1.9, 2.6, 3.3, 4.0] // level 2 is as busy as the old maximum
+const MARGIN = [28, 28, 24, 21, 18] // minimum bumper gap when placing traffic: busier levels pack the lanes tighter
 const WINDOW = 650 // cars live this far ahead of / behind the player
 
 const NB_N = NBX.length
@@ -37,7 +38,7 @@ const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
 const MPH = 0.44704
 /** the speed band (m/s) of a lane; `fromRight` = 0 for the right-most lane of its carriageway */
 const bandOf = (fromRight: number): [number, number] => [(70 + 5 * fromRight) * MPH, (75 + 5 * fromRight) * MPH]
-const LANE_COUNT = [6, 7, 8, 9, 22] // vehicles per lane within the window at normal density
+const LANE_COUNT = [9, 10, 11, 12, 22] // vehicles per lane within the window at normal density
 
 function describe(c: AiCar, i: number) {
   const h = hw[i]
@@ -54,7 +55,7 @@ function describe(c: AiCar, i: number) {
 function spacingOk(dir: 1 | -1, lane: number, z: number, len: number, skip = -1) {
   for (let i = 0; i < ncars; i++) {
     if (i === skip || !cars[i].active || hw[i].dir !== dir || hw[i].lane !== lane) continue
-    if (Math.abs(cars[i].z - z) < (cars[i].len ?? 4.6) / 2 + len / 2 + 28) return false
+    if (Math.abs(cars[i].z - z) < (cars[i].len ?? 4.6) / 2 + len / 2 + MARGIN[level - 1]) return false
   }
   return true
 }
@@ -81,14 +82,14 @@ export function initHighwayTraffic(playerZ: number) {
   while (hw.length < cars.length) hw.push({ dir: 1, lane: 0, v0: 25, lat: 0, target: -1 })
   ncars = 0
   const dens = DENSITY[level - 1]
-  const lanes: Array<[1 | -1, number]> = [...NBX.map((_, k) => [1, k] as [1 | -1, number]), [-1, 0], [-1, 1], [-1, 2]]
+  const lanes: Array<[1 | -1, number]> = NBX.map((_, k) => [1, k] as [1 | -1, number]) // one direction only: no oncoming traffic
   for (const [dir, lane] of lanes) {
     if (scen.type === 'lanedrop' && dir === 1 && lane === 4) continue
-    const n = Math.round((dir === 1 ? LANE_COUNT[lane] : LANE_COUNT[lane + 2] * 0.7) * dens)
+    const n = Math.min(28, Math.round(LANE_COUNT[lane] * dens)) // 28 is about as many as fit in a lane's window
     for (let k = 0; k < n; k++) {
       const i = ncars
-      if (i >= 140) break
-      for (let tries = 0; tries < 12; tries++) {
+      if (i >= 420) break
+      for (let tries = 0; tries < 60; tries++) {
         const z = playerZ + rnd(-WINDOW, WINDOW * 0.55)
         // nothing near the start of the ramp or the player's own space
         if (dir === 1 && Math.abs(z - playerZ) < 70) continue

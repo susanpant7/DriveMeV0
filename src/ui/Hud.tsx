@@ -74,10 +74,10 @@ function ControlsList() {
     <ul className="controls">
       <li><span><Key>↑</Key></span> Accelerator <em>hold to speed up, release to slow down</em></li>
       <li><span><Key>↓</Key></span> Brake</li>
-      <li><span><Key>←</Key><Key>→</Key></span> Steer <em>each press turns the wheel a little and it stays there (hold for more); <Key>Space</Key> centres it and the view</em></li>
+      <li><span><Key>←</Key><Key>→</Key></span> Steer <em>hold to keep turning the wheel; let go and it returns to straight. <Key>Space</Key> centres the view, cancels the indicator and eases the car into the middle of its lane; hold it and the car stays in the middle of its lane, even round bends and roundabouts</em></li>
       <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator</li>
       <li><span>Drag</span> Look around <em>press and drag with the mouse, or swipe with two fingers on a trackpad (the view holds, tap to look ahead again); aim at a mirror to check it</em></li>
-      <li><span><Key>A</Key><Key>D</Key><Key>W</Key><Key>S</Key></span> Turn your head <em>like the wheel: each press turns it a little and it stays (A left, D right, W up, S down; combine them, e.g. A + W). <Key>Space</Key> centres the view and the wheel and gently steers the car into the middle of its lane (auto mode: steering by hand cancels it)</em></li>
+      <li><span><Key>A</Key><Key>D</Key><Key>W</Key><Key>S</Key></span> Turn your head <em>like the wheel: each press turns it a little and it stays (A left, D right, W up, S down; combine them, e.g. A + W). Double-press A or D to look over that shoulder into the blind spot (about 120°). <Key>Space</Key> centres the view and the wheel and gently steers the car into the middle of its lane (auto mode: steering by hand cancels it)</em></li>
       <li><span><Key>Esc</Key></span> Pause <span className="gap" /><Key>M</Key> mute</li>
     </ul>
   )
@@ -130,7 +130,7 @@ function TouchControls() {
         </div>
         <div className="steerrow">
           <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}>◀</HoldButton>
-          <button className="tbtn steer centre" aria-label="Centre the wheel" onPointerDown={() => { input.recentre = true }}>⦿</button>
+          <button className="tbtn steer centre" aria-label="Centre the wheel (hold to keep the car in its lane)" onPointerDown={() => { input.recentre = true; input.space = true }} onPointerUp={() => { input.space = false }} onPointerLeave={() => { input.space = false }} onPointerCancel={() => { input.space = false }}>⦿</button>
           <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}>▶</HoldButton>
         </div>
       </div>
@@ -149,7 +149,7 @@ function TouchHelp() {
   return (
     <ul className="controls">
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
-      <li><span><b>Steer</b></span> Bottom left: each tap of ◀ ▶ turns the wheel a little and it stays there; ⦿ centres it</li>
+      <li><span><b>Steer</b></span> Bottom left: hold ◀ ▶ to keep turning the wheel; let go and it returns to straight; ⦿ centres the view</li>
       <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror). Or choose "Phone motion" in Settings and just move the phone to look around</li>
       <li><span><b>◀ ▶</b></span> Either side of the eye: left and right indicators (tap to switch on or off)</li>
     </ul>

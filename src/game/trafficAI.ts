@@ -74,8 +74,15 @@ function place(c: AiCar) {
   }
   c.x = mod(x, P)
   c.z = mod(z, P)
-  c.h = Math.atan2(-tmp.dx, -tmp.dz) + yaw
+  // the body yaw follows the path heading through a short low-pass (like a real car's steering response), so tight corners and the
+  // joins between road pieces never show as sudden steps in heading
+  const target = Math.atan2(-tmp.dx, -tmp.dz) + yaw
+  let dh = target - c.h
+  dh = Math.atan2(Math.sin(dh), Math.cos(dh))
+  if (Math.abs(dh) > 1.0 || !(placeDt > 0)) c.h = target
+  else c.h += dh * Math.min(1, placeDt / 0.22)
 }
+let placeDt = 0
 
 /* ---------------- lanes, plans and manoeuvres ---------------- */
 const leftExitOk = (p: Piece) => {
@@ -253,7 +260,7 @@ function chooseNext(c: AiCar, p: Piece): number | undefined {
 }
 
 /** Is any vehicle circulating just upstream of this roundabout entry? */
-export function ringBusy(node: number, arm: number, player: Obstacle | null, ownSpeed = 0): boolean {
+export function ringBusy(node: number, arm: number, player: Obstacle | null, ownSpeed = 0, careful = false): boolean {
   const [i, j] = nodeIJ(node)
   const cx = i * B
   const cz = j * B
@@ -262,7 +269,10 @@ export function ringBusy(node: number, arm: number, player: Obstacle | null, own
   const entryAng = (arm * Math.PI) / 2
   // Judge each circulating vehicle by how long it takes to reach this entry: a driver who is already rolling needs a smaller gap
   // than one who is stopped, and anything that has just passed the entry (or is leaving first) is no obstacle.
-  const tGap = ownSpeed > 2 ? 2.0 : 2.8
+  // Other cars are careful: they give way to anything circulating that will reach the entry soon, however slowly it is moving, and never
+  // pull out in front of a vehicle that is close upstream (the player's own yield check keeps the lighter margins).
+  const tGap = careful ? 3.6 : ownSpeed > 2 ? 2.0 : 2.8
+  const minDist = careful ? 16 : 8
   const conflict = (x: number, z: number, speed: number, exitArm: number, isPlayer: boolean) => {
     const dx = wrapD(x - cx)
     const dz = wrapD(z - cz)
@@ -270,14 +280,14 @@ export function ringBusy(node: number, arm: number, player: Obstacle | null, own
     if (r > spec.outer + 3 || r < spec.apron - 3) return false
     const ang = Math.atan2(-dz, dx)
     const toEntry = mod(entryAng - ang, Math.PI * 2) // how far round it still has to go to reach this entry
-    if (toEntry > Math.PI * 2 - 0.12) return false // just passed the entry: we can slot in behind it
+    if (toEntry > Math.PI * 2 - (careful ? 0.22 : 0.12)) return false // just passed the entry: we can slot in behind it
     const dist = toEntry * rMid
     if (dist > 60) return false
     if (!isPlayer && exitArm !== arm) {
       const toExit = mod((exitArm * Math.PI) / 2 - ang, Math.PI * 2)
-      if (toExit < toEntry - 0.1) return false // it leaves the roundabout before it gets here
+      if (toExit < toEntry - (careful ? 0.3 : 0.1)) return false // it clearly leaves the roundabout before it gets here
     }
-    return dist < 8 || dist / Math.max(speed, 1.5) < tGap
+    return dist < minDist || dist / Math.max(speed, careful ? 3 : 1.5) < tGap
   }
   for (const ci of ringCars.get(node) ?? []) {
     const c = cars[ci]
@@ -443,6 +453,7 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
 
 let frameNo = 0
 export function stepTraffic(dt: number, t: number, player: Obstacle) {
+  placeDt = dt
   frameNo++
   // top the population up to the chosen level (a spawn attempt can fail when roads are crowded)
   let budget = 6
@@ -572,7 +583,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
             lv = 0
           }
         }
-        const busy = ringBusy(p.node, p.arm, player, c.speed)
+        const busy = ringBusy(p.node, p.arm, player, c.speed, true)
         if (busy) {
           c.rbWait = 1
           if (line > -0.5 && line < gap) {

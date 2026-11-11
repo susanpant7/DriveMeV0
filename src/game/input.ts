@@ -21,7 +21,7 @@ export function installInput() {
   // ---- free look: press and drag the mouse, or swipe with two fingers on a trackpad, to turn your head ----
   // (holding C or the right mouse button also works). Let go and your head returns to the road.
   let lookHeld = false
-  const lastTap = [0, 0, 0, 0]
+  const lastTap = [0, 0, 0, 0, 0, 0]
   const gasTapCheck = () => { const now = performance.now(); if (now - lastTap[2] < 320) { input.gasTap = true; lastTap[2] = 0 } else lastTap[2] = now }
   gasTapFn = gasTapCheck
   let drag: { x: number; y: number } | null = null // a left-button press that has not moved far enough to count as a drag yet
@@ -116,6 +116,12 @@ export function installInput() {
     }
     if (e.code === 'KeyR' && !e.repeat && useGame.getState().status === 'playing') { startGame(); return }
     if (e.code === 'KeyC' && !e.repeat) startLook(true)
+    // a quick double press of A / D swings the head round to check the left / right blind spot (about 120 degrees)
+    if ((e.code === 'KeyA' || e.code === 'KeyD') && !e.repeat) {
+      const now = performance.now()
+      const slot = e.code === 'KeyA' ? 4 : 5
+      if (now - lastTap[slot] < 320) { input.blind = e.code === 'KeyA' ? 1 : -1; lastTap[slot] = 0 } else lastTap[slot] = now
+    }
     if (LOOK_KEYS[e.code]) input[LOOK_KEYS[e.code]] = true
     if (adjust.sel && useGame.getState().adjusting) {
       const a = mirrorAdj[adjust.sel]
@@ -136,7 +142,7 @@ export function installInput() {
       // a quick double press of the down arrow puts the wheel back to straight
       if (!e.repeat) { const now = performance.now(); if (now - lastTap[3] < 320) { input.recentre = true; lastTap[3] = 0 } else lastTap[3] = now }
     }
-    if (e.code === 'Space' && !e.repeat) input.recentre = true
+    if (e.code === 'Space') { input.space = true; if (!e.repeat) input.recentre = true }
     if (e.code === 'ArrowLeft') input.left = true
     if (e.code === 'ArrowRight') input.right = true
     if (!e.repeat && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
@@ -159,6 +165,7 @@ export function installInput() {
     if (e.code === 'ArrowDown') input.down = false
     if (e.code === 'ArrowLeft') input.left = false
     if (e.code === 'ArrowRight') input.right = false
+    if (e.code === 'Space') input.space = false
   }
   const release = () => {
     stopLook()

@@ -37,10 +37,10 @@ const RES_REAR: [number, number] = IS_COARSE ? [640, 195] : [800, 244]
 // on a phone the whole scene is small, so the mirrors are a little bigger (still a fixed size: they never grow or zoom)
 const K = IS_COARSE ? 1.3 : 1
 export const MIRRORS: MirrorCfg[] = [
-  mirror('left', V(-1.2, 1.05, -0.85), [0.32 * K, 0.21 * K], RES_SIDE, V(-0.17, 0.02, 1), 1),
+  mirror('left', V(-1.17, 1.095, -0.9), [0.32 * K, 0.21 * K], RES_SIDE, V(-0.17, 0.02, 1), 1),
   // hung from the windshield header at the upper right of the driver's view, so it is always visible in the front view
-  mirror('center', V(0.0, 1.42, -0.72), [0.27, 0.088], RES_REAR, V(0, 0.0, 1), 0),
-  mirror('right', V(1.22, 1.05, -0.6), [0.33 * K, 0.22 * K], RES_SIDE, V(0.17, 0.02, 1), -1),
+  mirror('center', V(0.0, 1.485, -0.72), [0.27, 0.088], RES_REAR, V(0, 0.0, 1), 0),
+  mirror('right', V(1.39, 1.1, -0.9), [0.42 * K, 0.28 * K], RES_SIDE, V(0.17, 0.02, 1), -1),
 ]
 
 /** The driver's own adjustment of each mirror (radians): click a mirror, then use the arrow keys. Saved between sessions. */
@@ -94,7 +94,7 @@ export const LOOK_TARGETS: Record<Look, LookTarget> = {
   front: { yaw: FRONT_YAW, pitch: FRONT_PITCH, fov: 60.6, lean: V(0, 0, 0) },
   left: glance(MIRRORS[0], 0.5, 0.45, V(-0.05, 0, -0.02)),
   center: glance(MIRRORS[1], 0.8, 0.85, V(0.05, 0.03, 0)),
-  right: glance(MIRRORS[2], 0.6, 0.45, V(0.14, 0, -0.04)),
+  right: glance(MIRRORS[2], 0.62, 0.45, V(0.14, 0, -0.04)),
   // A / D: a shoulder check over the left / right blind spot (head turned right round)
   blindL: { yaw: 2.3, pitch: -0.1, fov: 60.6, lean: V(-0.06, 0.02, 0.06) },
   blindR: { yaw: -2.3, pitch: -0.1, fov: 60.6, lean: V(0.1, 0.02, 0.06) },
