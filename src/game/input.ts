@@ -3,8 +3,8 @@ import { adjust, mirrorAdj, saveMirrors } from './cabinConfig'
 import { input, pauseGame, resumeGame, startGame, toggleSignal } from './sim'
 import { setTraffic, setUnits, useGame } from './store'
 
-// A / D turn the head left / right, W tilts it up, and the head moves gradually while the key is held (A + W = left and up)
-const LOOK_KEYS: Record<string, 'kA' | 'kW' | 'kD'> = { KeyA: 'kA', KeyW: 'kW', KeyD: 'kD' }
+// A / D turn the head left / right, W / S tilt it up / down; it moves gradually while the key is held and stays where you leave it
+const LOOK_KEYS: Record<string, 'kA' | 'kW' | 'kD' | 'kS'> = { KeyA: 'kA', KeyW: 'kW', KeyD: 'kD', KeyS: 'kS' }
 
 const SENS = 0.0028 // rad of head turn per pixel of mouse movement
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
@@ -163,7 +163,7 @@ export function installInput() {
   const release = () => {
     stopLook()
     input.look = 'front'
-    input.kA = input.kW = input.kD = false
+    input.kA = input.kW = input.kD = input.kS = false
     input.up = input.down = input.left = input.right = false
     input.free = false
     input.yaw = input.pitch = 0

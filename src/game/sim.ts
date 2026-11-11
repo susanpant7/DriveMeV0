@@ -4,6 +4,7 @@ import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
 import { LD1, NB_EDGE_L, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z, forkShift, scen, type HwType, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
+import { rampHeading, rampX, forkHeading, NB_X as HW_LANES } from '../highway/layout'
 import { clearLane, initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
@@ -32,6 +33,7 @@ export const input = {
   laneShift: 0 as -1 | 0 | 1,
   /** head keys: A (left), W (up), D (right) */
   kA: false,
+  kS: false,
   kW: false,
   kD: false,
   /** true while the head is being moved by the keys (the camera then follows a little more slowly) */
@@ -45,6 +47,7 @@ export const input = {
 }
 let freeWas = false
 let headFree = false
+const headSet = { y: 0, p: 0 }
 const GAZE_TOL = 0.42 // rad (about 24 degrees): how close the head must point to a mirror to count as looking at it
 
 interface Maneuver {
@@ -220,6 +223,9 @@ function fail(reason: string, tips: string[]) {
 /** the car's self-steered lane change (double tap) */
 const autoLane = { t: 0, on: false, h0: 0, dir: 1 as -1 | 1, p0: 0, w: 4.7, sig: false }
 
+/** Space: an "auto" mode that steers the car smoothly into the middle of its lane and straightens it, then lets go */
+const autoCentre = { on: false, t: 0, ok: 0 }
+
 /** state of the highway merge attempt */
 const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false, exitTaken: false, warned: false, lane: -99, alertT: -99 }
 
@@ -233,6 +239,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
   WORLD.highway = useGame.getState().mode === 'highway'
   WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
+  autoCentre.on = false
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
   setLayout(useGame.getState().mode === 'roundabout')
@@ -372,8 +379,8 @@ export function stepSim(dt: number) {
   // ---- steering (bicycle model) ----
   const sens = [0.32, 0.46, 0.62, 0.82, 1.05][useGame.getState().steerSens - 1]
   // The arrow keys / buttons turn the wheel a little and it STAYS there (like holding a real wheel); Space centres it.
-  if (input.recentre) { sim.wheel = 0; input.recentre = false }
-  if (!autoLane.on) sim.wheel = clamp(sim.wheel + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 0.45 * dt, -1, 1)
+  if (input.recentre) { sim.wheel = 0; sim.head.yaw = 0; sim.head.pitch = 0; input.recentre = false; autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0 }
+  if (!autoLane.on && !autoCentre.on) sim.wheel = clamp(sim.wheel + ((input.right ? 1 : 0) - (input.left ? 1 : 0)) * 0.45 * dt, -1, 1)
   let target = sim.wheel
   // double-tap lane change: the car steers itself over to the next lane, then straightens up
   if (input.laneShift) {
@@ -403,6 +410,21 @@ export function stepSim(dt: number) {
     }
     if (done || sim.speed < 1.5 || input.down || (autoLane.t > 0.6 && (input.left || input.right))) { autoLane.on = false; sim.wheel = done ? 0 : sim.wheel; target = sim.wheel; if (autoLane.sig && sim.signal === autoLane.dir) sim.signal = 0 }
   }
+  if (autoCentre.on && !autoLane.on) {
+    autoCentre.t += dt
+    const lt = laneTarget()
+    if (!lt || sim.speed < 1.5 || input.down || input.left || input.right || autoCentre.t > 12) { autoCentre.on = false; sim.wheel = 0 }
+    else {
+      const rx = Math.cos(lt.h), rz = -Math.sin(lt.h)
+      const e = (sim.x - lt.x) * rx + (sim.z - lt.z) * rz // how far to the right of the lane centre the car is
+      const hrel = Math.atan2(Math.sin(sim.h - lt.h), Math.cos(sim.h - lt.h))
+      const des = clamp(e * 0.04, -0.08, 0.08)
+      target = -clamp(((des - hrel) * 4 * 0.7 - sim.yawRate * 0.9) / sens, -1, 1) // the yaw-rate term damps it so it settles without wobbling
+      sim.wheel = 0
+      // once it has settled in the middle of the lane, pointing along it, for a moment, hand control back
+      if (Math.abs(e) < 0.1 && Math.abs(hrel) < 0.012 && Math.abs(sim.yawRate) < 0.015) { autoCentre.ok += dt; if (autoCentre.ok > 0.8) { autoCentre.on = false; target = 0 } } else autoCentre.ok = 0
+    }
+  }
   const rate = target ? 1.5 + sens : 3
   // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
   const err = target - sim.steerIn
@@ -424,13 +446,14 @@ export function stepSim(dt: number) {
 
   // ---- head keys: A / D turn the head gradually, W tilts it up; letting go brings it gently back (like a person's head) ----
   {
+    if (headFree && (input.yaw !== headSet.y || input.pitch !== headSet.p)) { headFree = false; input.slow = false; sim.head.yaw = sim.head.pitch = 0 } // the mouse / finger took over
+    // like the steering wheel: each press turns the head a little and it STAYS there; Space brings it (and the wheel) back to straight
     const dyaw = (input.kA ? 1 : 0) - (input.kD ? 1 : 0)
     if (dyaw) sim.head.yaw = clamp(sim.head.yaw + dyaw * 1.25 * dt, -2.3, 2.3)
-    else sim.head.yaw *= Math.exp(-2.2 * dt)
-    if (input.kW) sim.head.pitch = clamp(sim.head.pitch + 0.9 * dt, 0, 0.95)
-    else sim.head.pitch *= Math.exp(-2.2 * dt)
-    const moving = Math.abs(sim.head.yaw) > 0.012 || Math.abs(sim.head.pitch) > 0.012 || input.kA || input.kW || input.kD
-    if (moving && (!input.free || headFree)) { input.free = true; headFree = true; input.slow = true; input.yaw = sim.head.yaw; input.pitch = sim.head.pitch }
+    const dpit = (input.kW ? 1 : 0) - (input.kS ? 1 : 0)
+    if (dpit) sim.head.pitch = clamp(sim.head.pitch + dpit * 0.9 * dt, -0.3, 0.95)
+    const moving = Math.abs(sim.head.yaw) > 0.012 || Math.abs(sim.head.pitch) > 0.012
+    if (moving && (!input.free || headFree)) { input.free = true; headFree = true; input.slow = true; input.yaw = sim.head.yaw; input.pitch = sim.head.pitch; headSet.y = input.yaw; headSet.p = input.pitch }
     else if (headFree) { headFree = false; input.slow = false; input.free = false; input.yaw = input.pitch = 0 }
   }
   // ---- free-look (touch, mouse or keys): what the head is facing decides which mirror you are looking at ----
@@ -646,6 +669,34 @@ function finishManeuver(m: Maneuver) {
   sim.changes++
   if (sim.signal === m.dir) sim.signal = 0
   if (m.infractions.length === 0) sim.clean++
+}
+
+/** The centre of the lane the car is mostly in (the nearest lane running the way it is heading): a point on it and the lane's heading. */
+function laneTarget(): { x: number; z: number; h: number } | null {
+  if (WORLD.highway) {
+    if (sim.x > NB_EDGE_R + 1) return { x: rampX(sim.z), z: sim.z, h: rampHeading(sim.z) }
+    let best = 0
+    const lx = (k: number) => HW_LANES[k] + (k >= 3 ? forkShift(sim.z) : 0)
+    for (let k = 1; k < HW_LANES.length; k++) if (Math.abs(sim.x - lx(k)) < Math.abs(sim.x - lx(best))) best = k
+    return { x: lx(best), z: sim.z, h: best >= 3 ? forkHeading(sim.z) : 0 }
+  }
+  const fx = -Math.sin(sim.h), fz = -Math.cos(sim.h)
+  const px = mod(sim.x, P), pz = mod(sim.z, P)
+  let bd = 8, bx = 0, bz = 0, bdx = 0, bdz = 0, found = false
+  for (const pc of PIECES) {
+    for (let i = 1; i < pc.x.length; i++) {
+      const ax = pc.x[i - 1], az = pc.z[i - 1]
+      const dx = pc.x[i] - ax, dz = pc.z[i] - az
+      const len = Math.hypot(dx, dz)
+      if (len < 1e-6 || (dx * fx + dz * fz) / len < 0.4) continue // not pointing the way we are going
+      const rx = wrapD(px - ax), rz = wrapD(pz - az)
+      const t = clamp((rx * dx + rz * dz) / (len * len), 0, 1)
+      const qx = rx - t * dx, qz = rz - t * dz
+      const d = Math.hypot(qx, qz)
+      if (d < bd) { bd = d; found = true; bx = -qx; bz = -qz; bdx = dx / len; bdz = dz / len }
+    }
+  }
+  return found ? { x: sim.x + bx, z: sim.z + bz, h: Math.atan2(-bdx, -bdz) } : null
 }
 
 /* ---------- rules: lanes inside a two-lane roundabout ---------- */

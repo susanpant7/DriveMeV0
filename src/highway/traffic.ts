@@ -33,7 +33,10 @@ const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
 /** per-lane share of the cars on the road (lane 0 is the fast one) and the chance a vehicle in it is a truck */
 const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
 // the limit is 70 mph (31.3 m/s): nobody drives below it, the fast lanes go further over
-const LANE_SPEED: Array<[number, number]> = [[34.5, 38], [33.5, 36.5], [33, 35.5], [32.5, 35], [32, 34.5]]
+// Lane by lane, from the right-most (slow) lane to the left: the limit is 70 mph, the right lane runs 70-75, the next 75-80, then 80-85 ...
+const MPH = 0.44704
+/** the speed band (m/s) of a lane; `fromRight` = 0 for the right-most lane of its carriageway */
+const bandOf = (fromRight: number): [number, number] => [(70 + 5 * fromRight) * MPH, (75 + 5 * fromRight) * MPH]
 const LANE_COUNT = [6, 7, 8, 9, 22] // vehicles per lane within the window at normal density
 
 function describe(c: AiCar, i: number) {
@@ -44,8 +47,8 @@ function describe(c: AiCar, i: number) {
   c.len = l
   c.wid = w
   c.color = pick(COLORS)
-  const [a, b] = LANE_SPEED[h.dir === 1 ? h.lane : h.lane + 2]
-  h.v0 = truck ? rnd(31.8, 33.5) : rnd(a, b)
+  const [a, b] = bandOf(h.dir === 1 ? NBX.length - 1 - h.lane : SB_X.length - 1 - h.lane)
+  h.v0 = truck ? rnd(a, a + 0.5 * (b - a)) : rnd(a, b) // trucks hold the slower half of their lane's band
 }
 
 function spacingOk(dir: 1 | -1, lane: number, z: number, len: number, skip = -1) {

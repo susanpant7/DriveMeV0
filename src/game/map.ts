@@ -231,11 +231,15 @@ function buildPieces() {
         const flA = flareOf(i, j), flB = flareOf(ni, nj)
         if (flA) for (const [dd] of RB_ISLAND) if (dd < segLen) bps.add(dd)
         if (flB) for (const [dd] of RB_ISLAND) if (segLen - dd > 0) bps.add(segLen - dd)
+        // approaching a signalised junction the through lanes shift outward over the taper to make room for the new left-turn lane
+        if (toKind === 'signal') { if (segLen - FLARE - TAPER > 0) bps.add(segLen - FLARE - TAPER); if (segLen - FLARE > 0) bps.add(segLen - FLARE) }
         const sorted = [...bps].sort((p, q) => p - q)
         for (let k = 0; k < LANES; k++) {
           const o = aiOff(k)
           const pts: Pt[] = sorted.map((sv) => {
-            const off = o + (flA ? rbShift(sv) : 0) + (flB ? rbShift(segLen - sv) : 0)
+            // signalised end: lane 2 is the NEW left-turn lane (next to the centre line); lanes 0 and 1 (the through lanes) shift outward by one lane
+            const sh = toKind === 'signal' && k < LANES - 1 ? LANE_W * flare(segLen - sv) : 0
+            const off = (toKind === 'signal' && k === LANES - 1 ? aiOff(0) : o + sh) + (flA ? rbShift(sv) : 0) + (flB ? rbShift(segLen - sv) : 0)
             return [cx + dx * (clrA + sv) + rx * off, cz + dz * (clrA + sv) + rz * off] as Pt
           })
           const rbB = rbSpec(ni, nj)
@@ -258,25 +262,25 @@ function buildPieces() {
           const [ox, oz] = dirv(a)
           const [lx, lz] = dirv(a + 1)
           for (let k = 0; k < LANES; k++) {
-            const o = aiOff(k)
+            // at the junction: lane 2 = left-turn lane (next to the centre line), lane 0 = straight on, lane 1 = straight on or right turn
+            const o = k === LANES - 1 ? aiOff(0) : aiOff(k) + LANE_W
             const E: Pt = [cx + ox * BOX + lx * o, cz + oz * BOX + lz * o]
-            // straight: lanes 0 and 1 carry on in their own lane (lane 0 only toward a signalised exit); the added right-turn
-            // lane (2) only turns right, but a driver who goes straight from it merges into lane 1
+            // straight: lanes 0 and 1 carry on into their own lane of the road beyond (a gentle S-curve back towards the centre)
             const [sx, sz] = dirv(t)
             const [srx, srz] = dirv(t - 1)
             // a single-lane roundabout (or a mini one) has a ONE-lane entry: the left lane is closed there, so traffic in it
             // merges into the right lane while still crossing the junction
             const ahead = rbSpec(i + sx, j + sz)
             const oneLaneAhead = !!ahead && ahead.laneR.length === 1
-            const toLane = k === LANES - 1 || (k === 0 && oneLaneAhead) ? 1 : k
+            const toLane = k === 0 && oneLaneAhead ? 1 : k
             const exitOff = aiOff(toLane)
             const Xs: Pt = [cx + sx * BOX + srx * exitOff, cz + sz * BOX + srz * exitOff]
             if (k <= 1 && !armClosed(i, j, t)) {
-              const shape: Pt[] = toLane !== k ? bez3(E, [E[0] + sx * BOX * 0.9, E[1] + sz * BOX * 0.9], [Xs[0] - sx * BOX * 0.9, Xs[1] - sz * BOX * 0.9], Xs, 12) : [E, Xs]
-              LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', shape, toLane !== k ? 11 : 17, { node: n, arm: t, lane: toLane }))
+              const shape: Pt[] = bez3(E, [E[0] + sx * BOX * 0.9, E[1] + sz * BOX * 0.9], [Xs[0] - sx * BOX * 0.9, Xs[1] - sz * BOX * 0.9], Xs, 12)
+              LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', shape, 14, { node: n, arm: t, lane: toLane }))
             }
-            // left turn (the left-most lane only turns left)
-            if (k === 0 && !armClosed(i, j, (t + 1) % 4)) {
+            // left turn (the left-most lane, the new one, only turns left)
+            if (k === LANES - 1 && !armClosed(i, j, (t + 1) % 4)) {
               const e = (t + 1) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
@@ -288,8 +292,8 @@ function buildPieces() {
               const ctrl: Pt = sz === 0 ? [Xl[0], E[1]] : [E[0], Xl[1]]
               LINKS.connL.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xl, 16), 6.5, { node: n, arm: e, lane: lLane }))
             }
-            // right turn (outer lane to outer lane)
-            if (k === LANES - 1 && !armClosed(i, j, (t + 3) % 4)) {
+            // right turn (from the right-most lane, which also goes straight on)
+            if (k === 1 && !armClosed(i, j, (t + 3) % 4)) {
               const e = (t + 3) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
@@ -354,7 +358,7 @@ function buildAll() {
   for (const p of PIECES) {
     if (p.kind !== 'edge' || p.toKind !== 'signal') continue
     const key = `${p.node}:${p.arm}:${p.lane}`
-    const can = p.lane === 0 ? LINKS.connL.has(key) || LINKS.connS.has(key) : p.lane === 1 ? LINKS.connS.has(key) : LINKS.connR.has(key)
+    const can = p.lane === LANES - 1 ? LINKS.connL.has(key) : p.lane === 1 ? LINKS.connS.has(key) || LINKS.connR.has(key) : LINKS.connS.has(key)
     if (!can) p.aiOk = false
   }
   for (let k = EDGE_IDS.length - 1; k >= 0; k--) if (!PIECES[EDGE_IDS[k]].aiOk) EDGE_IDS.splice(k, 1)

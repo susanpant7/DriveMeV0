@@ -74,10 +74,10 @@ function ControlsList() {
     <ul className="controls">
       <li><span><Key>↑</Key></span> Accelerator <em>hold to speed up, release to slow down</em></li>
       <li><span><Key>↓</Key></span> Brake</li>
-      <li><span><Key>←</Key><Key>→</Key></span> Steer <em>each press turns the wheel a little and it stays there (hold for more); <Key>Space</Key> centres it</em></li>
+      <li><span><Key>←</Key><Key>→</Key></span> Steer <em>each press turns the wheel a little and it stays there (hold for more); <Key>Space</Key> centres it and the view</em></li>
       <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator</li>
       <li><span>Drag</span> Look around <em>press and drag with the mouse, or swipe with two fingers on a trackpad (the view holds, tap to look ahead again); aim at a mirror to check it</em></li>
-      <li><span><Key>A</Key><Key>W</Key><Key>D</Key></span> Turn your head: <Key>A</Key> left, <Key>D</Key> right, <Key>W</Key> up <em>(hold: the head moves gradually, and keys combine, e.g. A + W looks left and up; let go and it returns)</em></li>
+      <li><span><Key>A</Key><Key>D</Key><Key>W</Key><Key>S</Key></span> Turn your head <em>like the wheel: each press turns it a little and it stays (A left, D right, W up, S down; combine them, e.g. A + W). <Key>Space</Key> centres the view and the wheel and gently steers the car into the middle of its lane (auto mode: steering by hand cancels it)</em></li>
       <li><span><Key>Esc</Key></span> Pause <span className="gap" /><Key>M</Key> mute</li>
     </ul>
   )
