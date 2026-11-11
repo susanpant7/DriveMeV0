@@ -16,6 +16,11 @@ interface Hw {
   v0: number
   lat: number // current x
   target: number // lane being changed to (-1: none)
+  vlo: number // the slowest this driver cruises (never below the limit)
+  vhi: number // and the fastest
+  vgoal: number // the speed they are drifting towards now
+  vt: number // seconds until they pick a new one
+  cool: number // seconds before this driver will consider another lane change
 }
 const hw: Hw[] = []
 let ncars = 0
@@ -50,6 +55,9 @@ function describe(c: AiCar, i: number) {
   c.color = pick(COLORS)
   const [a, b] = bandOf(h.dir === 1 ? NBX.length - 1 - h.lane : SB_X.length - 1 - h.lane)
   h.v0 = truck ? rnd(a, a + 0.5 * (b - a)) : rnd(a, b) // trucks hold the slower half of their lane's band
+  h.vlo = Math.max(70 * MPH, a) // nobody drifts below the 70 mph limit
+  h.vhi = truck ? a + 0.5 * (b - a) : b
+  h.vgoal = h.v0
 }
 
 function spacingOk(dir: 1 | -1, lane: number, z: number, len: number, skip = -1) {
@@ -79,7 +87,7 @@ function place(i: number, dir: 1 | -1, lane: number, z: number, speed: number) {
 
 export function initHighwayTraffic(playerZ: number) {
   for (const c of cars) c.active = false
-  while (hw.length < cars.length) hw.push({ dir: 1, lane: 0, v0: 25, lat: 0, target: -1 })
+  while (hw.length < cars.length) hw.push({ dir: 1, lane: 0, v0: 25, lat: 0, target: -1, vlo: 31.4, vhi: 33, vgoal: 32, vt: 0, cool: 0 })
   ncars = 0
   const dens = DENSITY[level - 1]
   const lanes: Array<[1 | -1, number]> = NBX.map((_, k) => [1, k] as [1 | -1, number]) // one direction only: no oncoming traffic
@@ -93,7 +101,7 @@ export function initHighwayTraffic(playerZ: number) {
         const z = playerZ + rnd(-WINDOW, WINDOW * 0.55)
         // nothing near the start of the ramp or the player's own space
         if (dir === 1 && Math.abs(z - playerZ) < 70) continue
-        hw[i] = { dir, lane, v0: 25, lat: 0, target: -1 }
+        hw[i] = { dir, lane, v0: 25, lat: 0, target: -1, vlo: 31.4, vhi: 33, vgoal: 32, vt: rnd(0, 8), cool: rnd(0, 6) }
         const len = 6
         if (!spacingOk(dir, lane, z, len)) continue
         ncars++
@@ -143,6 +151,13 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
     }
     // a slower player ahead in my lane: pull out to the left if there is room, otherwise carry on (and hit them)
     if (h.dir === 1 && h.target < 0 && h.lane > 0 && Math.abs(player.x - c.x) < 2.5 && (player.z - c.z) * fwd > 0 && (player.z - c.z) * fwd < 55 && player.speed < c.speed - 2 && laneClear(h.lane - 1, c.z, myHalf)) h.target = h.lane - 1
+    // catching up with a slower vehicle (or you) in my lane: pull out to pass if there is room, left first, otherwise the right
+    h.cool -= dt
+    if (h.dir === 1 && h.target < 0 && h.cool <= 0 && gap < 70 && c.speed > lv + 1.2 && c.speed > 28) {
+      if (h.lane > 0 && laneClear(h.lane - 1, c.z, myHalf)) h.target = h.lane - 1
+      else if (h.lane + 1 < NB_N - 1 && laneClear(h.lane + 1, c.z, myHalf) && !(scen.type === 'merge' && h.lane + 1 >= NB_N - 1)) h.target = h.lane + 1
+      h.cool = h.target >= 0 ? rnd(6, 12) : 1.5
+    }
     if (h.target >= 0) {
       const tx = laneX(h.dir, h.target)
       const step = Math.sign(tx - h.lat) * Math.min(Math.abs(tx - h.lat), 1.6 * dt)
@@ -151,6 +166,10 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
       // do not drive into somebody while changing lane: slow down if the target lane is taken
     }
     sig(i)
+    // nobody holds one speed: each driver drifts about within their own range (70 mph and up), picking a new target every few seconds
+    h.vt -= dt
+    if (h.vt <= 0) { h.vt = rnd(4, 11); h.vgoal = rnd(h.vlo, Math.max(h.vlo + 0.5, h.vhi)) }
+    h.v0 += (h.vgoal - h.v0) * (1 - Math.exp(-dt / 2.5))
     // --- intelligent driver model ---
     const v = c.speed
     const free = 1 - Math.pow(v / h.v0, 4)
@@ -164,7 +183,8 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
     c.speed = Math.max(0, v + a * dt)
     // nobody on the highway crawls: below the limit only when really close behind something (e.g. the player)
     // (only another vehicle in the way slows them; you in front of them never does)
-    if (gapCar > 14) c.speed = Math.max(c.speed, 31.5)
+    // behind a slower vehicle (or you) a driver eases off to keep their distance but never below the limit (70 mph); they pull out to pass instead
+    if (gap > 3) c.speed = Math.max(c.speed, 70 * MPH)
     c.z += fwd * c.speed * dt
     c.x = realX(h.dir, h.lane, h.lat, c.z)
     c.h = h.dir === 1 ? (h.lane >= 3 ? forkHeading(c.z) : 0) : Math.PI
