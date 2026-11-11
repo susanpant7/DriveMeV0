@@ -42,7 +42,7 @@ export const MIRRORS: MirrorCfg[] = [
   mirror('left', V(-1.17 - OUT, 1.095, -0.9), [0.32 * K, 0.21 * K], RES_SIDE, V(-0.17, 0.02, 1), 1),
   // hung from the windshield header at the upper right of the driver's view, so it is always visible in the front view
   mirror('center', V(0.0, 1.485, -0.72), [0.27, 0.088], RES_REAR, V(0, 0.0, 1), 0),
-  mirror('right', V(1.39 + OUT, 1.1, -0.9), [0.42 * K, 0.28 * K], RES_SIDE, V(0.17, 0.02, 1), -1),
+  mirror('right', V(1.43 + OUT, 1.1, -0.9), [0.42 * K, 0.28 * K], RES_SIDE, V(0.17, 0.02, 1), -1),
 ]
 
 /** The driver's own adjustment of each mirror (radians): click a mirror, then use the arrow keys. Saved between sessions. */
