@@ -409,8 +409,11 @@ export function stepSim(dt: number) {
     const err = autoLane.p0 + autoLane.dir * autoLane.w - (sim.x * rxv + sim.z * rzv)
     autoLane.t += dt
     const hrel = sim.h - autoLane.h0
-    const des = clamp(-err * 0.045, -0.09, 0.09)
-    target = -clamp(((des - hrel) * 4 * 0.7) / sens, -1, 1) // the self-steer works the same at any sensitivity
+    // steer towards a heading that shrinks as the car nears the middle of the new lane, and damp the swing (yaw rate) so it settles there
+    // without running past the middle and coming back
+    const sp = clamp(15 / Math.max(sim.speed, 1), 0.3, 1) // the car answers the wheel faster at speed: ask for less
+    const des = clamp(-err * 0.04 * sp, -0.085 * sp, 0.085 * sp)
+    target = -clamp(((des - hrel) * 4 * 0.7 * sp - sim.yawRate * 0.9) / sens, -1, 1) // the self-steer works the same at any sensitivity
     const done = Math.abs(err) < 0.12 && Math.abs(hrel) < 0.02 && Math.abs(sim.yawRate) < 0.03
     if (done) { // settle exactly in the middle of the new lane, pointing straight
       sim.h = autoLane.h0; sim.yawRate = 0; sim.steerIn = 0
