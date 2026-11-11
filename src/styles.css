@@ -297,3 +297,27 @@ canvas { touch-action: none; }
 .rbdiag figcaption { display: flex; flex-direction: column; gap: 2px; font-size: 13px; text-align: center; }
 .rbdiag .ok { color: #4ade80; font-weight: 700; }
 .rbdiag .bad { color: #f87171; font-weight: 700; }
+
+/* ================= touch: the lower-left cluster, redesigned (a slim steering dock, round indicator chips) ================= */
+.hud.touch .tleft { gap: 8px; align-items: center; }
+.hud.touch .eyerow { gap: 10px; }
+.hud.touch .eyerow .tbtn.sig {
+  min-width: 0; width: 40px; height: 40px; padding: 0; border-radius: 50%; font-size: 0;
+  background: rgba(14,19,28,.45); border: 1.5px solid rgba(255,255,255,.22); box-shadow: 0 4px 12px rgba(0,0,0,.3);
+}
+.hud.touch .eyerow .tbtn.sig.on { background: rgba(34,197,94,.6); border-color: #7dffa0; color: #eafff0; }
+.hud.touch .steerrow {
+  gap: 4px; padding: 5px; border-radius: 999px; align-items: center;
+  background: rgba(14,19,28,.38); border: 1.5px solid rgba(255,255,255,.18);
+  box-shadow: 0 8px 22px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.hud.touch .steerrow .tbtn { box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; border: none; background: rgba(255,255,255,.08); }
+.hud.touch .steerrow .tbtn.steer {
+  min-width: 0; width: clamp(46px, 14vh, 62px); height: clamp(46px, 14vh, 62px); padding: 0; border-radius: 50%; font-size: 0;
+}
+.hud.touch .steerrow .tbtn.steer.centre { width: clamp(34px, 10vh, 44px); height: clamp(34px, 10vh, 44px); background: rgba(255,255,255,.14); }
+.hud.touch .steerrow .tbtn.steer:active, .hud.touch .steerrow .tbtn.steer.on { background: rgba(59,130,246,.75); transform: scale(.94); }
+.hud.touch .steerrow .ring { width: 16px; height: 16px; box-sizing: border-box; border-radius: 50%; border: 2.5px solid currentColor; display: block; }
+.hud.touch .tbtn.tilt { border-radius: 999px; }
+.hud.touch .eye { border-radius: 999px; }

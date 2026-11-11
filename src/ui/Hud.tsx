@@ -110,6 +110,16 @@ function HoldButton({ label, onDown, onUp, className = '', active = false, child
  * On-screen controls for phones and tablets. Bottom left: an eye (slide to turn your head) with the indicators on either side and a steering wheel under it
  * (turn it with your thumb). Bottom right: brake and gas.
  */
+const Chev = ({ dir }: { dir: -1 | 1 }) => (
+  <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style={{ transform: dir === 1 ? 'scaleX(-1)' : undefined }}>
+    <path d="M15 4 7 12l8 8" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+const TurnArrow = ({ dir }: { dir: -1 | 1 }) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" style={{ transform: dir === 1 ? 'scaleX(-1)' : undefined }}>
+    <path d="M10 5 3 12l7 7V15h11V9H10z" fill="currentColor" />
+  </svg>
+)
 function TouchControls() {
   const signal = useGame((s) => s.hud.signal)
   const lookMode = useGame((s) => s.lookMode)
@@ -122,16 +132,16 @@ function TouchControls() {
     <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
       <div className="tleft">
         <div className="eyerow">
-          <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}>◀</HoldButton>
+          <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}><TurnArrow dir={-1} /></HoldButton>
           {lookMode === 'eye' ? <EyeControl /> : (
             <button className="tbtn tilt" aria-label="Recentre the view" onClick={async () => { if (motionActive()) recentreMotion(); else await setMotionLook(true) }}>⌖ View</button>
           )}
-          <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}>▶</HoldButton>
+          <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}><TurnArrow dir={1} /></HoldButton>
         </div>
         <div className="steerrow">
-          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}>◀</HoldButton>
-          <button className="tbtn steer centre" aria-label="Centre the wheel (hold to keep the car in its lane)" onPointerDown={() => { input.recentre = true; input.space = true }} onPointerUp={() => { input.space = false }} onPointerLeave={() => { input.space = false }} onPointerCancel={() => { input.space = false }}>⦿</button>
-          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}>▶</HoldButton>
+          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}><Chev dir={-1} /></HoldButton>
+          <button className="tbtn steer centre" aria-label="Centre the wheel (hold to keep the car in its lane)" onPointerDown={() => { input.recentre = true; input.space = true }} onPointerUp={() => { input.space = false }} onPointerLeave={() => { input.space = false }} onPointerCancel={() => { input.space = false }}><span className="ring" /></button>
+          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}><Chev dir={1} /></HoldButton>
         </div>
       </div>
 
