@@ -338,7 +338,7 @@ export function Hud() {
 
       {status === 'paused' && pauseReason === 'user' && adjusting && (
         <div className={'adjbar ' + (adjSel === 'center' ? 'low' : 'high')}>
-          <span>{adjSel ? 'Drag on the mirror to move its view.' : 'Pick a mirror, then drag on it to move its view.'}</span>
+          <span>{adjSel ? 'Arrow keys (or drag on the mirror) move its view. Shift = fine steps.' : 'Pick a mirror, then use the arrow keys or drag on it.'}</span>
           {(['left', 'center', 'right'] as const).map((k) => (
             <button key={k} className={'secondary' + (adjSel === k ? ' sel' : '')} onClick={() => { adjustMirror(k); setAdjSel(k) }}>
               {k === 'left' ? 'Left' : k === 'center' ? 'Rear-view' : 'Right'}

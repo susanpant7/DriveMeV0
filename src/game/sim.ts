@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { flare, medW, pocketW, jTypeOf, setLayout, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -320,7 +320,9 @@ function recoverToRoad() {
   const clr = clearance(nn.i, nn.j) + 10
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
-  const lane = laneOff(1) // the outer lane of the 2-lane road
+  const ns = Math.abs(nn.rx) <= Math.abs(nn.rz)
+  // the outer lane of the 2-lane road; a residential street has just the one (beyond its centre turn lane, where there is one)
+  const lane = oneLane() ? (jTypeOf(nn.i, nn.j, ns ? 1 : 0)?.mw ?? 0) * LANE_W + laneOff(0) : laneOff(1)
   let x: number, z: number, h: number
   if (Math.abs(nn.rx) <= Math.abs(nn.rz)) {
     // nearest road runs north-south (x = the node's column)
@@ -660,9 +662,9 @@ function crash(reason: string, tips: string[]) {
 /* ---------- rules: lane changes ---------- */
 function laneInfo() {
   const nn = nearestNode(sim.x, sim.z)
-  const clr = nn.spec ? nn.spec.outer : BOX
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
+  const clr = clearance(nn.i, nn.j, Math.abs(fz) > Math.abs(fx) ? 1 : 0) // where the approach you are on ends
   const xm = mod(sim.x + B / 2, B) - B / 2
   const zm = mod(sim.z + B / 2, B) - B / 2
   let d = -1
@@ -687,8 +689,9 @@ function laneInfo() {
   const ci = alongZ ? Math.round(sim.x / B) : Math.round(sim.z / B)
   const nodeAt = (c: number) => (alongZ ? [ci, c] : [c, ci]) as [number, number]
   const tBehind = jTypeOf(...nodeAt(behind), alongZ ? 1 : 0), tAhead = jTypeOf(...nodeAt(ahead), alongZ ? 1 : 0)
-  const med = medW(tBehind, tAhead, clearance(...nodeAt(behind)), clearance(...nodeAt(ahead)), Math.abs(pos - behind * B))
-  const dAhead = Math.abs(pos - ahead * B) - clearance(...nodeAt(ahead))
+  const ax = alongZ ? 1 : 0
+  const med = medW(tBehind, tAhead, clearance(...nodeAt(behind), ax), clearance(...nodeAt(ahead), ax), Math.abs(pos - behind * B))
+  const dAhead = Math.abs(pos - ahead * B) - clearance(...nodeAt(ahead), ax)
   const rPocket = tAhead?.rOnly ? LANE_W * flare(dAhead) : 0
   if (tBehind?.centre && tAhead?.centre) {
     // centre-turn-lane avenue: the middle lane (half of it lies on each side of the centre line) may be used to turn left
@@ -712,7 +715,7 @@ function laneInfo() {
     }
     return { d, r, k, e, left }
   }
-  const k = r < 0 ? -1 : r < LANE_W ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
+  const k = r < 0 ? -1 : r < LANE_W || oneLane() ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
   return { d, r, k, e: k < 0 ? r : r - laneOff(k), left: false }
 }
 
@@ -838,7 +841,7 @@ function trackRbLane(): boolean {
 /* ---------- rules: turns and roundabouts ---------- */
 function trackJunction() {
   const nn = nearestNode(sim.x, sim.z)
-  const inside = nn.kind === 'signal' ? Math.abs(nn.rx) < BOX + 1 && Math.abs(nn.rz) < BOX + 1 : Math.hypot(nn.rx, nn.rz) < nn.spec!.outer
+  const inside = nn.kind === 'signal' ? Math.abs(nn.rx) < clearance(nn.i, nn.j, 0) + 1 && Math.abs(nn.rz) < clearance(nn.i, nn.j, 1) + 1 : Math.hypot(nn.rx, nn.rz) < nn.spec!.outer
   if (inside && !sim.jn) {
     sim.jn = { n: nn.n, i: nn.i, j: nn.j, kind: nn.kind, h0: sim.h, sig: sim.signal, yieldFail: false }
     if (nn.kind === 'round') {
@@ -891,8 +894,8 @@ function trackStop() {
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
   const half = nn.spec ? nn.spec.outer : BOX
-  const LINE = rbSig ? half + 17 : BOX + 2
   for (let d = 0; d < 4; d++) {
+    const LINE = rbSig ? half + 17 : clearance(nn.i, nn.j, d % 2) + 2
     const [ox, oz] = dirv(d)
     const [lx, lz] = dirv(d + 1)
     const u = nn.rx * ox + nn.rz * oz

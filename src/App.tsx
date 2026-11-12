@@ -26,7 +26,7 @@ export default function App() {
   return (
     <>
       <GraphicsBoundary>
-      <Canvas flat shadows dpr={[1, 2]} gl={{ antialias: LOWFX, powerPreference: 'high-performance' }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
+      <Canvas flat shadows dpr={[1, 1.5]} gl={{ antialias: LOWFX, powerPreference: 'high-performance' }} camera={{ fov: 70, near: 0.05, far: 460, position: [0, 1.2, 0] }}>
         <color attach="background" args={[HORIZON]} />
         <fog attach="fog" args={[HORIZON, 120, 400]} />
         <Sky />

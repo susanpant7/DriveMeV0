@@ -4,14 +4,13 @@ import * as THREE from 'three'
 import { loadCarModel, type CarModel } from './carModel'
 import { Cabin } from './Cabin'
 import { CarPlay } from './CarPlay'
-import { EYE, GLASS, FRONT_PITCH, FRONT_YAW, CARPLAY, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
-import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
+import { EYE, GLASS, FRONT_PITCH, FRONT_YAW, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
+import { MirrorGlass, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
 import { useGame } from './store'
 
 const UP = new THREE.Vector3(0, 1, 0)
 
-const selMat = new THREE.MeshBasicMaterial({ color: '#3b9dff' })
 
 function useCarModel() {
   const [m, setM] = useState<CarModel | null>(null)
@@ -26,9 +25,8 @@ function useCarModel() {
 /** A true planar mirror with a convex-style wide view, in a glossy shaped housing. */
 function Mirror({ cfg }: { cfg: MirrorCfg }) {
   const [w, h] = cfg.size
-  const side = cfg.id !== 'center'
   const model = useCarModel()
-  const { glass, ringGeo } = useMemo(() => {
+  const { glass } = useMemo(() => {
     // the glass has the outline of the car model's own mirror glass, laid flat in the mirror plane
     let geo: THREE.BufferGeometry
     if (model) {
@@ -50,49 +48,27 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       m1: cfg.id === 'right' ? 1 / 1.5 : 1.0,
       shift: [0, 0],
       inner: cfg.inner,
-      alt: !side,
+      alt: true, // every mirror refreshes on alternate frames: half the extra scene renders, and the picture is at most one frame old
     })
     ;(r.material as THREE.ShaderMaterial).side = THREE.DoubleSide
     r.layers.set(1) // driver only: mirrors do not show in each other
     r.position.copy(cfg.pos)
     r.quaternion.copy(cfg.quat)
-    if (cfg.id !== 'center') r.frustumCulled = false // keep rendering even when it is out of view: the dash repeater shows it
-    return { glass: r, ringGeo: housingGeometries(w, h, cfg.inner).ringGeo }
+    return { glass: r }
   }, [cfg, w, h, model])
   useEffect(() => () => glass.dispose(), [glass])
-  // the dash screen shows this mirror's picture while the matching indicator is on (left = -1, right = +1)
-  const repeater = useMemo(() => {
-    if (cfg.id === 'center') return null
-    const m = glass.material as THREE.ShaderMaterial
-    // a screen-shaped window onto the same picture: full width, the middle of the height (no stretching)
-    const Ws = CARPLAY.W, Hs = CARPLAY.H
-    const mat = new THREE.ShaderMaterial({
-      uniforms: { ...m.uniforms, uHalf: { value: new THREE.Vector2(Ws / 2, Hs / 1.4) }, uInner: { value: 1 } },
-      vertexShader: m.vertexShader,
-      fragmentShader: m.fragmentShader,
-    })
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(Ws, Hs), mat)
-    mesh.frustumCulled = false
-    return { mesh, mat }
-  }, [cfg, glass])
-  useEffect(() => () => repeater?.mat.dispose(), [repeater])
-  // only the right indicator brings the right mirror onto the dash screen (the left indicator keeps the map)
-  const feedGroup = useRef<THREE.Group>(null)
   const housing = useRef<THREE.Group>(null)
-  const ringMesh = useRef<THREE.Mesh>(null)
   const AX = useMemo(() => new THREE.Vector3(1, 0, 0), [])
   const AY = useMemo(() => new THREE.Vector3(0, 1, 0), [])
   const qa = useMemo(() => new THREE.Quaternion(), [])
   const qb = useMemo(() => new THREE.Quaternion(), [])
   useFrame(() => {
-    if (feedGroup.current) feedGroup.current.visible = cfg.id === 'right' && (sim.signal === 1 || useGame.getState().adjusting)
     // the driver's own mirror adjustment turns the glass (and its housing) a little
     const a = mirrorAdj[cfg.id as 'left' | 'center' | 'right']
     qa.setFromAxisAngle(AY, a.yaw)
     qb.setFromAxisAngle(AX, -a.pitch)
     glass.quaternion.copy(qa).multiply(qb).multiply(cfg.quat)
     if (housing.current) housing.current.quaternion.copy(glass.quaternion)
-    if (ringMesh.current) ringMesh.current.visible = adjust.sel === cfg.id // a blue rim marks the mirror being adjusted
   })
 
   // A mirror is a fixed object: it never changes size. It only looks bigger when your head moves closer or turns to face it.
@@ -100,15 +76,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
     <>
       <primitive object={glass} />
       <group ref={housing} position={cfg.pos} quaternion={cfg.quat}>
-        <mesh ref={ringMesh} geometry={ringGeo} material={selMat} visible={false} />
       </group>
-      {repeater && (
-        <group ref={feedGroup} position={CARPLAY.pos} rotation={CARPLAY.rot} visible={false}>
-          <group position={[0, 0, 0.004]}>
-            <primitive object={repeater.mesh} />
-          </group>
-        </group>
-      )}
     </>
   )
 }
@@ -151,7 +119,7 @@ export function PlayerRig() {
         const d = Math.hypot(e.clientX - m.x, e.clientY - m.y)
         if (d < m.r && d < bd) { bd = d; best = k }
       }
-      if (!best) { adjust.sel = null; adjust.dragging = false; return }
+      if (!best) { adjust.dragging = false; return } // a press elsewhere changes nothing: the mirror chosen in the bar stays selected
       if (adjust.sel !== best) {
         adjust.sel = best
         sim.msgId++

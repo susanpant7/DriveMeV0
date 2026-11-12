@@ -99,6 +99,22 @@ export function installInput() {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) e.preventDefault()
     if (e.code === 'KeyM' && !e.repeat) toggleMute()
 
+    // adjusting a mirror (the game is paused): the arrow keys tilt the selected mirror; holding a key keeps it moving
+    if (adjust.sel && useGame.getState().adjusting) {
+      const a = mirrorAdj[adjust.sel]
+      const step = e.shiftKey ? 0.004 : 0.012 // hold Shift for fine steps
+      let nudged = true
+      if (e.code === 'ArrowLeft') a.yaw -= step
+      else if (e.code === 'ArrowRight') a.yaw += step
+      else if (e.code === 'ArrowUp') a.pitch += step
+      else if (e.code === 'ArrowDown') a.pitch -= step
+      else nudged = false
+      if (nudged) {
+      a.yaw = Math.max(-0.6, Math.min(0.6, a.yaw)); a.pitch = Math.max(-0.6, Math.min(0.6, a.pitch))
+      saveMirrors()
+      return
+      }
+    }
     if (status !== 'playing') {
       if (e.repeat) return
       // settings work in the menu / pause screens
@@ -123,19 +139,6 @@ export function installInput() {
       if (now - lastTap[slot] < 320) { input.blind = e.code === 'KeyA' ? 1 : -1; lastTap[slot] = 0 } else lastTap[slot] = now
     }
     if (LOOK_KEYS[e.code]) input[LOOK_KEYS[e.code]] = true
-    if (adjust.sel && useGame.getState().adjusting) {
-      const a = mirrorAdj[adjust.sel]
-      const step = 0.012
-      if (e.code === 'ArrowLeft') a.yaw -= step
-      else if (e.code === 'ArrowRight') a.yaw += step
-      else if (e.code === 'ArrowUp') a.pitch += step
-      else if (e.code === 'ArrowDown') a.pitch -= step
-      else if (e.code === 'Enter' || e.code === 'Escape') { adjust.sel = null; saveMirrors() }
-      else return
-      a.yaw = Math.max(-0.6, Math.min(0.6, a.yaw)); a.pitch = Math.max(-0.6, Math.min(0.6, a.pitch))
-      saveMirrors()
-      return
-    }
     if (e.code === 'ArrowUp') { input.up = true; if (!e.repeat) gasTapCheck() }
     if (e.code === 'ArrowDown') {
       input.down = true

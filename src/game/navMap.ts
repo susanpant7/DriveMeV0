@@ -62,7 +62,7 @@ function buildPaths(): MapPaths {
       if (armClosed(i, j, d)) continue
       const [dx, dz] = dirv(d)
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
-      const cA = clearance(i, j), cB = clearance(i + dx, j + dz)
+      const cA = clearance(i, j, d % 2), cB = clearance(i + dx, j + dz, d % 2)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz)
       const u0 = kA === 'round' ? cA - 3 : cA
       const u1 = kB === 'round' ? B - cB + 3 : B - cB
@@ -166,7 +166,7 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath()
 }
 
-function drawIcon(g: CanvasRenderingContext2D, icon: string, cx: number, cy: number, s: number) {
+export function drawIcon(g: CanvasRenderingContext2D, icon: string, cx: number, cy: number, s: number) {
   g.save()
   g.translate(cx, cy)
   g.strokeStyle = '#fff'; g.fillStyle = '#fff'
@@ -227,12 +227,12 @@ export function drawBanner(g: CanvasRenderingContext2D, w: number, units: 'kmh' 
   }
 }
 
-export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt: number, units: 'kmh' | 'mph', compact = false, banner = true) {
+export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt: number, units: 'kmh' | 'mph', compact = false, banner = true, zoom = 1) {
   if (!paths || pathsVer !== LAYOUT.version) { paths = buildPaths(); pathsVer = LAYOUT.version }
   const pth = paths
 
   // smoothed camera (position, heading, zoom out with speed)
-  const targetS = (compact ? 0.62 : 0.85) * (1 - Math.min(0.45, sim.speed / 40))
+  const targetS = (compact ? 0.62 : 0.85) * zoom * (1 - Math.min(0.45, sim.speed / 40))
   if (!view.init) { view.x = sim.x; view.z = sim.z; view.h = sim.h; view.s = targetS; view.init = true }
   const k = 1 - Math.exp(-10 * Math.min(dt, 0.1))
   view.x += (sim.x - view.x) * k
@@ -267,12 +267,13 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
     g.fillStyle = '#1c2a22'; g.fill(pth.parks)
     g.fillStyle = '#1d2a3a'; g.fill(pth.buildings)
     // road casing, then road surface (so intersections look joined)
-    g.strokeStyle = '#05080c'; g.lineWidth = 3.2 / S; g.stroke(pth.roads)
-    g.fillStyle = '#56657b'; g.fill(pth.roads)
+    // roads are faint (just a little lighter than the land), so the route drawn over them stands out
+    g.strokeStyle = '#0b1118'; g.lineWidth = 2 / S; g.stroke(pth.roads)
+    g.fillStyle = '#2a3442'; g.fill(pth.roads)
     g.fillStyle = '#6a5f55'; g.fill(pth.aprons)
     g.fillStyle = '#1f4a30'; g.fill(pth.islands)
     g.fillStyle = '#7d8794'; g.fill(pth.domes)
-    g.strokeStyle = 'rgba(255,214,70,.55)'; g.lineWidth = 1 / S; g.setLineDash([6 / S, 7 / S]); g.stroke(pth.centre); g.setLineDash([])
+    g.strokeStyle = 'rgba(255,214,70,.22)'; g.lineWidth = 1 / S; g.setLineDash([6 / S, 7 / S]); g.stroke(pth.centre); g.setLineDash([])
     g.fillStyle = '#f5c518'; g.fill(pth.signals)
     g.restore()
   }
@@ -309,8 +310,9 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
     g.lineCap = 'round'
     g.beginPath()
     pts.forEach(([x, z], i) => (i ? g.lineTo(x, z) : g.moveTo(x, z)))
-    g.strokeStyle = 'rgba(8,30,70,.9)'; g.lineWidth = 11 / S; g.stroke()
-    g.strokeStyle = '#3b9dff'; g.lineWidth = 7.5 / S; g.stroke()
+    // the route: a deep, saturated blue with a light casing, wide enough to follow at a glance
+    g.strokeStyle = 'rgba(205,225,255,.95)'; g.lineWidth = 17 / S; g.stroke()
+    g.strokeStyle = '#0a4fe0'; g.lineWidth = 12 / S; g.stroke()
     // direction chevrons
     g.fillStyle = 'rgba(255,255,255,.9)'
     let acc = 14 / S
