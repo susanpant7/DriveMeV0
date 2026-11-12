@@ -275,6 +275,7 @@ const playerObs = () => (WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: 
 
 /* ---------- lifecycle ---------- */
 let brakeHold = 0 // how long the brake has been held (s)
+let overFor = 0, overWarnT = -99 // over the limit (within the margin): for how long, and when you were last reminded
 let sigArmed = false // the wheel has been turned the way the indicator shows (it cancels when the wheel comes back)
 let streetLim = speedLimit() // the limit of the street you are on (or last were on): it holds through a junction
 
@@ -283,6 +284,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
   WORLD.highway = useGame.getState().mode === 'highway' || (useGame.getState().mode === 'mixed' && useGame.getState().leg === 'highway')
   autoCentre.on = false
+  overFor = 0; overWarnT = -99
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
   setLayout(layoutOf(useGame.getState().mode))
@@ -1079,14 +1081,30 @@ function currentLimit() {
   return streetLim
 }
 
+/**
+ * Speeding. How far over the limit is tolerated depends on the limit (in mph): up to 25 -> +5, up to 50 -> +10, up to 75 -> +15,
+ * above that +20. Over the limit but within that margin you are told to slow down (no points lost); beyond it, it is a mistake.
+ */
+export function speedMargin(limitMph: number) { return limitMph <= 25 ? 5 : limitMph <= 50 ? 10 : limitMph <= 75 ? 15 : 20 }
 function trackSpeed(dt: number) {
   const limit = currentLimit()
-  if (sim.speed > limit * 1.2) sim.speedingFor += dt // up to 20% over the limit is tolerated; beyond that it is speeding
+  const limMph = Math.round(limit / 0.44704), vMph = sim.speed / 0.44704
+  const margin = speedMargin(limMph)
+  const u = useGame.getState().units
+  const shown = u === 'kmh' ? Math.round((limMph * 1.609) / 5) * 5 + ' km/h' : limMph + ' mph'
+  // beyond the margin: speeding (a mistake)
+  if (vMph > limMph + margin) sim.speedingFor += dt
   else sim.speedingFor = 0
   if (sim.speedingFor > 2 && sim.t - sim.warnT.speed > 6) {
     sim.warnT.speed = sim.t
-    const u = useGame.getState().units
-    say(`Speeding! The limit is ${u === 'kmh' ? Math.round((limit * 3.6) / 5) * 5 + ' km/h' : Math.round((limit * 2.237) / 5) * 5 + ' mph'}`, 'warn')
+    say(`Speeding! The limit is ${shown}`, 'warn')
+  }
+  // over the limit but within the margin: a reminder only
+  if (vMph > limMph + 0.5 && vMph <= limMph + margin) overFor += dt
+  else overFor = 0
+  if (overFor > 2 && sim.t - overWarnT > 8 && sim.speedingFor === 0) {
+    overWarnT = sim.t
+    say(`You are over the speed limit (${shown}): ease off`, 'info')
   }
 }
 
