@@ -690,6 +690,14 @@ function laneInfo() {
   const med = medW(tBehind, tAhead, clearance(...nodeAt(behind)), clearance(...nodeAt(ahead)), Math.abs(pos - behind * B))
   const dAhead = Math.abs(pos - ahead * B) - clearance(...nodeAt(ahead))
   const rPocket = tAhead?.rOnly ? LANE_W * flare(dAhead) : 0
+  if (tBehind?.centre && tAhead?.centre) {
+    // centre-turn-lane avenue: the middle lane (half of it lies on each side of the centre line) may be used to turn left
+    const h = LANE_W / 2
+    if (r < -h) return { d, r, k: -1, e: r + h, left: false }
+    if (r < h) return { d, r, k: 0, e: r, left: true }
+    const j = Math.floor((r - h) / LANE_W)
+    return { d, r, k: j + 1, e: r - h - LANE_W * (j + 0.5), left: false }
+  }
   if (med > 0.01 || rPocket > 0.01) {
     const pocket = pocketW(tAhead, dAhead, med) // width of the left-turn lane(s)
     const nP = pocket > 0.01 ? tAhead!.nL : 0

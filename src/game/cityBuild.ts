@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
+import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -550,7 +550,28 @@ export function buildCity() {
       const medAt = (u: number) => medW(tA, tB, S0, B - S1, u)
       const aSh = (u: number) => pocketW(tA, u - S0, medAt(u)) // width of the left-turn lane(s) at A's end
       const bSh = (u: number) => pocketW(tB, S1 - u, medAt(u))
-      for (let u = S0; u < S1 - 0.01; u += 3) {
+      const centreRd = !!tA?.centre && !!tB?.centre
+      if (centreRd) {
+        // CENTRE TURN LANE: one shared lane down the middle. Near each junction it is that approach's left-turn lane; in between it is a
+        // two-way left-turn lane (solid yellow outside, broken yellow inside) from which either direction may turn into the side streets.
+        const PK = 50, h = LANE_W / 2
+        for (let u = S0; u < S1 - 0.01; u += 3) {
+          const ue = Math.min(u + 3, S1), dA = u - S0, dB = S1 - ue
+          const twoWay = dA >= PK && dB >= PK
+          for (const sg of [1, -1]) {
+            const own = sg === 1 ? dB < PK : dA < PK // this side's own left-turn lane: a white lane line
+            if (own) mk(ax, az, d, u, ue, sg * h - 0.075, sg * h + 0.075, WHITE)
+            else {
+              mk(ax, az, d, u, ue, sg * h - 0.07, sg * h + 0.07, YELLOW)
+              if (!twoWay) mk(ax, az, d, u, ue, sg * (h - 0.34) - 0.07, sg * (h - 0.34) + 0.07, YELLOW) // double yellow beside the other side's turn lane
+              else if (Math.floor((u - S0) / 3) % 3 === 0) mk(ax, az, d, u, ue, sg * (h - 0.34) - 0.07, sg * (h - 0.34) + 0.07, YELLOW) // broken inner line
+            }
+          }
+        }
+        // pairs of opposing left-turn arrows in the two-way section
+        for (const uu of [STUB.u - 24, STUB.u + 24]) { arrow(ax, az, d, uu + 2.5, 1, 0, 'L'); arrow(ax, az, d, uu - 2.5, -1, 0, 'L') }
+      }
+      for (let u = S0; !centreRd && u < S1 - 0.01; u += 3) {
         const ue = Math.min(u + 3, S1)
         const yAB = (x: number) => Math.max(0, medAt(x) - bSh(x)), yBA = (x: number) => -Math.max(0, medAt(x) - aSh(x))
         marks.upQuad([at(ax, az, d, u, yAB(u) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.27), at(ax, az, d, u, yAB(u) + 0.27)], 0.02, YELLOW)
@@ -574,7 +595,7 @@ export function buildCity() {
         }
         for (let u = S0 + 5; u <= S1 - 5 + 0.01; u += 2.5) {
           const lo = yBA(u) + 0.5, hi = yAB(u) - 0.5
-          if (hi - lo > 0.35) run.push([u, lo, hi])
+          if (hi - lo > 0.35 && !centreRd) run.push([u, lo, hi])
           else flush()
         }
         flush()
@@ -607,14 +628,15 @@ export function buildCity() {
       for (let u = S0 + clipA; u < S1 - clipB - 0.01; u += 3) {
         const ue = Math.min(u + 3, S1 - clipB)
         const h0 = sgh(u), h1 = sgh(ue)
+        if (centreRd && stubsOn() && u + 1.5 > STUB.u - STUB.half - 3 && u + 1.5 < STUB.u + STUB.half + 3) continue // the mouth of a side street
         marks.upQuad([at(ax, az, d, u, h0.right - 0.35), at(ax, az, d, ue, h1.right - 0.35), at(ax, az, d, ue, h1.right - 0.15), at(ax, az, d, u, h0.right - 0.15)], 0.02, WHITE)
         marks.upQuad([at(ax, az, d, u, -(h0.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.35)), at(ax, az, d, u, -(h0.left - 0.35))], 0.02, WHITE)
       }
       // stop lines + zebra crossings at both ends
       const roundEnd1 = nodeKind(i + dx, j + dz) === 'round'
       const roundEnd0 = nodeKind(i, j) === 'round'
-      if (tB) mk(ax, az, d, S1 - 2.3, S1 - 1.7, 0.4, jHalf(tB) - 0.1, WHITE)
-      if (tA) mk(ax, az, d, S0 + 1.7, S0 + 2.3, -jHalf(tA) + 0.1, -0.4, WHITE)
+      if (tB) mk(ax, az, d, S1 - 2.3, S1 - 1.7, tB.centre ? -LANE_W / 2 + 0.2 : 0.4, jHalf(tB) - 0.1, WHITE)
+      if (tA) mk(ax, az, d, S0 + 1.7, S0 + 2.3, -jHalf(tA) + 0.1, tA.centre ? LANE_W / 2 - 0.2 : -0.4, WHITE)
       // a signalised roundabout has a stop bar before the crosswalk
       if (rbB?.signals) mk(ax, az, d, S1 - 18.4, S1 - 17.8, rbShift(18) + 0.2, HALF_MID + rbShift(18) - 0.1, WHITE)
       if (rbA?.signals) mk(ax, az, d, S0 + 17.8, S0 + 18.4, -(HALF_MID + rbShift(18) - 0.1), -(rbShift(18) + 0.2), WHITE)
@@ -863,8 +885,9 @@ export function buildCity() {
         // line between the left lane and its neighbour (at the stop line) and sweeps in one wide curve onto the matching line of the
         // lane it turns into; a right turn does the same from the line between the right-turn lane and its neighbour.
         // one per left-turning lane, from the right-hand end of that lane's stop line onto the same edge of the lane it turns into
-        const jt = jTypeOf(i, j, ar % 2)!, mOut = jTypeOf(i, j, (ar + 1) % 2)!.nL * LANE_W
-        const lefts: Array<[number, number, number]> = jt.nL === 2 ? [[(tt + 1) % 4, LANE_W, mOut + LANE_W], [(tt + 1) % 4, 2 * LANE_W, mOut + 2 * LANE_W]] : [[(tt + 1) % 4, LANE_W, mOut + LANE_W]]
+        const jt = jTypeOf(i, j, ar % 2)!, mIn = jt.mw * LANE_W, mOut = jTypeOf(i, j, (ar + 1) % 2)!.mw * LANE_W
+        const e1 = (tt + 1) % 4
+        const lefts: Array<[number, number, number]> = jt.nL === 2 ? [[e1, mIn - LANE_W, mOut + LANE_W], [e1, mIn, mOut + 2 * LANE_W]] : jt.nL === 1 ? [[e1, mIn, mOut + LANE_W]] : [[e1, mIn + LANE_W, mOut + LANE_W]]
         if (armClosed(i, j, ar) || armClosed(i, j, (tt + 1) % 4)) continue
         for (const [e, oEdge, xEdge] of lefts) {
           const o = oEdge
@@ -1115,6 +1138,31 @@ export function buildCity() {
           signQuad(qx + ox * 0.06, 1.35, qz + oz * 0.06, 1.8, 1.35, face, SIGN.chevron)
         }
       }
+    }
+  }
+
+  // ---------------- side streets off the centre-turn-lane avenue (no signals: stop, then turn) ----------------
+  if (stubsOn()) {
+    const acx = CENTRE_COL * B
+    const hw = HALF_MID + LANE_W / 2 // the avenue's half-width there
+    for (let j = 0; j < G; j++) for (const sg of [-1, 1]) {
+      const zc = j * B + STUB.u
+      const X = (q: number) => acx + sg * q
+      // the street, then its car park
+      asphalt.rect(Math.min(X(hw - 0.2), X(STUB.end)), zc - STUB.half, Math.max(X(hw - 0.2), X(STUB.end)), zc + STUB.half, 0, [1, 1, 1])
+      asphalt.rect(Math.min(X(STUB.lot0), X(STUB.lot1)), zc - STUB.lotHalf, Math.max(X(STUB.lot0), X(STUB.lot1)), zc + STUB.lotHalf, 0, [1, 1, 1])
+      const q = (q0: number, z0: number, q1: number, z1: number, col: V3) => marks.upQuad([[X(q0), z0], [X(q1), z0], [X(q1), z1], [X(q0), z1]], 0.02, col)
+      // edge lines, a broken yellow centre line and a stop line where the street meets the avenue (on the side of traffic coming out)
+      for (const e of [-1, 1]) q(hw + 0.6, zc + e * (STUB.half - 0.35), STUB.lot0, zc + e * (STUB.half - 0.15), WHITE)
+      for (let u = hw + 6; u + 2 < STUB.lot0; u += 5) q(u, zc - 0.07, u + 2, zc + 0.07, YELLOW)
+      const outSide = sg === 1 ? -1 : 1 // cars drive on the right: leaving the east street they are on its north half, the west street its south half
+      q(hw + 1.2, zc + (outSide === 1 ? 0.3 : -STUB.half + 0.4), hw + 1.8, zc + (outSide === 1 ? STUB.half - 0.4 : -0.3), WHITE)
+      // parking bays down both sides of the car park
+      for (const e of [-1, 1]) for (let u = STUB.lot0 + 2; u < STUB.lot1 - 1; u += 2.8) q(u, zc + e * (STUB.lotHalf - 5.5), u + 0.12, zc + e * (STUB.lotHalf - 0.6), WHITE)
+      // a give-way sign facing the driver coming out
+      const sx = X(hw + 2.6), sz = zc + outSide * (STUB.half + 1.2)
+      post(sx, sz, 2.4)
+      signQuad(sx + sg * 0.08, 2.2, sz, 0.95, 0.95, [sg, 0], SIGN.yield)
     }
   }
 
