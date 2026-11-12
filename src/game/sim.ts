@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { streetLimit, resStyle, PARKED, jLanes, roadBend, roadPoint, laneC, resCol, rampAt, nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { noTurnOnRed, arrowPhase, streetLimit, resStyle, PARKED, jLanes, roadBend, roadPoint, laneC, resCol, rampAt, nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -81,6 +81,8 @@ interface JunctionVisit {
   laneUse: string
   /** when the right indicator was last seen on while you were in the junction / on the roundabout */
   rightAt: number
+  /** mistakes counted when you entered (to tell whether you got through cleanly) */
+  err0: number
 }
 interface StopTrack {
   n: number
@@ -276,7 +278,8 @@ const playerObs = () => (WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: 
 /* ---------- lifecycle ---------- */
 let brakeHold = 0 // how long the brake has been held (s)
 let overFor = 0, overWarnT = -99 // over the limit (within the margin): for how long, and when you were last reminded
-let sigArmed = false // the wheel has been turned the way the indicator shows (it cancels when the wheel comes back)
+let redCross: { n: number; stopped: boolean; ntor: boolean; busy: boolean } | null = null // crossed a stop line on red (judged on the way out)
+let lastJunctionExit = -99 // when you last left a junction
 let streetLim = speedLimit() // the limit of the street you are on (or last were on): it holds through a junction
 
 export function resetSim(hwType: HwType = 'merge', keepScore = false) {
@@ -284,7 +287,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
   WORLD.highway = useGame.getState().mode === 'highway' || (useGame.getState().mode === 'mixed' && useGame.getState().leg === 'highway')
   autoCentre.on = false
-  overFor = 0; overWarnT = -99
+  overFor = 0; overWarnT = -99; redCross = null
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
   setLayout(layoutOf(useGame.getState().mode))
@@ -417,7 +420,6 @@ export function toggleSignal(dir: -1 | 1) {
   if (useGame.getState().status !== 'playing') return
   sim.signal = sim.signal === dir ? 0 : dir // pressing the same side again switches it off
   sim.signalSince = sim.t
-  sigArmed = false
 }
 
 /* ---------- messages ---------- */
@@ -439,11 +441,10 @@ export function stepSim(dt: number) {
 
   const onRoad = WORLD.highway ? hwOnRoad(sim.x, sim.z) : onAsphalt(sim.x, sim.z)
 
-  // ---- the indicator cancels itself like a real one: once the wheel has been turned the way it shows and comes back to straight ----
-  if (sim.signal !== 0) {
-    if (Math.sign(sim.steerIn) === sim.signal && Math.abs(sim.steerIn) > 0.3) sigArmed = true
-    else if (sigArmed && Math.abs(sim.steerIn) < 0.08) { sim.signal = 0; sigArmed = false }
-  } else sigArmed = false
+  // ---- the indicator switches itself off when the wheel turns the other way from straight: the right one when you steer left of
+  // centre, the left one when you steer right of centre (as you straighten up after a turn or a lane change). Not on a roundabout,
+  // where you steer left all the way round while showing right for your exit. Pressing the same indicator again also switches it off.
+  if (sim.signal !== 0 && sim.jn?.kind !== 'round' && sim.steerIn * sim.signal < -0.1) sim.signal = 0
   // ---- pedals and longitudinal dynamics ----
   if (input.down) sim.cruise = 0 // the brake switches cruise control off
   if (input.gasTap) { input.gasTap = false; if (sim.cruise) sim.cruise = 0; else if (sim.speed > 5) { sim.cruise = sim.speed; say(`Cruise control on`, 'info') } }
@@ -785,14 +786,16 @@ function laneInfo() {
   const med = medW(tBehind, tAhead, clearance(...nodeAt(behind), ax), clearance(...nodeAt(ahead), ax), Math.abs(pos - at(behind)), Math.abs(at(ahead) - at(behind)))
   const dAhead = Math.abs(pos - at(ahead)) - clearance(...nodeAt(ahead), ax)
   const rPocket = tAhead?.rOnly ? LANE_W * flare(dAhead) : 0
+  const dBehindJ = Math.max(0, Math.abs(pos - at(behind)) - clearance(...nodeAt(behind), ax)) // back to the junction you came from
+  const fullBack = () => dBehindJ
   if (tBehind?.centre && tAhead?.centre) {
     // centre-turn-lane avenue: the middle lane (half of it lies on each side of the centre line) may be used to turn left
     const h = LANE_W / 2
     const nC = 1 + (oneLane(alongZ ? 1 : 0, ci) ? 1 : 2) // the centre lane and the through lane(s)
-    if (r < -h) return { d, r, k: -1, e: r + h, left: false, nTurnL: 1, rTurn: -1, n: nC }
-    if (r < h) return { d, r, k: 0, e: r, left: true, nTurnL: 1, rTurn: -1, n: nC }
+    if (r < -h) return { d, r, k: -1, e: r + h, left: false, nTurnL: 1, rTurn: -1, n: nC, backLen: fullBack }
+    if (r < h) return { d, r, k: 0, e: r, left: true, nTurnL: 1, rTurn: -1, n: nC, backLen: fullBack }
     const j = Math.floor((r - h) / LANE_W)
-    return { d, r, k: j + 1, e: r - h - laneC(j, oneLane(alongZ ? 1 : 0, ci)), left: false, nTurnL: 1, rTurn: -1, n: nC }
+    return { d, r, k: j + 1, e: r - h - laneC(j, oneLane(alongZ ? 1 : 0, ci)), left: false, nTurnL: 1, rTurn: -1, n: nC, backLen: fullBack }
   }
   if (med > 0.01 || rPocket > 0.01) {
     const pocket = pocketW(tAhead, dAhead, med) // width of the left-turn lane(s)
@@ -807,10 +810,21 @@ function laneInfo() {
       e = j >= 2 ? r - med - 2 * LANE_W - rPocket / 2 : r - med - LANE_W * (j + 0.5)
     }
     // lane indices run left to right: the nP left-turn lanes first, then the through lanes, then the right-turn lane (if it has opened)
-    return { d, r, k, e, left, nTurnL: nP, rTurn: rPocket > 0.01 ? nP + 2 : -1, n: nP + (oneLane(alongZ ? 1 : 0, ci) ? 1 : 2) + (rPocket > 0.01 ? 1 : 0) }
+    // how wide the turn lanes were 6 m (20 ft) behind you: a lane that was not there yet has only just opened beside you
+    // how far back from you a lane goes: a turn lane only back to where it opened up, any other lane back to the junction behind
+    const rIdx = rPocket > 0.01 ? nP + 2 : -1
+    const backLen = (lane: number) => {
+      const exists = lane < nP ? (s2: number) => pocketW(tAhead, dAhead + s2, med) > (nP - 1 - lane + 0.3) * LANE_W
+        : lane === rIdx ? (s2: number) => flare(dAhead + s2) > 0.3 : null
+      if (!exists) return dBehindJ
+      let s2 = 0
+      while (s2 < dBehindJ && exists(s2)) s2 += 1
+      return s2
+    }
+    return { d, r, k, e, left, nTurnL: nP, rTurn: rIdx, n: nP + (oneLane(alongZ ? 1 : 0, ci) ? 1 : 2) + (rPocket > 0.01 ? 1 : 0), backLen }
   }
   const k = r < 0 ? -1 : r < LANE_W || oneLane(alongZ ? 1 : 0, ci) ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
-  return { d, r, k, e: k < 0 ? r : r - laneC(k, oneLane(alongZ ? 1 : 0, ci)), left: false, nTurnL: 0, rTurn: -1, n: oneLane(alongZ ? 1 : 0, ci) ? 1 : 2 }
+  return { d, r, k, e: k < 0 ? r : r - laneC(k, oneLane(alongZ ? 1 : 0, ci)), left: false, nTurnL: 0, rTurn: -1, n: oneLane(alongZ ? 1 : 0, ci) ? 1 : 2, backLen: fullBack }
 }
 
 function trackLane() {
@@ -824,7 +838,7 @@ function trackLane() {
   // to turn left, needs no blind-spot check (and is not crossing the centre line)
   const nnL = nearestNode(sim.x, sim.z)
   const toJunction = Math.max(Math.abs(nnL.rx), Math.abs(nnL.rz)) - clearance(nnL.i, nnL.j, L.d % 2)
-  if (!sim.man && toJunction < 14) return
+  if (!sim.man && (toJunction < 12 || sim.t - lastJunctionExit < 2)) return // (turning, or just turned: settling into the new road's lane)
   if (!sim.man) {
     if (k >= 0 && k <= 2) {
       const e = err
@@ -839,10 +853,12 @@ function trackLane() {
             say('Do not cross the double yellow line!', 'warn')
           }
         } else if (target <= 2 && target < L.n) { // (moving right out of the right-hand lane is not a lane change: there is no lane there)
-          // moving from the outermost lane into a turn lane that has opened on that side (left lane -> left-turn lane, right lane ->
-          // right-turn lane) is part of the turn: there is no traffic lane beside you there, so no blind-spot check is needed
-          const intoTurnLane = (dir < 0 && target < L.nTurnL) || (dir > 0 && target === L.rTurn)
-          startManeuver(dir, k, target, intoTurnLane)
+          // A blind-spot check is needed only if the lane you move into already existed about 20 ft (6 m) behind your car: someone
+          // could be there. A lane that is just opening beside you (a turn lane starting near a junction) has nobody in it yet.
+          // The blind spot must be checked only if the lane you move into runs back more than 100 ft (30.5 m) behind the rear of your
+          // car (to where it opened up, or to the junction behind): only then can someone be coming up in it beside you.
+          const shortLane = L.backLen(target) - 2.3 <= 30.5
+          startManeuver(dir, k, target, shortLane)
         }
       }
     } else if (k === -1 && sim.t - sim.warnT.wrong > 3 && !(resStyle(L.d % 2, L.d % 2 === 0 ? nearZ(sim.z) : nearX(sim.x)) === 'dense' && L.r > -1.6)) { // (on an unmarked street, only once you are clearly over the middle)
@@ -961,7 +977,7 @@ function trackJunction() {
   const nn = nearestNode(sim.x, sim.z)
   const inside = nn.kind === 'signal' ? Math.abs(nn.rx) < clearance(nn.i, nn.j, 0) + 1 && Math.abs(nn.rz) < clearance(nn.i, nn.j, 1) + 1 : Math.hypot(nn.rx, nn.rz) < nn.spec!.outer
   if (inside && !sim.jn) {
-    sim.jn = { n: nn.n, i: nn.i, j: nn.j, kind: nn.kind, h0: sim.h, sig: sim.signal, yieldFail: false, laneUse: approachLane.n === nn.n ? approachLane.use : '', rightAt: sim.signal === 1 ? sim.t : -99 }
+    sim.jn = { n: nn.n, i: nn.i, j: nn.j, kind: nn.kind, h0: sim.h, sig: sim.signal, yieldFail: false, laneUse: approachLane.n === nn.n ? approachLane.use : '', rightAt: sim.signal === 1 ? sim.t : -99, err0: sim.errors }
     if (nn.kind === 'round') {
       const arm = mod(Math.round(Math.atan2(-nn.rz, nn.rx) / (Math.PI / 2)), 4)
       if (ringBusy(nn.n, arm, playerObs()) && sim.speed > 2) {
@@ -974,6 +990,7 @@ function trackJunction() {
   } else if (!inside && sim.jn) {
     const jn = sim.jn
     sim.jn = null
+    lastJunctionExit = sim.t
     // which way did we leave? (from where we are relative to the junction: more reliable than the heading mid-turn)
     const dOut = Math.abs(nn.rx) > Math.abs(nn.rz) ? (nn.rx > 0 ? 0 : 2) : nn.rz > 0 ? 3 : 1
     const asked = nav.text
@@ -986,22 +1003,39 @@ function trackJunction() {
       }
       if (res === 'wrong') return crash('You took the wrong exit.', [`The instruction was: "${asked}". Count the exits from where you entered: 1st is on your right, 2nd straight on, 3rd on your left, 4th takes you back the way you came.`])
       if (res === 'ok') good('Correct exit')
-    } else if (res === 'wrong') say('Wrong turn: recalculating the route', 'warn')
+    } else if (res === 'wrong') say('Off the route: recalculating', 'info') // (not a traffic rule: no points lost)
     const dh = normAngle(sim.h - jn.h0) // positive = turned left
+    if (jn.kind === 'signal' && redCross && redCross.n === jn.n) {
+      // you went over the line on red: a right turn may be allowed (stop first, give way, and no "NO TURN ON RED" sign)
+      const rc = redCross
+      redCross = null
+      if (dh < -0.6) {
+        if (rc.ntor) say('NO TURN ON RED here: wait for the green light', 'warn')
+        else if (!rc.stopped) say('Stop completely at the line before turning right on red', 'warn')
+        else if (rc.busy) say('Turning right on red: give way to the traffic coming from your left', 'warn')
+        else good('Right turn on red, after stopping and giving way')
+      } else say('You ran a red light!', 'warn')
+    }
     if (jn.kind === 'signal') {
-      if (Math.abs(dh) < 0.6) return
-      const want: Signal = dh > 0 ? -1 : 1
-      sim.changes++
-      if (jn.sig === want) { sim.clean++; good(`Signalled ${dh > 0 ? 'left' : 'right'} for the turn`) }
-      else say(`Signal ${dh > 0 ? 'left' : 'right'} before you turn`, 'warn')
-      // the lane you turned from must allow the turn (the arrows on the road): no left turn from a straight-on lane
-      if (jn.laneUse && dh > 0 && !jn.laneUse.includes('L')) say('Wrong lane: you turned left from a lane that does not allow left turns. Use the left-turn lane.', 'warn')
-      else if (jn.laneUse && dh < 0 && !jn.laneUse.includes('R')) say('Wrong lane: you turned right from a lane that does not allow right turns.', 'warn')
+      if (Math.abs(dh) >= 0.6) {
+        const want: Signal = dh > 0 ? -1 : 1
+        const side = dh > 0 ? 'left' : 'right'
+        sim.changes++
+        const signalled = jn.sig === want
+        if (signalled) { sim.clean++; good(`Signalled ${side} for the turn`) }
+        else say(`Signal ${side} before you turn`, 'warn')
+        // the lane you turned from must allow the turn (the arrows on the road): no left turn from a straight-on lane
+        const wrongLane = !!jn.laneUse && (dh > 0 ? !jn.laneUse.includes('L') : !jn.laneUse.includes('R'))
+        if (wrongLane) say(dh > 0 ? 'Wrong lane: you turned left from a lane that does not allow left turns. Use the left-turn lane.' : 'Wrong lane: you turned right from a lane that does not allow right turns.', 'warn')
+        else if (jn.laneUse) good(`Turned ${side} from the correct lane`)
+      }
     } else if (!jn.yieldFail) {
       sim.changes++
       if (jn.sig === 1 || sim.signal === 1 || sim.t - jn.rightAt < 6) { sim.clean++; good('Signalled right to leave the roundabout') }
       else say('Signal right when you leave a roundabout', 'warn')
     }
+    // every junction or roundabout you get through without a mistake
+    if (sim.errors === jn.err0) good(jn.kind === 'round' ? 'Roundabout done safely' : Math.abs(dh) < 0.6 ? 'Junction crossed safely' : 'Turn completed safely')
     // (the indicator is not switched off here: it cancels itself when the wheel comes back to straight, or press it again)
   }
 }
@@ -1049,7 +1083,7 @@ function trackStop() {
     if (!st.passed && st.prevU >= LINE && u < LINE) {
       st.passed = true
       // turning left on a plain green (no arrow): you must give way to oncoming traffic
-      if (col === 0 && laneInfo()?.left && !hasLeftArrow(nn.n, d % 2) && sim.signal === -1 && sim.speed > 0.5) {
+      if (col === 0 && laneInfo()?.left && arrowPhase(nn.n, d % 2, sim.t) !== 0 && sim.signal === -1 && sim.speed > 0.5) {
         const fxp = -Math.sin(sim.h), fzp = -Math.cos(sim.h)
         const cxn = nn.cx, czn = nn.cz
         for (const c of cars) {
@@ -1060,7 +1094,16 @@ function trackStop() {
         }
       }
       if (col === 2 && sim.speed > 0.5) {
-        say('You ran a red light!', 'warn')
+        // you may be turning right on red: judged when you come out of the junction (which way you went)
+        const crossArm = (d + 3) % 4, [ox, oz] = dirv(crossArm)
+        let busy = false
+        for (const c of cars) {
+          if (!c.active) continue
+          const cx = wrapD(c.x - nn.cx), cz = wrapD(c.z - nn.cz), u2 = cx * ox + cz * oz
+          const toward = -(-Math.sin(c.h) * ox + -Math.cos(c.h) * oz)
+          if (u2 > 0 && u2 < 70 && Math.abs(-cx * oz + cz * ox) < 14 && toward > 0.7 && c.speed > 2 && u2 / c.speed < 5) busy = true
+        }
+        redCross = { n: nn.n, stopped: st.credited, ntor: noTurnOnRed(nn.n, d % 2), busy }
       }
     }
     if (!st.passed && !st.credited && sim.speed < 0.3 && u > LINE && u < LINE + 22 && col !== 0) {

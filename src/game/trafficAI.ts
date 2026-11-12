@@ -1,4 +1,4 @@
-import { LAYOUT, WEDGE_LEN, clearance, nodeX, nodeZ, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, speedLimit, armCtrl, hasLeftArrow, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
+import { LAYOUT, WEDGE_LEN, clearance, nodeX, nodeZ, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, speedLimit, armCtrl, arrowPhase, noTurnOnRed, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
 
 export const MAX_CARS = 900
 export const CAR_L = 4.4
@@ -157,8 +157,10 @@ function reqLane(c: AiCar, p: Piece) {
 /** Right lane: at (or just under) the speed limit. Left lanes may go faster. */
 function laneV0(c: AiCar, lane: number, one = false, lim?: number) {
   if (one) return Math.min(c.pref, (lim ?? speedLimit(true)) * 1.02) // a residential street: about its limit (10 to 25 mph)
-  if (lane >= 1) return Math.min(c.pref, speedLimit(false) * 0.99) // right / outer lane: at the speed limit
-  return Math.min(c.pref, 16.5) // inner lane: may go a little faster
+  // a town road (40 to 50 mph): each driver's own pace, scaled to the road's limit (c.pref is set for a 30 mph road)
+  const L = lim ?? speedLimit(false), v = c.pref * (L / (30 * 0.44704))
+  if (lane >= 1) return Math.min(v, L * 0.99) // right / outer lane: at (or just under) the limit
+  return Math.min(v, L * 1.08) // inner lane: may go a little faster
 }
 
 /** Cars live in a window around the player: they spawn between WIN_MIN and WIN_MAX away and are recycled once they fall behind. */
@@ -452,7 +454,7 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
   const tClear = (-c.speed + Math.sqrt(c.speed * c.speed + 2 * 2 * dCross)) / 2 + 1.2 // accelerating at about 2 m/s2
   const lights = armCtrl(p.node, p.axis ?? 0) === 'light'
   // a green ARROW is a protected turn: oncoming traffic has a red light
-  if (lights && hasLeftArrow(p.node, p.axis ?? 0) && signalColor(p.node, p.axis as 0 | 1, t, 'L') === 0) return false
+  if (lights && arrowPhase(p.node, p.axis ?? 0, t) === 0) return false
   const oppCtl = armCtrl(p.node, p.axis ?? 0) // the oncoming approach is on the same road, so it faces the same control
   // the light has gone amber while this driver waits to turn: oncoming traffic is stopping, so the turn is completed now (only a car
   // that is too close to stop still counts). This is how a permissive left turn clears at the end of the green.
@@ -547,6 +549,27 @@ export function junctionBusy(node: number, arm: number, self: AiCar | null, stop
   return false
 }
 let sinceNow = 0
+
+/** Turning right on red: is anything coming that we would pull out in front of (traffic from the left on the road we turn onto, or
+ *  anyone already crossing the junction)? */
+function rightOnRedBusy(c: AiCar, p: Piece, player: Obstacle): boolean {
+  const crossArm = (p.arm + 3) % 4 // the approach on our left
+  for (const o of cars) {
+    if (!o.active || o === c) continue
+    const op = PIECES[o.piece]
+    if (op.node !== p.node) continue
+    if (op.kind === 'conn' && o.speed > 1) return true
+    if (op.kind === 'edge' && op.arm === crossArm) { const te = op.len - o.s; if (te < 70 && o.speed > 2 && te / o.speed < 5.5) return true }
+  }
+  const [ji, jj] = nodeIJ(p.node)
+  const dx = wrapD(player.x - nodeX(ji)), dz = wrapD(player.z - nodeZ(jj))
+  const [ox, oz] = [[1, 0], [0, -1], [-1, 0], [0, 1]][crossArm]
+  const u = dx * ox + dz * oz, side = Math.abs(-dx * oz + dz * ox)
+  const toward = -(-Math.sin(player.h) * ox + -Math.cos(player.h) * oz) // > 0: heading into the junction along that arm
+  if (Math.abs(dx) < 25 && Math.abs(dz) < 25 && player.speed > 1) return true // you are in the junction
+  if (u > 0 && u < 80 && side < 14 && toward > 0.7 && player.speed > 2 && u / player.speed < 6) return true
+  return false
+}
 
 export function stepTraffic(dt: number, t: number, player: Obstacle) {
   sinceNow = t
@@ -683,7 +706,14 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
         const col = signalColor(p.node, p.axis as 0 | 1, t, maneuver(c, p) === 'L' ? 'L' : 'T')
         // a driver who has been waiting at the line to turn left on a plain green completes the turn as the light changes
         const finishLeft = col === 2 && c.waitL > 1.5 && dist < 3 && (signalColor(p.node, p.axis as 0 | 1, t - 3, 'T') === 1 || signalColor(p.node, p.axis as 0 | 1, t - 5, 'T') === 1)
-        if (!finishLeft && dist > -0.5 && (col === 2 || (col === 1 && dist > (c.speed * c.speed) / 7 + 1))) {
+        // right on red (unless a "NO TURN ON RED" sign says otherwise): a full stop at the line, then go when the road is clear from the left
+        const rightOnRed = col === 2 && maneuver(c, p) === 'R' && !noTurnOnRed(p.node, p.axis ?? 0) && dist > -0.5
+        if (rightOnRed && c.goPiece !== c.piece) {
+          let hold = true
+          if (c.stopPiece !== c.piece) { if (c.speed < 0.25 && dist < 3) { c.stopPiece = c.piece; c.stopAt = t } }
+          else if (t - c.stopAt > 1.2 && !rightOnRedBusy(c, p, player)) { c.goPiece = c.piece; hold = false }
+          if (hold && dist < gap) { gap = Math.max(dist, 0.05); lv = 0 }
+        } else if (!rightOnRed && !finishLeft && dist > -0.5 && (col === 2 || (col === 1 && dist > (c.speed * c.speed) / 7 + 1))) {
           if (dist < gap) {
             gap = Math.max(dist, 0.05)
             lv = 0
@@ -724,7 +754,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
     // 3. turns: slow down, give way when turning left across oncoming traffic
     if (p.kind === 'edge' && p.toKind === 'signal') {
       const m = maneuver(c, p)
-      if (m !== 'S' && toEnd < 32) vcap = Math.min(vcap, 8)
+      if (m !== 'S' && toEnd < 90) vcap = Math.min(vcap, 8 + Math.max(0, toEnd - 25) * 0.3) // ease down in good time before turning (roads are 40-50 mph)
       if (toEnd < 28 && toEnd - 3.9 > -0.5 && exitBlocked(c, p)) {
         const dist = toEnd - 3.9
         if (dist < gap) {

@@ -21,6 +21,7 @@ interface Hw {
   vgoal: number // the speed they are drifting towards now
   vt: number // seconds until they pick a new one
   cool: number // seconds before this driver will consider another lane change
+  pace: number // this driver's own pace, 0 (easy-going) .. 1 (in a hurry): where in each lane's speed band they drive
 }
 const hw: Hw[] = []
 let ncars = 0
@@ -41,7 +42,8 @@ const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
 // Lane by lane, from the right-most (slow) lane to the left: the limit is 70 mph, the right lane runs 70-75, the next 75-80, then 80-85 ...
 const MPH = 0.44704
 /** the speed band (m/s) of a lane; `fromRight` = 0 for the right-most lane of its carriageway */
-const bandOf = (fromRight: number): [number, number] => [(70 + 5 * fromRight) * MPH, (75 + 5 * fromRight) * MPH]
+/** the speed band of a lane, counted from the right: the right lane 70-76 mph, each lane to the left faster (the left lane about 86-96) */
+const bandOf = (fromRight: number): [number, number] => [(70 + 4 * fromRight) * MPH, (76 + 5 * fromRight) * MPH]
 const LANE_COUNT = [9, 10, 11, 12, 22] // how the vehicles are shared between the lanes (the right-hand lanes are busier)
 const LANE_SUM = LANE_COUNT.reduce((a, b) => a + b, 0)
 /** vehicles in the window around you (about 1.3 km of highway) by level: heavy traffic is about 50 within sight */
@@ -55,11 +57,18 @@ function describe(c: AiCar, i: number) {
   c.len = l
   c.wid = w
   c.color = pick(COLORS)
+  h.pace = truck ? Math.random() * 0.4 : Math.random() // trucks are among the slowest
+  setBand(i, truck)
+  h.v0 = h.vgoal
+}
+/** a driver's speed range for the lane they are in now (their pace sets where in the lane's band they cruise) */
+function setBand(i: number, truck = (cars[i].len ?? 4.6) > 8) {
+  const h = hw[i]
   const [a, b] = bandOf(h.dir === 1 ? NBX.length - 1 - h.lane : SB_X.length - 1 - h.lane)
-  h.v0 = truck ? rnd(a, a + 0.5 * (b - a)) : rnd(a, b) // trucks hold the slower half of their lane's band
-  h.vlo = Math.max(70 * MPH, a) // nobody drifts below the 70 mph limit
-  h.vhi = truck ? a + 0.5 * (b - a) : b
-  h.vgoal = h.v0
+  const mid = a + h.pace * (b - a)
+  h.vlo = Math.max(70 * MPH, mid - 2 * MPH) // nobody drifts below the 70 mph limit
+  h.vhi = truck ? Math.min(mid + 2 * MPH, a + 0.5 * (b - a)) : mid + 2 * MPH
+  h.vgoal = mid
 }
 
 function spacingOk(dir: 1 | -1, lane: number, z: number, len: number, skip = -1) {
@@ -89,7 +98,7 @@ function place(i: number, dir: 1 | -1, lane: number, z: number, speed: number) {
 
 export function initHighwayTraffic(playerZ: number) {
   for (const c of cars) c.active = false
-  while (hw.length < cars.length) hw.push({ dir: 1, lane: 0, v0: 25, lat: 0, target: -1, vlo: 31.4, vhi: 33, vgoal: 32, vt: 0, cool: 0 })
+  while (hw.length < cars.length) hw.push({ dir: 1, lane: 0, v0: 25, lat: 0, target: -1, vlo: 31.4, vhi: 33, vgoal: 32, vt: 0, cool: 0, pace: 0.5 })
   ncars = 0
   const lanes: Array<[1 | -1, number]> = NBX.map((_, k) => [1, k] as [1 | -1, number]) // one direction only: no oncoming traffic
   for (const [dir, lane] of lanes) {
@@ -103,7 +112,7 @@ export function initHighwayTraffic(playerZ: number) {
         const z = playerZ + rnd(-WINDOW, WINDOW * 0.55)
         // nothing near the start of the ramp or the player's own space
         if (dir === 1 && Math.abs(z - playerZ) < 70) continue
-        hw[i] = { dir, lane, v0: 25, lat: 0, target: -1, vlo: 31.4, vhi: 33, vgoal: 32, vt: rnd(0, 8), cool: rnd(0, 6) }
+        hw[i] = { dir, lane, v0: 25, lat: 0, target: -1, vlo: 31.4, vhi: 33, vgoal: 32, vt: rnd(0, 8), cool: rnd(0, 6), pace: 0.5 }
         const len = 6
         if (!spacingOk(dir, lane, z, len)) continue
         ncars++
@@ -164,7 +173,7 @@ export function stepHighwayTraffic(dt: number, _t: number, player: { x: number; 
       const tx = laneX(h.dir, h.target)
       const step = Math.sign(tx - h.lat) * Math.min(Math.abs(tx - h.lat), 1.6 * dt)
       h.lat += step
-      if (Math.abs(tx - h.lat) < 0.02) { h.lat = tx; h.lane = h.target; h.target = -1 }
+      if (Math.abs(tx - h.lat) < 0.02) { h.lat = tx; h.lane = h.target; h.target = -1; setBand(i) } // a new lane: the speed of that lane (faster to the left)
       // do not drive into somebody while changing lane: slow down if the target lane is taken
     }
     sig(i)

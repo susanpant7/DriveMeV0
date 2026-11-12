@@ -116,10 +116,12 @@ export const CORNER_R = BOX - CORNER_H
 export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
 /** the speed limit: 25 mph on residential streets, 30 mph on town roads */
 export const speedLimit = (one = LAYOUT.kind === 'res') => (one ? 25 : 30) * 0.44704
-/** the speed limit of a street, in mph: 30 on town roads, 25 on residential streets, and 10 or 15 on the narrow, crowded ones */
+/** the town's main roads: each avenue has its own limit */
+const CITY_MPH = [40, 45, 50]
+/** the speed limit of a street, in mph: 40 to 50 on town roads, 25 on residential streets, and 10 or 15 on the narrow, crowded ones */
 export function streetMph(axis: number, idx: number) {
   const st = resStyle(axis, idx)
-  if (!st) return 30
+  if (!st) return CITY_MPH[Math.floor(hash(mod(idx, G) + 31, axis + 7, 5) * CITY_MPH.length)] // the town's main roads: 40, 45 or 50
   if (st !== 'dense') return 25
   return hash(mod(idx, G) + 17, axis + 5, 3) < 0.5 ? 10 : 15
 }
@@ -450,7 +452,7 @@ function buildPieces() {
           const rbB = rbSpec(ni, nj)
           // the turn lanes only exist at a signalised junction of the right type
           const aiOk = k === L_LEFT ? !!tB && tB.nL >= 1 : k === L_LEFT2 ? !!tB && tB.nL === 2 : k === L_RIGHT ? !!tB && tB.rOnly : rbB ? (one ? k === 0 : rbB.aiLanes.includes(k)) : !(one && k === 1)
-          const id = addPiece('edge', pts, 22, {
+          const id = addPiece('edge', pts, 25, {
             node: nodeIndex(ni, nj), arm: arrive, lane: k, toKind, axis: arrive % 2 === 0 ? 0 : 1, aiOk, one, lim: streetLimit(d % 2, d % 2 === 0 ? j : i),
           })
           if (k >= 2) PIECES[id].laneFrom = PIECES[id].len - FLARE
@@ -655,26 +657,52 @@ const T1 = [0, 0]
  */
 const ARROW_AT: Array<[number, number]> = [[1, 1], [3, 3], [1, 2], [0, 3], [3, 0], [2, 1]]
 export const LEFT_ARROW = new Set(ARROW_AT.map(([i, j]) => mod(i, G) * G + mod(j, G)))
-export const hasLeftArrow = (node: number, axis: number) => {
+/**
+ * How left turns are signalled on an approach:
+ *  none      - no arrow: turn left on the round green, giving way to oncoming traffic
+ *  protected - an arrow signal of its own (red / yellow / green arrows): turn only on the green arrow
+ *  both      - a five-light signal (round lights plus yellow and green arrows): turn on the green arrow, or on the round green
+ *              after giving way to oncoming traffic
+ * A shared left lane never has an arrow; two left-turn lanes always have a protected one.
+ */
+export type LeftSignal = 'none' | 'protected' | 'both'
+export function leftSignal(node: number, axis: number): LeftSignal {
   const t = jTypeOf(Math.floor(node / G), node % G, axis)
-  return !!t && (t.nL === 2 || (t.nL === 1 && LEFT_ARROW.has(node))) // a shared left lane has no arrow; two left-turn lanes always have one
+  if (!t || t.nL === 0) return 'none'
+  if (t.nL === 2) return 'protected'
+  if (!LEFT_ARROW.has(node)) return 'none'
+  return (node + axis) % 2 === 0 ? 'both' : 'protected'
 }
+export const hasLeftArrow = (node: number, axis: number) => leftSignal(node, axis) !== 'none'
+/** A "NO TURN ON RED" sign on this approach? Elsewhere (as in most of the US) you may turn right on a red light after stopping, when it is clear. */
+export const noTurnOnRed = (node: number, axis: number) => (node * 7 + axis * 3) % 5 < 2
+/** How the signal heads hang over an approach: one over every lane, or a shared arrangement (an arrow signal over the left-turn
+ *  lanes, and one or two round signals over all the other lanes together). */
+export const headLayout = (node: number, axis: number): 'perLane' | 'shared' => ((node * 3 + axis) % 3 === 0 ? 'perLane' : 'shared')
 export const CYCLE = 54
 const nodeOffsets: number[] = Array.from({ length: 64 }, (_, n) => ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE)
 const nodeOffset = (n: number) => nodeOffsets[n] ?? ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE
 /** 0 = green, 1 = amber, 2 = red. axis 1 = north-south approaches, 0 = east-west. move 'T' = through / right, 'L' = left turn. */
 export function signalColor(node: number, axis: 0 | 1, t: number, move: 'T' | 'L' = 'T'): 0 | 1 | 2 {
+  // Junctions WITHOUT a left-turn arrow: one long green for the whole approach, left turns allowed on the round green
+  // light but they must yield to oncoming traffic. Junctions WITH an arrow: through first, then the left arrow.
+  const ls = leftSignal(node, axis)
+  const through = phase(node, axis, t, 0, ls === 'none' ? 21 : 11.5) // a plain green ends early: waiting left-turners clear the junction before the cross street goes
+  if (move === 'T' || ls === 'none') return through
+  const arrow = arrowPhase(node, axis, t)
+  // an arrow signal of its own rules the left-turn lane; a five-light signal lets you go on either green
+  return ls === 'protected' ? arrow : (Math.min(through, arrow) as 0 | 1 | 2)
+}
+function phase(node: number, axis: number, t: number, g0: number, g1: number): 0 | 1 | 2 {
   const ph = mod(t + nodeOffset(node), CYCLE)
   const a = axis === 1 ? ph : mod(ph - 27, CYCLE) // east-west runs 27 s after north-south
-  // Junctions WITHOUT a left-turn arrow: one long green for the whole approach, left turns allowed on the round green
-  // light but they must yield to oncoming traffic. Junctions WITH an arrow: through first, then a protected left arrow.
-  if (!hasLeftArrow(node, axis)) move = 'T'
-  const permissive = !hasLeftArrow(node, axis)
-  const g0 = move === 'T' ? 0 : 15.5
-  const g1 = permissive ? 21 : move === 'T' ? 11.5 : 23 // a plain green ends early: waiting left-turners clear the junction before the cross street goes
   if (a >= g0 && a < g1) return 0
   if (a >= g1 && a < g1 + 3) return 1
   return 2
+}
+/** the left-turn ARROW itself: 0 green, 1 yellow, 2 red (or dark). Always 2 where there is no arrow. */
+export function arrowPhase(node: number, axis: number, t: number): 0 | 1 | 2 {
+  return hasLeftArrow(node, axis) ? phase(node, axis, t, 15.5, 23) : 2
 }
 
 /* ------------------------------------------------------------------ */

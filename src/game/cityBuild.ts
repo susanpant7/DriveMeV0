@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { streetMph, bendAt, roadPoint, laneC, LAYOUT, RAMP_AT, RAMP_HALF, RAMP_I, RAMP_J, rampLine, nodeX, nodeZ, roadLen, stubZ, armCtrl, armOne, armBase, resStyle, PARKED, PARKED_KINDS, PARKED_COLORS, PARK_W, RES_LANE_W, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
+import { noTurnOnRed, leftSignal, headLayout, streetMph, bendAt, roadPoint, laneC, LAYOUT, RAMP_AT, RAMP_HALF, RAMP_I, RAMP_J, rampLine, nodeX, nodeZ, roadLen, stubZ, armCtrl, armOne, armBase, resStyle, PARKED, PARKED_KINDS, PARKED_COLORS, PARK_W, RES_LANE_W, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -128,9 +128,9 @@ const cell = (i: number): Rect => ({ x: i * 256, y: 0, w: 256, h: 256 })
 const cell2 = (i: number): Rect => ({ x: i * 256, y: 896, w: 256, h: 256 })
 const cell3 = (i: number): Rect => ({ x: i * 256, y: 1280, w: 256, h: 256 })
 const cell4 = (i: number): Rect => ({ x: i * 256, y: 384, w: 256, h: 256 })
-export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7), speed25: cell3(6), speed15: cell4(0), speed10: cell4(1), stop: cell3(0), allWay: cell3(1), stopAhead: cell3(2), yieldAhead: cell3(3), crossTraffic: cell3(4), stopText: cell3(5), hwEntrance: cell3(7) }
+export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7), speed25: cell3(6), speed15: cell4(0), speed10: cell4(1), noRed: cell4(2), speed40: cell4(3), speed45: cell4(4), speed50: cell4(5), stop: cell3(0), allWay: cell3(1), stopAhead: cell3(2), yieldAhead: cell3(3), crossTraffic: cell3(4), stopText: cell3(5), hwEntrance: cell3(7) }
 /** the speed-limit sign for a limit in mph */
-const limitSign = (mph: number) => (mph <= 10 ? SIGN.speed10 : mph <= 15 ? SIGN.speed15 : mph <= 25 ? SIGN.speed25 : SIGN.speed)
+const limitSign = (mph: number) => (mph <= 10 ? SIGN.speed10 : mph <= 15 ? SIGN.speed15 : mph <= 25 ? SIGN.speed25 : mph <= 30 ? SIGN.speed : mph <= 40 ? SIGN.speed40 : mph <= 45 ? SIGN.speed45 : SIGN.speed50)
 export const PLATE = (i: number): Rect => ({ x: i * 256, y: 256, w: 256, h: 128 })
 
 function arrowHead(g: CanvasRenderingContext2D, x: number, y: number, ang: number, s: number) {
@@ -150,6 +150,9 @@ export function drawSpeedSign(g: CanvasRenderingContext2D, units: 'kmh' | 'mph')
   drawLimit(g, units, SIGN.speed25, 25)
   drawLimit(g, units, SIGN.speed15, 15)
   drawLimit(g, units, SIGN.speed10, 10)
+  drawLimit(g, units, SIGN.speed40, 40)
+  drawLimit(g, units, SIGN.speed45, 45)
+  drawLimit(g, units, SIGN.speed50, 50)
 }
 function drawLimit(g: CanvasRenderingContext2D, units: 'kmh' | 'mph', r: Rect, mph: number) {
   const { x, y, w, h } = r
@@ -161,7 +164,7 @@ function drawLimit(g: CanvasRenderingContext2D, units: 'kmh' | 'mph', r: Rect, m
   g.fillText('SPEED', x + 128, y + 52)
   g.fillText('LIMIT', x + 128, y + 90)
   g.font = '700 118px Arial, sans-serif'
-  g.fillText(units === 'mph' ? String(mph) : String({ 10: 15, 15: 25, 25: 40, 30: 50 }[mph] ?? Math.round(mph * 1.609)), x + 128, y + 172)
+  g.fillText(units === 'mph' ? String(mph) : String({ 10: 15, 15: 25, 25: 40, 30: 50, 40: 60, 45: 70, 50: 80 }[mph] ?? Math.round(mph * 1.609)), x + 128, y + 172)
 }
 
 export function makeAtlas(units: 'kmh' | 'mph') {
@@ -361,6 +364,21 @@ export function makeAtlas(units: 'kmh' | 'mph') {
     g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineWidth = 9
     g.beginPath(); g.moveTo(r.x + 108, r.y + 212); g.lineTo(r.x + 140, r.y + 186); g.stroke()
     g.beginPath(); g.moveTo(r.x + 154, r.y + 174); g.lineTo(r.x + 128, r.y + 178); g.lineTo(r.x + 148, r.y + 198); g.closePath(); g.fill()
+  }
+  // "NO TURN ON RED": black on white, a red circle and slash over a right-turn arrow
+  {
+    const r = SIGN.noRed
+    g.fillStyle = '#fff'; roundRect(g, r.x + 28, r.y + 6, 200, 244, 12); g.fill()
+    g.strokeStyle = '#111'; g.lineWidth = 6; roundRect(g, r.x + 36, r.y + 14, 184, 228, 8); g.stroke()
+    g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 34px Arial, sans-serif'
+    g.fillText('NO TURN', r.x + 128, r.y + 172, 170); g.fillText('ON RED', r.x + 128, r.y + 212, 170)
+    const cx = r.x + 128, cy = r.y + 86
+    g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 11; g.lineCap = 'butt'
+    g.beginPath(); g.moveTo(cx - 16, cy + 44); g.lineTo(cx - 16, cy); g.quadraticCurveTo(cx - 16, cy - 16, cx + 6, cy - 16); g.lineTo(cx + 18, cy - 16); g.stroke()
+    g.beginPath(); g.moveTo(cx + 36, cy - 16); g.lineTo(cx + 14, cy - 34); g.lineTo(cx + 14, cy + 2); g.closePath(); g.fill()
+    g.strokeStyle = '#d8251d'; g.lineWidth = 10
+    g.beginPath(); g.arc(cx, cy, 52, 0, Math.PI * 2); g.stroke()
+    g.beginPath(); g.moveTo(cx - 37, cy - 37); g.lineTo(cx + 37, cy + 37); g.stroke()
   }
   // "STOP HERE ON RED"
   {
@@ -1245,16 +1263,47 @@ export function buildCity() {
         tube([m1x, top - 0.3, m1z], [m2x, top - 0.14, m2z], 0.12, 0.085, POLE, 12)
         // gusset where the arm meets the pole
         tube([px, top - 1.0, pz], [m1x * 0.15 + px * 0.85, top - 0.45, m1z * 0.15 + pz * 0.85], 0.05, 0.05, POLE, 6)
-        ;lanesHere.forEach(({ lat: q, use }) => {
-          const [hx, hz] = P(uf, q)
+        // Which heads hang over this approach (as on real roads, junctions differ):
+        //  ball  - three round lights, for going straight on and turning right (and left, where there is no arrow)
+        //  arrow - three ARROW lights (red, yellow, green) for the left-turn lane(s): it rules that lane, whatever the round lights show
+        //  dog   - five lights: the round ones plus a yellow and a green arrow beside them (turn on the arrow, or on the round green after giving way)
+        // either one head over every lane, or an arrow head over the left-turn lanes and one or two round heads over the rest together.
+        const ls = leftSignal(n, a % 2)
+        const heads: Array<{ q: number; kind: 'ball' | 'arrow' | 'dog' }> = []
+        const leftKind = ls === 'both' ? 'dog' : 'arrow'
+        const leftLanes = lanesHere.filter((ln) => ln.use === 'L'), others = lanesHere.filter((ln) => ln.use !== 'L')
+        if (headLayout(n, a % 2) === 'perLane') {
+          for (const ln of lanesHere) heads.push({ q: ln.lat, kind: ln.use === 'L' && ls !== 'none' ? leftKind : 'ball' })
+        } else {
+          if (leftLanes.length && ls !== 'none') heads.push({ q: leftLanes.reduce((s2, ln) => s2 + ln.lat, 0) / leftLanes.length, kind: leftKind })
+          const lats = others.map((ln) => ln.lat)
+          if (lats.length >= 3 || !heads.length) {
+            // two round heads (a road always has at least two signal faces)
+            const lo = lats.length > 1 ? lats[0] : lats[0] - 1.3, hi = lats.length > 1 ? lats[lats.length - 1] : lats[0] + 1.3
+            heads.push({ q: lo, kind: 'ball' }, { q: hi, kind: 'ball' })
+          } else heads.push({ q: lats.reduce((s2, v) => s2 + v, 0) / lats.length, kind: 'ball' })
+        }
+        for (const { q, kind: hk } of heads) {
           const yc = 6.5
+          // the five-light head: the round lights hang half a head to the right, the two arrows beside their lower two lights
+          const qb = hk === 'dog' ? q + 0.21 * HS : q
+          const [hx, hz] = P(uf, qb)
           // hanger from the arm to the head
           const armY = top - 0.28 + ((midQ - q) / (midQ - endQ)) * 0.16
           tube([hx, armY, hz], [hx, yc + 0.66 * HS, hz], 0.04, 0.04, POLE, 6)
-          signalHead(hx, hz, yc, ox, oz, use === 'L' && hasLeftArrow(n, a % 2))
-          // the left lane has its own left-turn ARROW signal; the other lanes show the through signal
-          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: yc + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: use === 'L' && hasLeftArrow(n, a % 2) })
-        })
+          signalHead(hx, hz, yc, ox, oz, hk === 'arrow')
+          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: yc + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: hk === 'arrow' })
+          if (hk === 'dog') {
+            const [ax2, az2] = P(uf, qb - 0.4 * HS)
+            solid.box(ax2 - ox * 0.12, yc + lensY[2] - 0.21 * HS, az2 - oz * 0.12, 0.4 * HS, 0.84 * HS, 0.3, yaw, [0.03, 0.032, 0.03])
+            for (let l = 1; l < 3; l++) lamps.push({ x: ax2 + ox * HEAD_LAMP, y: yc + lensY[l], z: az2 + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: true })
+          }
+        }
+        // "NO TURN ON RED" on the mast arm beside the right-hand signal
+        if (noTurnOnRed(n, a % 2)) {
+          const [nx2, nz2] = P(uf, lanesHere[lanesHere.length - 1].lat + 1.9)
+          signQuad(nx2 + ox * 0.15, 7.25, nz2 + oz * 0.15, 1.05, 1.3, face, SIGN.noRed)
+        }
         // far-left corner pole: a second head, seen from the right-hand lanes too
         const [lx, lz] = P(uf, -qEdge)
         tube([lx, 0.3, lz], [lx, 6.2, lz], 0.2, 0.12, POLE, 12)

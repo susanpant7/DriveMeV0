@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { P, hashN, signalColor } from './map'
+import { P, arrowPhase, hashN, signalColor } from './map'
 import { ATLAS_H, ATLAS_W, HEAD_LAMP_SCALE, buildCity, drawSpeedSign, facadeCanvases, makeAtlas } from './cityBuild'
 import { sim } from './sim'
 import { useGame } from './store'
@@ -78,13 +78,14 @@ export const glowMat = new THREE.ShaderMaterial({
 // left-turn arrow lamp: points to the viewer's left (local -x)
 const arrowGeo = (() => {
   const sh = new THREE.Shape()
-  sh.moveTo(-0.24, 0)
-  sh.lineTo(-0.03, 0.2)
-  sh.lineTo(-0.03, 0.075)
-  sh.lineTo(0.22, 0.075)
-  sh.lineTo(0.22, -0.075)
-  sh.lineTo(-0.03, -0.075)
-  sh.lineTo(-0.03, -0.2)
+  // a slim arrow: a thin shaft and a narrow head (like the arrow on a real signal lens)
+  sh.moveTo(-0.25, 0)
+  sh.lineTo(-0.08, 0.14)
+  sh.lineTo(-0.08, 0.032)
+  sh.lineTo(0.23, 0.032)
+  sh.lineTo(0.23, -0.032)
+  sh.lineTo(-0.08, -0.032)
+  sh.lineTo(-0.08, -0.14)
   sh.closePath()
   return new THREE.ShapeGeometry(sh)
 })()
@@ -106,7 +107,11 @@ export const lampMat = new THREE.ShaderMaterial({
       vBeam = smoothstep( 0.2, 0.5, dot( n, v ) ); // lit from anywhere in front (dark only from the side roads or behind)
       vCol = instanceColor;
       vP = position.xy / 0.165;
-      gl_Position = projectionMatrix * viewMatrix * wp;
+      // drawn half a metre nearer the eye (same place on screen): far away, the lens and the housing right behind it are too close
+      // together for the depth buffer to tell apart, which made the lights flicker
+      vec4 mv = viewMatrix * wp;
+      mv.xyz *= 1.0 - min( 0.5, 0.5 / max( length( mv.xyz ), 1.0 ) );
+      gl_Position = projectionMatrix * mv;
     }`,
   fragmentShader: /* glsl */ `
     uniform float uRound;
@@ -118,12 +123,8 @@ export const lampMat = new THREE.ShaderMaterial({
       vec3 col;
       if ( uRound > 0.5 ) {
         float r = length( vP );
-        // lit: a clean, evenly bright coloured dot (no fine pattern: that shimmered and flickered at a distance)
-        vec3 on = vCol * ( 0.95 + 0.25 * ( 1.0 - r * r ) );
-        // off: dark glass with a soft window reflection
-        float spec = pow( max( 0.0, 1.0 - length( vP - vec2( -0.34, 0.4 ) ) * 1.6 ), 2.5 );
-        vec3 off = vec3( 0.022, 0.026, 0.03 ) + vec3( 0.16, 0.19, 0.24 ) * spec + vec3( 0.03 ) * pow( r, 4.0 );
-        col = mix( off, on, vBeam * lit );
+        // a plain light: one flat colour when lit, plain dark glass when not (no pattern, no shine: nothing to shimmer)
+        col = mix( vec3( 0.03, 0.032, 0.035 ), vCol, vBeam * lit );
         col = mix( col, vec3( 0.012 ), smoothstep( 0.9, 0.97, r ) ); // the bezel ring around the lens
       } else {
         col = mix( vec3( 0.025 ), vCol, vBeam * lit );
@@ -135,7 +136,7 @@ export const lampMat = new THREE.ShaderMaterial({
 export const arrowMat = lampMat.clone()
 arrowMat.uniforms = { uRound: { value: 0 } }
 
-export const ON: Record<number, [number, number, number]> = { 0: [2.4, 0.03, 0.02], 1: [2.4, 1.45, 0.0], 2: [0.0, 1.9, 0.8] } // lamp l -> colour when lit (red, amber, green)
+export const ON: Record<number, [number, number, number]> = { 0: [1.0, 0.06, 0.04], 1: [1.0, 0.68, 0.0], 2: [0.03, 0.85, 0.3] } // plain, saturated colours (not over-bright) // lamp l -> colour when lit (red, amber, green)
 export const OFF: [number, number, number] = [0.03, 0.03, 0.035]
 
 /** The whole city: one period of static geometry drawn 3x3 around the player, plus lights and trees. */
@@ -182,7 +183,6 @@ export function City() {
   const leaves = useRef<Array<THREE.InstancedMesh | null>>([])
   const lampMeshes = useRef<Array<THREE.InstancedMesh | null>>([])
   const arrowMeshes = useRef<Array<THREE.InstancedMesh | null>>([])
-  const glowMeshes = useRef<Array<THREE.InstancedMesh | null>>([])
   const lampColors = useMemo(() => new Float32Array(data.lamps.length * 3), [data])
   const state = useRef({ ci: NaN, cj: NaN, lampT: 0, units: useGame.getState().units })
 
@@ -193,8 +193,8 @@ export function City() {
     const sc = new THREE.Vector3()
     const col = new THREE.Color()
     for (let c = 0; c < COPIES.length; c++) {
-      const tm = trunks.current[c], lm = leaves.current[c], lamp = lampMeshes.current[c], arrow = arrowMeshes.current[c], glow = glowMeshes.current[c]
-      if (!tm || !lm || !lamp || !arrow || !glow) continue
+      const tm = trunks.current[c], lm = leaves.current[c], lamp = lampMeshes.current[c], arrow = arrowMeshes.current[c]
+      if (!tm || !lm || !lamp || !arrow) continue
       data.trees.forEach((t, i) => {
         p.set(t.x, 0, t.z)
         sc.set(t.s * (0.9 + hashN(t.z, t.x, 4) * 0.3), t.s * (0.9 + hashN(t.x, t.z, 7) * 0.35), t.s * (0.9 + hashN(t.z, t.x, 8) * 0.3))
@@ -219,14 +219,7 @@ export function City() {
         m.compose(p, q, sc)
         arrow.setMatrixAt(i, m)
         arrow.setColorAt(i, col.setRGB(...OFF))
-        // the glow sits a little in front of the lens
-        p.set(l.x + Math.sin(l.yaw) * 0.04, l.y, l.z + Math.cos(l.yaw) * 0.04)
-        sc.set(HEAD_LAMP_SCALE, HEAD_LAMP_SCALE, 1)
-        m.compose(p, q, sc)
-        glow.setMatrixAt(i, m)
-        glow.setColorAt(i, col.setRGB(0, 0, 0))
       })
-      glow.instanceMatrix.needsUpdate = true
       lamp.instanceMatrix.needsUpdate = true
       arrow.instanceMatrix.needsUpdate = true
     }
@@ -263,13 +256,13 @@ export function City() {
       const t = useGame.getState().status === 'menu' ? 0 : sim.t
       const arr = lampColors
       data.lamps.forEach((l, i) => {
-        const sg = signalColor(l.node, l.axis, t, l.arrow ? 'L' : 'T')
+        const sg = l.arrow ? arrowPhase(l.node, l.axis, t) : signalColor(l.node, l.axis, t, 'T') // arrows follow the arrow phase, round lights the through phase
         const lit = (l.l === 0 && sg === 2) || (l.l === 1 && sg === 1) || (l.l === 2 && sg === 0)
         const c = lit ? ON[l.l] : OFF
         arr[i * 3] = c[0]; arr[i * 3 + 1] = c[1]; arr[i * 3 + 2] = c[2]
       })
       for (let k = 0; k < COPIES.length; k++) {
-        for (const m of [lampMeshes.current[k], arrowMeshes.current[k], glowMeshes.current[k]]) {
+        for (const m of [lampMeshes.current[k], arrowMeshes.current[k]]) {
           if (!m?.instanceColor) continue
           ;(m.instanceColor.array as Float32Array).set(arr)
           m.instanceColor.needsUpdate = true
@@ -292,7 +285,6 @@ export function City() {
           <instancedMesh ref={(m) => { leaves.current[k] = m }} args={[leafGeo, leafMat, data.trees.length]} frustumCulled={false} />
           {data.lamps.length > 0 && <instancedMesh ref={(m) => { lampMeshes.current[k] = m }} args={[lampGeo, lampMat, data.lamps.length]} frustumCulled={false} />}
           {data.lamps.length > 0 && <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, arrowMat, data.lamps.length]} frustumCulled={false} />}
-          {data.lamps.length > 0 && <instancedMesh ref={(m) => { glowMeshes.current[k] = m }} args={[glowGeo, glowMat, data.lamps.length]} frustumCulled={false} renderOrder={4} />}
         </group>
       ))}
     </>

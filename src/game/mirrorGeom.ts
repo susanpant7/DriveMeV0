@@ -75,6 +75,7 @@ const VERT = /* glsl */ `
 const FRAG = /* glsl */ `
   uniform sampler2D tDiffuse;
   uniform vec2 uHalf;
+  uniform vec2 uTexel;
   uniform float uM0;
   uniform float uM1;
   uniform float uInner;
@@ -112,7 +113,12 @@ const FRAG = /* glsl */ `
     p.x = 1.0 - p.x;                          // mirror image is flipped left-right
     float rr = length( vLocal / uHalf );
     float m = mix( uM0, uM1, rr * rr );       // convex: more compression toward the edges
-    vec3 col = texture2D( tDiffuse, 0.5 + ( p - 0.5 ) * m ).rgb;
+    vec2 uvm = 0.5 + ( p - 0.5 ) * m;
+    vec3 col = texture2D( tDiffuse, uvm ).rgb;
+    // a gentle sharpen (unsharp mask against the four neighbours): edges of cars, lane lines and signs read crisply in the glass
+    vec3 blur = ( texture2D( tDiffuse, uvm + vec2( uTexel.x, 0.0 ) ).rgb + texture2D( tDiffuse, uvm - vec2( uTexel.x, 0.0 ) ).rgb
+                + texture2D( tDiffuse, uvm + vec2( 0.0, uTexel.y ) ).rgb + texture2D( tDiffuse, uvm - vec2( 0.0, uTexel.y ) ).rgb ) * 0.25;
+    col = max( col + ( col - blur ) * 0.55, 0.0 );
     vec2 q = vLocal / ( 2.0 * uHalf ) + 0.5;
     if ( uOwn > 0.5 ) col = ownCar( q, col );
     else if ( uInner == 0.0 ) {
@@ -131,10 +137,12 @@ const FRAG = /* glsl */ `
       // a soft glint along the top of the parcel shelf
       col += 0.05 * smoothstep( 0.02, 0.0, abs( q.y - 0.145 ) ) * shelf;
     }
-    col *= vec3( 0.93, 0.96, 1.0 );           // faint cool tint of the glass
-    col *= mix( 1.0, 0.82, smoothstep( 0.7, 1.15, rr ) );
+    col *= vec3( 0.97, 0.985, 1.0 );          // a very faint cool tint of the glass (a clean mirror)
+    col *= mix( 1.0, 0.9, smoothstep( 0.8, 1.2, rr ) );
     gl_FragColor = vec4( col, 1.0 );
     #include <tonemapping_fragment>
+    // the same grade as the view through the windows (a little more contrast), so the mirror picture does not look flat
+    gl_FragColor.rgb = clamp( ( gl_FragColor.rgb - 0.5 ) * 1.1 + 0.5, 0.0, 1.0 );
     #include <colorspace_fragment>
   }`
 
@@ -196,7 +204,7 @@ export class MirrorGlass extends THREE.Mesh {
     const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], {
       samples: 4, type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter,
     })
-    rt.texture.anisotropy = 8
+    rt.texture.anisotropy = 16
     const material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: rt.texture },
@@ -205,6 +213,7 @@ export class MirrorGlass extends THREE.Mesh {
         uM1: { value: o.m1 ?? 1 / wide },
         uInner: { value: o.inner ?? 0 },
         uOwn: { value: o.own ? 1 : 0 },
+        uTexel: { value: new THREE.Vector2(1 / o.res[0], 1 / o.res[1]) },
       },
       vertexShader: VERT,
       fragmentShader: FRAG,
@@ -294,15 +303,18 @@ export class MirrorGlass extends THREE.Mesh {
     }
     const pw = ((x1 - x0) / 2) * db.x, ph = ((y1 - y0) / 2) * db.y // the mirror's size on screen, in pixels
     const aspect = this.half.x / this.half.y
-    // 1.6x the on-screen size (the convex mirror shows a wider view, and it keeps fine detail), within sensible limits
-    let w = Math.max(pw, ph * aspect) * 1.6 * this.wide
+    // twice the on-screen size (supersampled: fine detail stays smooth and sharp), within sensible limits
+    let w = Math.max(pw, ph * aspect) * 2.0 * this.wide
     w = Math.max(this.minW, Math.min(this.maxW, w))
     const h = w / aspect
     const cur = this.rt.width
-    if (Math.abs(w - cur) / cur > 0.18) this.rt.setSize(Math.round(w), Math.round(h))
+    if (Math.abs(w - cur) / cur > 0.18) {
+      this.rt.setSize(Math.round(w), Math.round(h))
+      ;(this.material as THREE.ShaderMaterial).uniforms.uTexel.value.set(1 / Math.round(w), 1 / Math.round(h))
+    }
   }
-  private minW = 512
-  private maxW = 2400
+  private minW = 640
+  private maxW = 3000
 
   dispose() {
     this.rt.dispose()
