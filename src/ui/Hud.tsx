@@ -140,7 +140,6 @@ function TouchControls() {
         </div>
         <div className="steerrow">
           <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}><Chev dir={-1} /></HoldButton>
-          <button className="tbtn steer centre" aria-label="Centre the wheel (hold to keep the car in its lane)" onPointerDown={() => { input.recentre = true; input.space = true }} onPointerUp={() => { input.space = false }} onPointerLeave={() => { input.space = false }} onPointerCancel={() => { input.space = false }}><span className="ring" /></button>
           <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}><Chev dir={1} /></HoldButton>
         </div>
       </div>
@@ -149,7 +148,10 @@ function TouchControls() {
 
       <div className="tgroup">
         <HoldButton label="Brake" className="pedal brake" {...hold('down')}>Brake</HoldButton>
-        <HoldButton label="Accelerator" className="pedal gas" onDown={() => { input.up = true; gasTapFn() }} onUp={() => { input.up = false }}>Gas</HoldButton>
+        <div className="gascol">
+          <button className="tbtn lanekeep" aria-label="Keep in lane (tap to centre in the lane, hold to stay in it)" onPointerDown={() => { input.recentre = true; input.space = true }} onPointerUp={() => { input.space = false }} onPointerLeave={() => { input.space = false }} onPointerCancel={() => { input.space = false }}><span className="ring" /><small>LANE</small></button>
+          <HoldButton label="Accelerator" className="pedal gas" onDown={() => { input.up = true; gasTapFn() }} onUp={() => { input.up = false }}>Gas</HoldButton>
+        </div>
       </div>
     </div>
   )
@@ -159,7 +161,7 @@ function TouchHelp() {
   return (
     <ul className="controls">
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down</li>
-      <li><span><b>Steer</b></span> Bottom left: hold ◀ ▶ to keep turning the wheel; let go and it returns to straight; ⦿ centres the view</li>
+      <li><span><b>Steer</b></span> Bottom left: hold ◀ ▶ to keep turning the wheel; let go and it returns to straight. LANE (above Gas): tap to centre in your lane, hold to stay in it</li>
       <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror). Or choose "Phone motion" in Settings and just move the phone to look around</li>
       <li><span><b>◀ ▶</b></span> Either side of the eye: left and right indicators (tap to switch on or off)</li>
     </ul>

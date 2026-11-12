@@ -4,9 +4,34 @@
  * no rendering. Coordinates: x east, z south (top-down map has north up, so north = -z).
  */
 
-export const B = 250 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
-export const P = B * G // period of the world
+export const P = 1500 // period of the world
+/** Where the avenues are, within one period: the blocks are of different lengths (about 270 to 470 m), like a real town,
+ *  so some roads are long and some short. XS: the north-south avenues (by i), ZS: the east-west ones (by j). */
+const XS = [0, 330, 800, 1090]
+const ZS = [0, 420, 700, 1140]
+/** the average distance between junctions (only for rough estimates) */
+export const B = P / G
+/** x of avenue i / z of avenue j (any integer: the grid repeats every period) */
+export function nodeX(i: number) { const k = Math.floor(i / G); return k * P + XS[i - k * G] }
+export function nodeZ(j: number) { const k = Math.floor(j / G); return k * P + ZS[j - k * G] }
+function cellOf(v: number, S: number[]) {
+  const k = Math.floor(v / P), r = v - k * P
+  let c = 0
+  for (let a = G - 1; a >= 0; a--) if (r >= S[a]) { c = a; break }
+  return k * G + c
+}
+/** the index of the avenue at or just before x (west of it) / z (north of it) */
+export const cellX = (x: number) => cellOf(x, XS)
+export const cellZ = (z: number) => cellOf(z, ZS)
+/** the nearest avenue to x / z */
+export const nearX = (x: number) => { const c = cellX(x); return x - nodeX(c) <= nodeX(c + 1) - x ? c : c + 1 }
+export const nearZ = (z: number) => { const c = cellZ(z); return z - nodeZ(c) <= nodeZ(c + 1) - z ? c : c + 1 }
+/** length (centre to centre) of the road leaving node (i, j) in direction d */
+export function roadLen(i: number, j: number, d: number) {
+  const dd = ((d % 4) + 4) % 4
+  return dd === 0 ? nodeX(i + 1) - nodeX(i) : dd === 2 ? nodeX(i) - nodeX(i - 1) : dd === 3 ? nodeZ(j + 1) - nodeZ(j) : nodeZ(j) - nodeZ(j - 1)
+}
 export const LANE_W = 5.2 // 17 ft: a very generous lane (US standard is 11-12 ft)
 /** Lane indices on a road: 0 and 1 are the two ordinary lanes (0 nearer the centre). Approaching a signalised junction extra lanes may open:
  *  2 = left-turn lane beside lane 0, 3 = a second left-turn lane beside that, 4 = right-turn-only lane outside lane 1. */
@@ -310,8 +335,8 @@ function buildPieces() {
   for (let i = 0; i < G; i++) {
     for (let j = 0; j < G; j++) {
       const n = nodeIndex(i, j)
-      const cx = i * B
-      const cz = j * B
+      const cx = nodeX(i)
+      const cz = nodeZ(j)
       const kind = nodeKind(i, j)
 
       // roads leaving this node in each direction
@@ -328,7 +353,8 @@ function buildPieces() {
         // Ordinary road: 2 lanes (0 inner, 1 outer). Approaching a signalised junction a third, outer lane (2) is added
         // for right turns. Approaching a roundabout only the outer lane enters it.
         const sibIds: number[] = []
-        const segLen = B - clrA - clrB
+        const L = roadLen(i, j, d)
+        const segLen = L - clrA - clrB
         // breakpoints along the road where the lane shifts (it follows the splitter island at roundabout ends)
         const bps = new Set<number>([0, segLen])
         const flA = flareOf(i, j), flB = flareOf(ni, nj)
@@ -344,7 +370,7 @@ function buildPieces() {
           const pts: Pt[] = sorted.map((sv) => {
             // Each carriageway sits the median's width out from the centre line, so the through lanes (0, 1) run dead straight across a
             // junction. The left-turn lanes (2, and 3 beside it) open up inside the median; the right-turn lane (4) opens outside lane 1.
-            const med = medW(tA, tB, clrA, clrB, clrA + sv)
+            const med = medW(tA, tB, clrA, clrB, clrA + sv, L)
             const dB = segLen - sv
             const f = tB && tB.nL ? pocketW(tB, dB, med) / (tB.nL * LANE_W) : 0
             const base = k === L_LEFT ? (tB?.centre ? 0 : med - 0.5 * LANE_W * f) : k === L_LEFT2 ? med - 1.5 * LANE_W * f : k === L_RIGHT ? med + 1.5 * LANE_W + LANE_W * flare(dB) : med + aiOff(k)
@@ -604,25 +630,26 @@ const PALETTE: Array<[number, number, number]> = [
   [0.66, 0.5, 0.44], [0.55, 0.6, 0.55], [0.85, 0.82, 0.72], [0.5, 0.55, 0.65],
 ]
 
-const LOT_PITCH = (B - 2 * (HALF_ROAD + 5)) / 3 // three lots across a block, whatever the road width
 function buildLots(): Lot[] {
   const lots: Lot[] = []
   for (let i = 0; i < G; i++) {
     for (let j = 0; j < G; j++) {
-      const bx0 = i * B + HALF_ROAD + 5
-      const bz0 = j * B + HALF_ROAD + 5
+      // three lots across a block each way, whatever the block's size and the road width
+      const bx0 = nodeX(i) + HALF_ROAD + 5
+      const bz0 = nodeZ(j) + HALF_ROAD + 5
+      const PX = (nodeX(i + 1) - nodeX(i) - 2 * (HALF_ROAD + 5)) / 3, PZ = (nodeZ(j + 1) - nodeZ(j) - 2 * (HALF_ROAD + 5)) / 3
       for (let a = 0; a < 3; a++) {
         for (let b = 0; b < 3; b++) {
-          const x0 = bx0 + a * LOT_PITCH + 3
-          const z0 = bz0 + b * LOT_PITCH + 3
-          const x1 = x0 + LOT_PITCH - 6
-          const z1 = z0 + LOT_PITCH - 6
+          const x0 = bx0 + a * PX + 3
+          const z0 = bz0 + b * PZ + 3
+          const x1 = x0 + PX - 6
+          const z1 = z0 + PZ - 6
           if (stubsOn() && b === 1 && ((i === CENTRE_COL && a === 0) || (i === mod(CENTRE_COL - 1, G) && a === 2))) continue // a side street and its car park are here
           let park = LAYOUT.rb || hash(i * 3 + a, j * 3 + b) < (LAYOUT.kind === 'res' ? 0.3 : 0.16)
           for (const [ci, cj] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) {
             if (nodeKind(ci, cj) !== 'round') continue
-            const cx = ci * B
-            const cz = cj * B
+            const cx = nodeX(ci)
+            const cz = nodeZ(cj)
             const dx = Math.max(x0 - cx, 0, cx - x1)
             const dz = Math.max(z0 - cz, 0, cz - z1)
             if (Math.hypot(dx, dz) < clearance(ci, cj) + 10) park = true
@@ -631,7 +658,7 @@ function buildLots(): Lot[] {
           lots.push({
             x0, z0, x1, z1,
             ...(LAYOUT.kind === 'res' ? { bx0: 0, bz0: 0, bx1: 0, bz1: 0 } : { bx0: x0 + inset, bz0: z0 + inset, bx1: x1 - inset, bz1: z1 - inset }), // houses have no collision box: leaving the road already stops you
-            h: 10 + hash(i * 3 + a, j * 3 + b, 2) * 38,
+            h: 8 + hash(i * 3 + a, j * 3 + b, 2) * 9, // low-rise: two to four storeys (no towers: they cost a lot to draw, in every mirror too)
             color: PALETTE[Math.floor(hash(i * 3 + a, j * 3 + b, 3) * PALETTE.length)],
             park,
           })
@@ -648,8 +675,8 @@ export function insideBuilding(x: number, z: number) {
   const xm = mod(x, P)
   const zm = mod(z, P)
   // lots are laid out per block: index them directly
-  const i = Math.floor(xm / B)
-  const j = Math.floor(zm / B)
+  const i = mod(cellX(xm), G)
+  const j = mod(cellZ(zm), G)
   for (let k = 0; k < 9; k++) {
     const l = LOTS[(i * G + j) * 9 + k]
     if (!l.park && xm > l.bx0 && xm < l.bx1 && zm > l.bz0 && zm < l.bz1) return true
@@ -662,10 +689,10 @@ export function insideBuilding(x: number, z: number) {
 /* ------------------------------------------------------------------ */
 
 export function nearestNode(x: number, z: number) {
-  const i = Math.round(x / B)
-  const j = Math.round(z / B)
-  const cx = i * B
-  const cz = j * B
+  const i = nearX(x)
+  const j = nearZ(z)
+  const cx = nodeX(i)
+  const cz = nodeZ(j)
   return { i, j, n: nodeIndex(i, j), cx, cz, kind: nodeKind(i, j), spec: rbSpec(i, j), rx: x - cx, rz: z - cz }
 }
 
@@ -673,11 +700,11 @@ export function nearestNode(x: number, z: number) {
  *  line, so the through lanes run dead straight across a junction; the junction's left-turn lanes open up inside the median. The median
  *  belongs to the signalised junctions: between two of them it blends from one junction's width to the other's, towards a roundabout it
  *  closes up and the road is an ordinary two-lanes-each-way road. */
-export function medW(tA: JType | null, tB: JType | null, clrA: number, clrB: number, u: number) {
+export function medW(tA: JType | null, tB: JType | null, clrA: number, clrB: number, u: number, L: number) {
   const ss = !!tA && !!tB
-  const R0 = ss ? 80 : MED0, R1 = ss ? B - clrA - clrB - 80 : MED1
+  const R0 = ss ? 80 : MED0, R1 = ss ? L - clrA - clrB - 80 : MED1
   const ramp = (d: number) => (d <= R0 ? 1 : d >= R1 ? 0 : 1 - (d - R0) / (R1 - R0))
-  return LANE_W * ((tA?.mw ?? 0) * ramp(u - clrA) + (tB?.mw ?? 0) * ramp(B - u - clrB))
+  return LANE_W * ((tA?.mw ?? 0) * ramp(u - clrA) + (tB?.mw ?? 0) * ramp(L - u - clrB))
 }
 /** width (m) of the left-turn pocket(s) of junction type t, d metres before its edge, given the median width there */
 export function pocketW(t: JType | null, d: number, med: number) { return t && !t.centre ? Math.min(t.nL * LANE_W * flare(d), med) : 0 }
@@ -687,14 +714,14 @@ export function pocketW(t: JType | null, d: number, med: number) { return t && !
  * `right` is the +v side (west of a southbound road, south of an eastbound one) and `left` the other side.
  * The road only widens on the approach side of a signalised junction, where the third lane is added.
  */
-export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number, flA = kA === 'round', flB = kB === 'round', tA: JType | null = null, tB: JType | null = null) {
+export function segHalves(_kA: NodeKind, _kB: NodeKind, clrA: number, clrB: number, u: number, flA: boolean, flB: boolean, tA: JType | null, tB: JType | null, L: number) {
   const dA = u - clrA
-  const dB = B - u - clrB
+  const dB = L - u - clrB
   return {
     // the median, the roundabout flare (BOTH carriageways move outward beside the splitter island) and, on the side that approaches
     // a junction with one, the right-turn-only lane
-    right: halfMid() + medW(tA, tB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0) + (tB?.rOnly ? LANE_W * flare(dB) : 0),
-    left: halfMid() + medW(tA, tB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0) + (tA?.rOnly ? LANE_W * flare(dA) : 0),
+    right: halfMid() + medW(tA, tB, clrA, clrB, u, L) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0) + (tB?.rOnly ? LANE_W * flare(dB) : 0),
+    left: halfMid() + medW(tA, tB, clrA, clrB, u, L) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0) + (tA?.rOnly ? LANE_W * flare(dA) : 0),
   }
 }
 
@@ -711,8 +738,9 @@ function armEdge(i: number, j: number, d: number): [number, number] {
   const [ex, ez] = dirv(dd)
   const kA = nodeKind(ai, aj), kB = nodeKind(ai + ex, aj + ez)
   const cA = clearance(ai, aj, d % 2), cB = clearance(ai + ex, aj + ez, d % 2)
-  const u = fwd ? cA : B - cB
-  const h = segHalves(kA, kB, cA, cB, u, flareOf(ai, aj), flareOf(ai + ex, aj + ez), jTypeOf(ai, aj, dd % 2), jTypeOf(ai + ex, aj + ez, dd % 2))
+  const L = roadLen(ai, aj, dd)
+  const u = fwd ? cA : L - cB
+  const h = segHalves(kA, kB, cA, cB, u, flareOf(ai, aj), flareOf(ai + ex, aj + ez), jTypeOf(ai, aj, dd % 2), jTypeOf(ai + ex, aj + ez, dd % 2), L)
   return [h.right + 0.5, h.left + 0.5]
 }
 const outlines = new Map<string, Array<[number, number]>>()
@@ -776,11 +804,13 @@ const wedgeHit = (back: number, v: number, rb: RbSpec | undefined) => {
 
 /** Side streets off the centre-turn-lane avenue: one each side at the middle of every block, ending in a small car park. Measured from
  *  the avenue's centre line: the street runs from the road edge out to STUB.end, the car park from STUB.lot0 to STUB.lot1. */
-export const STUB = { u: B / 2, half: 4.6, end: 60, lot0: 56, lot1: 86, lotHalf: 24 }
+export const STUB = { half: 4.6, end: 60, lot0: 56, lot1: 86, lotHalf: 24 }
+/** z of the side streets in block j of the centre avenue (halfway between its junctions) */
+export const stubZ = (j: number) => (nodeZ(j) + nodeZ(j + 1)) / 2
 export function stubsOn() { return LAYOUT.kind === 'mixed' || LAYOUT.kind === 'lights' }
 function onStub(x: number, z: number) {
   if (!stubsOn()) return false
-  const dx = Math.abs(wrapD(x - CENTRE_COL * B)), zc = Math.abs(mod(z, B) - STUB.u)
+  const dx = Math.abs(wrapD(x - nodeX(CENTRE_COL))), zc = Math.abs(z - stubZ(cellZ(z)))
   return (zc < STUB.half && dx < STUB.end) || (zc < STUB.lotHalf && dx > STUB.lot0 && dx < STUB.lot1)
 }
 
@@ -817,33 +847,35 @@ export function onAsphalt(x: number, z: number) {
   }
   // vertical road (runs south): +v side is west
   {
-    const i = Math.round(x / B)
-    const lat = x - i * B
-    const jA = Math.floor(z / B)
-    const u = z - jA * B
+    const i = nearX(x)
+    const lat = x - nodeX(i)
+    const jA = cellZ(z)
+    const u = z - nodeZ(jA)
+    const L = nodeZ(jA + 1) - nodeZ(jA)
     const kA = nodeKind(i, jA)
     const kB = nodeKind(i, jA + 1)
     const cA = clearance(i, jA, 1)
     const cB = clearance(i, jA + 1, 1)
-    if (!armClosed(i, jA, 3) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
-      const h = segHalves(kA, kB, cA, cB, u, flareOf(i, jA), flareOf(i, jA + 1), jTypeOf(i, jA, 1), jTypeOf(i, jA + 1, 1))
-      if (wedgeHit(B - cB - u, -lat, rbSpec(i, jA + 1)) || wedgeHit(u - cA, lat, rbSpec(i, jA))) return false // on the island that closes a lane
+    if (!armClosed(i, jA, 3) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? L - cB + 3 : L - cB)) {
+      const h = segHalves(kA, kB, cA, cB, u, flareOf(i, jA), flareOf(i, jA + 1), jTypeOf(i, jA, 1), jTypeOf(i, jA + 1, 1), L)
+      if (wedgeHit(L - cB - u, -lat, rbSpec(i, jA + 1)) || wedgeHit(u - cA, lat, rbSpec(i, jA))) return false // on the island that closes a lane
       if (Math.abs(lat) < (lat < 0 ? h.right : h.left) + 0.2) return true
     }
   }
   // horizontal road (runs east): +v side is south
   {
-    const j = Math.round(z / B)
-    const lat = z - j * B
-    const iA = Math.floor(x / B)
-    const u = x - iA * B
+    const j = nearZ(z)
+    const lat = z - nodeZ(j)
+    const iA = cellX(x)
+    const u = x - nodeX(iA)
+    const L = nodeX(iA + 1) - nodeX(iA)
     const kA = nodeKind(iA, j)
     const kB = nodeKind(iA + 1, j)
     const cA = clearance(iA, j, 0)
     const cB = clearance(iA + 1, j, 0)
-    if (!armClosed(iA, j, 0) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
-      const h = segHalves(kA, kB, cA, cB, u, flareOf(iA, j), flareOf(iA + 1, j), jTypeOf(iA, j, 0), jTypeOf(iA + 1, j, 0))
-      if (wedgeHit(B - cB - u, lat, rbSpec(iA + 1, j)) || wedgeHit(u - cA, -lat, rbSpec(iA, j))) return false
+    if (!armClosed(iA, j, 0) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? L - cB + 3 : L - cB)) {
+      const h = segHalves(kA, kB, cA, cB, u, flareOf(iA, j), flareOf(iA + 1, j), jTypeOf(iA, j, 0), jTypeOf(iA + 1, j, 0), L)
+      if (wedgeHit(L - cB - u, lat, rbSpec(iA + 1, j)) || wedgeHit(u - cA, -lat, rbSpec(iA, j))) return false
       if (Math.abs(lat) < (lat > 0 ? h.right : h.left) + 0.2) return true
     }
   }

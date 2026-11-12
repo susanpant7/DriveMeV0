@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { armCtrl, speedLimit, oneLane, halfMid, LAYOUT, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
+import { nodeX, nodeZ, roadLen, stubZ, armCtrl, speedLimit, oneLane, halfMid, LAYOUT, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -500,7 +500,7 @@ export function buildCity() {
   // ---------------- roads ----------------
   // Ordinary roads are 2 lanes each way; on the approach to a signalised junction the road widens (outward) for a third lane.
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
-    const cx = i * B, cz = j * B
+    const cx = nodeX(i), cz = nodeZ(j)
     if (nodeKind(i, j) === 'signal') {
       // the four road mouths joined by rounded kerb returns that start exactly on each road's edge
       const { pts, corners } = junctionOutline(i, j)
@@ -532,9 +532,10 @@ export function buildCity() {
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const cA = clearance(i, j, d % 2), cB = clearance(i + dx, j + dz, d % 2)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz)
-      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2))
+      const L = roadLen(i, j, d)
+      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L)
       const u0 = kA === 'round' ? cA - 3 : cA
-      const u1 = kB === 'round' ? B - cB + 3 : B - cB
+      const u1 = kB === 'round' ? L - cB + 3 : L - cB
       for (let u = u0; u < u1 - 0.01; u += 4) {
         const ue = Math.min(u + 4, u1)
         const h0 = sgA(u), h1 = sgA(ue)
@@ -568,20 +569,21 @@ export function buildCity() {
   }
 
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
-    const ax = i * B, az = j * B
+    const ax = nodeX(i), az = nodeZ(j)
     for (const d of [0, 3]) {
       if (armClosed(i, j, d)) continue // this road is closed (roundabouts with fewer exits)
       const [dx, dz] = dirv(d)
       const clrA = clearance(i, j, d % 2), clrB = clearance(i + dx, j + dz, d % 2)
-      const S0 = clrA, S1 = B - clrB
+      const L = roadLen(i, j, d), STUBU = L / 2 // the side streets are halfway along
+      const S0 = clrA, S1 = L - clrB
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz) // lanes flare beside a splitter island at these ends
       const tA = jTypeOf(i, j, d % 2), tB = jTypeOf(i + dx, j + dz, d % 2)
-      const sgh = (u: number) => segHalves(kA, kB, S0, B - S1, u, fA, fB, tA, tB)
+      const sgh = (u: number) => segHalves(kA, kB, S0, L - S1, u, fA, fB, tA, tB, L)
       const rbA = rbSpec(i, j), rbB = rbSpec(i + dx, j + dz)
       // Each carriageway sits one lane out from the centre line (the median) so the through lanes run straight across junctions. The median's
       // two edge lines (yellow) meet in the middle as the left-turn lanes open up in it near a signalised junction.
-      const medAt = (u: number) => medW(tA, tB, S0, B - S1, u)
+      const medAt = (u: number) => medW(tA, tB, S0, L - S1, u, L)
       const aSh = (u: number) => pocketW(tA, u - S0, medAt(u)) // width of the left-turn lane(s) at A's end
       const bSh = (u: number) => pocketW(tB, S1 - u, medAt(u))
       const centreRd = !!tA?.centre && !!tB?.centre
@@ -603,7 +605,7 @@ export function buildCity() {
           }
         }
         // pairs of opposing left-turn arrows in the two-way section
-        for (const uu of [STUB.u - 24, STUB.u + 24]) { arrow(ax, az, d, uu + 2.5, 1, 0, 'L'); arrow(ax, az, d, uu - 2.5, -1, 0, 'L') }
+        for (const uu of [STUBU - 24, STUBU + 24]) { arrow(ax, az, d, uu + 2.5, 1, 0, 'L'); arrow(ax, az, d, uu - 2.5, -1, 0, 'L') }
       }
       for (let u = S0; !centreRd && u < S1 - 0.01; u += 3) {
         const ue = Math.min(u + 3, S1)
@@ -658,11 +660,11 @@ export function buildCity() {
         if (tA?.rOnly && flare(u - S0) > 0.25) mk(ax, az, d, u, u + 3, -(medAt(u) + 2 * LANE_W) - 0.075, -(medAt(u) + 2 * LANE_W) + 0.075, WHITE)
       }
       // edge lines follow the widening road (they hand over to the curved kerb where the road sweeps into a roundabout)
-      const clipA = rbA ? Math.max(0, rbFillet(rbA).uc - S0) : 0, clipB = rbB ? Math.max(0, rbFillet(rbB).uc - (B - S1)) : 0
+      const clipA = rbA ? Math.max(0, rbFillet(rbA).uc - S0) : 0, clipB = rbB ? Math.max(0, rbFillet(rbB).uc - (L - S1)) : 0
       for (let u = S0 + clipA; u < S1 - clipB - 0.01; u += 3) {
         const ue = Math.min(u + 3, S1 - clipB)
         const h0 = sgh(u), h1 = sgh(ue)
-        if (centreRd && stubsOn() && u + 1.5 > STUB.u - STUB.half - 3 && u + 1.5 < STUB.u + STUB.half + 3) continue // the mouth of a side street
+        if (centreRd && stubsOn() && u + 1.5 > STUBU - STUB.half - 3 && u + 1.5 < STUBU + STUB.half + 3) continue // the mouth of a side street
         marks.upQuad([at(ax, az, d, u, h0.right - 0.35), at(ax, az, d, ue, h1.right - 0.35), at(ax, az, d, ue, h1.right - 0.15), at(ax, az, d, u, h0.right - 0.15)], 0.02, WHITE)
         marks.upQuad([at(ax, az, d, u, -(h0.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.35)), at(ax, az, d, u, -(h0.left - 0.35))], 0.02, WHITE)
       }
@@ -883,7 +885,7 @@ export function buildCity() {
 
   // ---------------- junction furniture ----------------
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
-    const cx = i * B, cz = j * B
+    const cx = nodeX(i), cz = nodeZ(j)
     const n = nodeIndex(i, j)
     const kind = nodeKind(i, j)
 
@@ -1077,7 +1079,8 @@ export function buildCity() {
       const clr = clearance(i, j, a % 2) // where this approach ends
       const clrNb = clearance(i + nbx, j + nbz, a % 2)
       const jt = jTypeOf(i, j, a % 2), jtNb = jTypeOf(i + nbx, j + nbz, a % 2)
-      const HWat = (u: number) => halfMid() + medW(jt, jtNb, clr, clrNb, u) + (jt?.rOnly ? LANE_W * flare(u - clr) : 0)
+      const Lnb = roadLen(i, j, a)
+      const HWat = (u: number) => halfMid() + medW(jt, jtNb, clr, clrNb, u, Lnb) + (jt?.rOnly ? LANE_W * flare(u - clr) : 0)
       const HW = HWat(clr + 2.5)
 
       // roadside signs on the right-hand verge
@@ -1200,10 +1203,10 @@ export function buildCity() {
 
   // ---------------- side streets off the centre-turn-lane avenue (no signals: stop, then turn) ----------------
   if (stubsOn()) {
-    const acx = CENTRE_COL * B
+    const acx = nodeX(CENTRE_COL)
     const hw = HALF_MID + LANE_W / 2 // the avenue's half-width there
     for (let j = 0; j < G; j++) for (const sg of [-1, 1]) {
-      const zc = j * B + STUB.u
+      const zc = stubZ(j)
       const X = (q: number) => acx + sg * q
       // the street, then its car park
       asphalt.rect(Math.min(X(hw - 0.2), X(STUB.end)), zc - STUB.half, Math.max(X(hw - 0.2), X(STUB.end)), zc + STUB.half, 0, [1, 1, 1])
@@ -1274,8 +1277,7 @@ export function buildCity() {
     const bw = l.bx1 - l.bx0, bd = l.bz1 - l.bz0, bcx = (l.bx0 + l.bx1) / 2, bcz = (l.bz0 + l.bz1) / 2
     buildings.box(bcx, 0.08, bcz, bw, l.h, bd, 0, l.color, true)
     solid.box(bcx, 0.08, bcz, bw + 2, 5, bd + 2, 0, [0.3, 0.31, 0.33]) // dark podium / shopfront band
-    if (l.h > 26) buildings.box(bcx, 0.08 + l.h, bcz, bw * 0.66, l.h * 0.28, bd * 0.66, 0, [l.color[0] * 0.9, l.color[1] * 0.9, l.color[2] * 0.92], true) // setback tier
-    solid.box(bcx, 0.08 + l.h + (l.h > 26 ? l.h * 0.28 : 0), bcz, bw * 0.3, 2.2, bd * 0.3, 0, [0.42, 0.43, 0.45]) // roof plant
+    solid.box(bcx, 0.08 + l.h, bcz, bw * 0.3, 2.2, bd * 0.3, 0, [0.42, 0.43, 0.45]) // roof plant
   }
 
   // no tree may stand on the road (or touch its edge): test each against the real road surface and drop the ones that do

@@ -28,6 +28,7 @@ function mirror(id: MirrorCfg['id'], pos: THREE.Vector3, size: [number, number],
 
 const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 // mirror reflection textures: half size on phones / tablets
+// mirrors are what a learner drives by: their pictures are rendered sharp (well above their size on screen)
 const RES_SIDE: [number, number] = IS_COARSE ? [900, 610] : [1400, 950]
 const RES_REAR: [number, number] = IS_COARSE ? [640, 195] : [800, 244]
 

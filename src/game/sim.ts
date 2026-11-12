@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -12,7 +12,7 @@ import { CAR_L, CAR_W, whyStuck, junctionBusy, cars, initTraffic, ringBusy, setA
 export { CAR_L, CAR_W }
 export const WHEELBASE = 2.7
 export const LIMIT = SPEED_LIMIT // city speed limit: 30 mph (about 48 km/h), in m/s
-export const TRAFFIC_LEVELS = [30, 110, 280, 520, 850]
+export const TRAFFIC_LEVELS = [45, 165, 420, 780, 900] // the town's roads are about 12 km long in all (the cap is MAX_CARS)
 
 // Rules-engine tuning
 const SIGNAL_MIN = 1.0 // signal must be on this long before moving
@@ -665,8 +665,8 @@ function laneInfo() {
   const fx = -Math.sin(sim.h)
   const fz = -Math.cos(sim.h)
   const clr = clearance(nn.i, nn.j, Math.abs(fz) > Math.abs(fx) ? 1 : 0) // where the approach you are on ends
-  const xm = mod(sim.x + B / 2, B) - B / 2
-  const zm = mod(sim.z + B / 2, B) - B / 2
+  const xm = sim.x - nodeX(nearX(sim.x)) // across the nearest north-south avenue
+  const zm = sim.z - nodeZ(nearZ(sim.z))
   let d = -1
   let r = 0
   if (Math.abs(xm) < HALF_ROAD + 0.3 && Math.abs(zm) > clr + 3 && Math.abs(fz) > 0.9) {
@@ -684,14 +684,15 @@ function laneInfo() {
   const alongZ = Math.abs(fz) > 0.9
   const pos = alongZ ? sim.z : sim.x
   const fwd = alongZ ? fz : fx
-  const cell = Math.floor(pos / B)
+  const cell = alongZ ? cellZ(pos) : cellX(pos)
   const behind = fwd > 0 ? cell : cell + 1, ahead = fwd > 0 ? cell + 1 : cell
-  const ci = alongZ ? Math.round(sim.x / B) : Math.round(sim.z / B)
+  const at = (c: number) => (alongZ ? nodeZ(c) : nodeX(c))
+  const ci = alongZ ? nearX(sim.x) : nearZ(sim.z)
   const nodeAt = (c: number) => (alongZ ? [ci, c] : [c, ci]) as [number, number]
   const tBehind = jTypeOf(...nodeAt(behind), alongZ ? 1 : 0), tAhead = jTypeOf(...nodeAt(ahead), alongZ ? 1 : 0)
   const ax = alongZ ? 1 : 0
-  const med = medW(tBehind, tAhead, clearance(...nodeAt(behind), ax), clearance(...nodeAt(ahead), ax), Math.abs(pos - behind * B))
-  const dAhead = Math.abs(pos - ahead * B) - clearance(...nodeAt(ahead), ax)
+  const med = medW(tBehind, tAhead, clearance(...nodeAt(behind), ax), clearance(...nodeAt(ahead), ax), Math.abs(pos - at(behind)), Math.abs(at(ahead) - at(behind)))
+  const dAhead = Math.abs(pos - at(ahead)) - clearance(...nodeAt(ahead), ax)
   const rPocket = tAhead?.rOnly ? LANE_W * flare(dAhead) : 0
   if (tBehind?.centre && tAhead?.centre) {
     // centre-turn-lane avenue: the middle lane (half of it lies on each side of the centre line) may be used to turn left

@@ -48,7 +48,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       m1: cfg.id === 'right' ? 1 / 1.5 : 1.0,
       shift: [0, 0],
       inner: cfg.inner,
-      alt: true, // every mirror refreshes on alternate frames: half the extra scene renders, and the picture is at most one frame old
+      alt: false, // every mirror shows a fresh picture every frame
     })
     ;(r.material as THREE.ShaderMaterial).side = THREE.DoubleSide
     r.layers.set(1) // driver only: mirrors do not show in each other

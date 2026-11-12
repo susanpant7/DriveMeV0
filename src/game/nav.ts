@@ -1,4 +1,4 @@
-import { oneLane, jTypeOf, LANE_W, B, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
+import { nodeX, nodeZ, oneLane, jTypeOf, LANE_W, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
 
 /** Practice modes (no highway yet). */
 export type Mode = 'residential' | 'city' | 'highway' | 'roundabout' | 'mixed'
@@ -135,7 +135,7 @@ export function startRoute(mode: Mode) {
   const [rx, rz] = dirv(dir - 1)
   // the outer lane of the 2-lane road; a residential street has just the one, which sits beyond the centre turn lane where there is one
   const lane = oneLane() ? (jTypeOf(i0, j0, dir % 2)?.mw ?? 0) * LANE_W + laneOff(0) : laneOff(1)
-  return { x: i0 * B - dx * 100 + rx * lane, z: j0 * B - dz * 100 + rz * lane, h: headingOfDir(dir) }
+  return { x: nodeX(i0) - dx * 100 + rx * lane, z: nodeZ(j0) - dz * 100 + rz * lane, h: headingOfDir(dir) }
 }
 
 function setSteps(steps: Step[]) {
@@ -175,7 +175,7 @@ export function describe(step: Step | undefined, last: boolean) {
 export function navUpdate(px: number, pz: number): string | null {
   const st = nav.steps[nav.k]
   if (!st) return null
-  nav.dist = Math.max(0, Math.hypot(px - st.i * B, pz - st.j * B) - clearance(st.i, st.j, st.din % 2))
+  nav.dist = Math.max(0, Math.hypot(px - nodeX(st.i), pz - nodeZ(st.j)) - clearance(st.i, st.j, st.din % 2))
   const last = nav.k === nav.steps.length - 1
   const d = describe(st, last)
   nav.text = d.text

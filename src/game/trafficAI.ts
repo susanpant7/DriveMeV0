@@ -1,4 +1,4 @@
-import { LAYOUT, WEDGE_LEN, B, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, speedLimit, armCtrl, hasLeftArrow, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
+import { LAYOUT, WEDGE_LEN, nodeX, nodeZ, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, speedLimit, armCtrl, hasLeftArrow, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
 
 export const MAX_CARS = 900
 export const CAR_L = 4.4
@@ -177,7 +177,9 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
       const dd = Math.hypot(wrapD(x - player.x), wrapD(z - player.z))
       if (dd < minD || dd > WIN_MAX) continue
     }
-    if (cars.some((o) => o !== c && o.active && Math.hypot(wrapD(x - o.x), wrapD(z - o.z)) < 8)) continue
+    let near = 1e9
+    for (const o of cars) if (o !== c && o.active) near = Math.min(near, Math.hypot(wrapD(x - o.x), wrapD(z - o.z)))
+    if (near < 14) continue
     c.piece = pid
     c.stopPiece = c.goPiece = -1
     c.s = s
@@ -185,7 +187,8 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     c.style = Math.random() < 0.7 ? 0 : 1
     c.pref = c.style === 0 ? rand(12.4, 13.3) : rand(15, 19)
     c.v0 = laneV0(c, p.lane)
-    c.speed = c.v0 * 0.85
+    // never appear moving faster than the car could stop from before the nearest car (it may be the tail of a queue)
+    c.speed = Math.min(c.v0 * 0.85, Math.sqrt(2 * 3 * Math.max(0, near - 10)))
     c.lcT = -1
     c.lcSig = 0
     c.lcWant = 0
@@ -276,8 +279,8 @@ function chooseNext(c: AiCar, p: Piece): number | undefined {
 /** Is any vehicle circulating just upstream of this roundabout entry? */
 export function ringBusy(node: number, arm: number, player: Obstacle | null, ownSpeed = 0, careful = false): boolean {
   const [i, j] = nodeIJ(node)
-  const cx = i * B
-  const cz = j * B
+  const cx = nodeX(i)
+  const cz = nodeZ(j)
   const spec = rbSpecOfNode(node)
   const rMid = spec.laneR.reduce((a, b) => a + b, 0) / spec.laneR.length
   const entryAng = (arm * Math.PI) / 2
@@ -406,8 +409,8 @@ function exitBlocked(c: AiCar, p: Piece): boolean {
   const exitId = LINKS.edgeOut.get(`${conn.node}:${conn.arm}:${conn.lane}`)
   if (exitId === undefined) return false
   const [ji, jj] = nodeIJ(p.node)
-  const gx = Math.floor((ji * B) / CELL)
-  const gz = Math.floor((jj * B) / CELL)
+  const gx = Math.floor(nodeX(ji) / CELL)
+  const gz = Math.floor(nodeZ(jj) / CELL)
   for (let ix = -1; ix <= 1; ix++) {
     for (let iz = -1; iz <= 1; iz++) {
       for (const oi of grid[mod(gx + ix, CN) * CN + mod(gz + iz, CN)]) {
@@ -422,8 +425,8 @@ function exitBlocked(c: AiCar, p: Piece): boolean {
 /** Would a left-turner at the stop line cut across oncoming traffic? */
 function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: number): boolean {
   const [ji, jj] = nodeIJ(p.node)
-  const cx = ji * B
-  const cz = jj * B
+  const cx = nodeX(ji)
+  const cz = nodeZ(jj)
   const gx = Math.floor(cx / CELL)
   const gz = Math.floor(cz / CELL)
   const fx = -Math.sin(c.h)
@@ -496,7 +499,7 @@ const playerStop = { since: -1 }
  */
 export function junctionBusy(node: number, arm: number, self: AiCar | null, stoppedAt: number, player: Obstacle | null, tGap = 4.5): boolean {
   const [ji, jj] = nodeIJ(node)
-  const cx = ji * B, cz = jj * B
+  const cx = nodeX(ji), cz = nodeZ(jj)
   const myAxis = arm % 2 === 0 ? 0 : 1
   const allway = armCtrl(node, 1 - myAxis) === 'stop' && armCtrl(node, myAxis) === 'stop'
   for (const o of cars) {

@@ -200,7 +200,9 @@ export function Traffic() {
   useEffect(() => () => models.forEach((m) => { m.body.dispose(); m.dark.dispose() }), [models])
 
   useFrame((_, dt) => {
+    const LOD_D = 100
     const counts = GLB_FILES.map(() => 0)
+    const low = [0, 0, 0] // cars drawn with the simple low-poly bodies (far away, or the model has not loaded yet)
     let nw = 0
     let nl = 0
     let nb = 0
@@ -229,9 +231,11 @@ export function Traffic() {
       _m.compose(_p, _q, _s)
       let k = c.kind < 3 || glbRef.current[c.kind] ? c.kind : 0 // a model that has not loaded yet is drawn as a sedan
       if (k >= 3 && counts[k] >= 80) k = 0
-      const i = counts[k]++
+      // level of detail: beyond LOD_D (and in the fog) a car is drawn as a simple low-poly body of about the same shape and size
+      const far = dx * dx + dz * dz > LOD_D * LOD_D
       const md = models[Math.min(k, 2)]
-      const gm = glbRef.current[k]
+      const gm = far ? null : glbRef.current[k]
+      const i = gm ? counts[k]++ : low[Math.min(k, 2)]++
       if (gm) {
         const ps = partRefs.current[k]
         for (let pi = 0; pi < gm.parts.length; pi++) {
@@ -241,9 +245,10 @@ export function Traffic() {
           if (gm.parts[pi].tint) im.setColorAt(i, colorOf(c.color))
         }
       } else {
-        bodies.current[k]!.setMatrixAt(i, _m)
-        bodies.current[k]!.setColorAt(i, colorOf(c.color))
-        darks.current[k]!.setMatrixAt(i, _m)
+        const lk = Math.min(k, 2)
+        bodies.current[lk]!.setMatrixAt(i, _m)
+        bodies.current[lk]!.setColorAt(i, colorOf(c.color))
+        darks.current[lk]!.setMatrixAt(i, _m)
       }
       const wheelsAt = gm ? gm.wheels.map((w) => [w.x, w.z] as [number, number]) : md.wheels
       const tyreR = gm ? gm.r : md.d.tyre
@@ -254,6 +259,8 @@ export function Traffic() {
         _l.setPosition(wx, tyreR, wz)
         _w.multiplyMatrices(_m, _l)
         tyres.current.setMatrixAt(nw, _w)
+        // far away the hub caps are not seen: park them under the road
+        if (far) _w.elements[13] -= 50
         rims.current.setMatrixAt(nw, _w)
         nw++
       }
@@ -310,8 +317,8 @@ export function Traffic() {
         const b = bodies.current[k]
         const d = darks.current[k]
         if (b && d) {
-          b.count = gm ? 0 : counts[k]
-          d.count = gm ? 0 : counts[k]
+          b.count = low[k]
+          d.count = low[k]
           b.instanceMatrix.needsUpdate = d.instanceMatrix.needsUpdate = true
           if (b.instanceColor) b.instanceColor.needsUpdate = true
         }

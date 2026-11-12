@@ -1,4 +1,4 @@
-import { LAYOUT, junctionOutline, jTypeOf, armClosed, B, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
+import { LAYOUT, nodeX, nodeZ, roadLen, junctionOutline, jTypeOf, armClosed, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
 import { fmtDist, nav, type Step } from './nav'
 import { sim } from './sim'
 
@@ -38,7 +38,7 @@ function buildPaths(): MapPaths {
     }
   }
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
-    const cx = i * B, cz = j * B
+    const cx = nodeX(i), cz = nodeZ(j)
     const spec = rbSpec(i, j)
     if (spec) {
       roads.moveTo(cx + spec.outer, cz)
@@ -65,11 +65,12 @@ function buildPaths(): MapPaths {
       const cA = clearance(i, j, d % 2), cB = clearance(i + dx, j + dz, d % 2)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz)
       const u0 = kA === 'round' ? cA - 3 : cA
-      const u1 = kB === 'round' ? B - cB + 3 : B - cB
+      const L = roadLen(i, j, d)
+      const u1 = kB === 'round' ? L - cB + 3 : L - cB
       const left: V2[] = [], right: V2[] = []
       for (let u = u0; u <= u1 + 0.01; u += 4) {
         const uu = Math.min(u, u1)
-        const h = segHalves(kA, kB, cA, cB, uu, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2))
+        const h = segHalves(kA, kB, cA, cB, uu, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L)
         right.push(at(cx, cz, d, uu, h.right + 0.5))
         left.push(at(cx, cz, d, uu, -(h.left + 0.5)))
       }
@@ -79,7 +80,7 @@ function buildPaths(): MapPaths {
       const [x0, z0] = at(cx, cz, d, u0, 0), [x1, z1] = at(cx, cz, d, u1, 0)
       centre.moveTo(x0, z0)
       centre.lineTo(x1, z1)
-      const [mx, mz] = at(cx, cz, d, (cA + (B - cB)) / 2, 0)
+      const [mx, mz] = at(cx, cz, d, (cA + (L - cB)) / 2, 0)
       labels.push({ x: mx, z: mz, ang: d === 0 ? 0 : Math.PI / 2, text: d === 0 ? HORIZONTAL_NAMES[mod(j, 4)] : VERTICAL_NAMES[mod(i, 4)] })
     }
   }
@@ -99,7 +100,7 @@ function bez2(p0: V2, p1: V2, p2: V2, n: number): V2[] {
 }
 
 function stepPath(st: Step): V2[] {
-  const cx = st.i * B, cz = st.j * B
+  const cx = nodeX(st.i), cz = nodeZ(st.j)
   const clr = clearance(st.i, st.j)
   const [ax, az] = dirv(st.din), [ox, oz] = dirv(st.out)
   const A: V2 = [cx - ax * clr, cz - az * clr]

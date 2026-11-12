@@ -235,7 +235,7 @@ export class MirrorGlass extends THREE.Mesh {
     const v = this.vcam
     v.position.copy(_Ev)
     v.quaternion.setFromRotationMatrix(_M)
-    v.far = (camera as THREE.PerspectiveCamera).far
+    v.far = (camera as THREE.PerspectiveCamera).far // the mirror sees as far as you do
     v.updateMatrixWorld(true)
 
     // off-axis frustum through the glass window (scaled by `wide` for the convex look)
