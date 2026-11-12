@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medFac, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
+import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medFac, rbFillet, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -408,7 +408,7 @@ export function buildCity() {
   const lamps: LampDef[] = []
   const trees: TreeDef[] = []
   const WHITE: V3 = [0.92, 0.92, 0.9], YELLOW: V3 = [0.95, 0.75, 0.1]
-  const CONC: V3 = [0.44, 0.45, 0.47], POLE: V3 = [0.45, 0.47, 0.5]
+  const POLE: V3 = [0.45, 0.47, 0.5]
   const rectUV = (r: Rect): [V2, V2, V2, V2] => {
     const u0 = r.x / ATLAS_W, u1 = (r.x + r.w) / ATLAS_W
     const vT = 1 - r.y / ATLAS_H, vB = 1 - (r.y + r.h) / ATLAS_H
@@ -543,6 +543,7 @@ export function buildCity() {
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz) // lanes flare beside a splitter island at these ends
       const sgh = (u: number) => segHalves(kA, kB, S0, B - S1, u, fA, fB)
+      const rbA = rbSpec(i, j), rbB = rbSpec(i + dx, j + dz)
       // Each carriageway sits one lane out from the centre line (the median) so the through lanes run straight across junctions. The median's
       // two edge lines (yellow) meet in the middle as the left-turn lanes open up in it near a signalised junction.
       const medAt = (u: number) => LANE_W * medFac(kA, kB, S0, B - S1, u)
@@ -553,6 +554,29 @@ export function buildCity() {
         const yAB = (x: number) => Math.max(0, medAt(x) - bSh(x)), yBA = (x: number) => -Math.max(0, medAt(x) - aSh(x))
         marks.upQuad([at(ax, az, d, u, yAB(u) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.27), at(ax, az, d, u, yAB(u) + 0.27)], 0.02, YELLOW)
         marks.upQuad([at(ax, az, d, u, yBA(u) - 0.27), at(ax, az, d, ue, yBA(ue) - 0.27), at(ax, az, d, ue, yBA(ue) - 0.13), at(ax, az, d, u, yBA(u) - 0.13)], 0.02, YELLOW)
+      }
+      // the median itself is a raised, planted island (kerb + grass) wherever it is wide enough: the left-turn lanes are cut into it
+      {
+        const yAB = (x: number) => Math.max(0, medAt(x) - bSh(x)), yBA = (x: number) => -Math.max(0, medAt(x) - aSh(x))
+        let run: Array<[number, number, number]> = []
+        const flush = () => {
+          if (run.length >= 2) for (const [inset, h, col] of [[0, 0.16, [0.62, 0.62, 0.64]], [0.28, 0.19, [0.24, 0.46, 0.2]]] as Array<[number, number, V3]>) {
+            const top: V2[] = [], bot: V2[] = []
+            for (const [u, lo, hi] of run) if (hi - lo > 2 * inset + 0.1) { top.push(at(ax, az, d, u, hi - inset)); bot.push(at(ax, az, d, u, lo + inset)) }
+            if (top.length < 2) continue
+            const shp = new THREE.Shape([...top, ...bot.reverse()].map(([x, z]) => new THREE.Vector2(x, -z)))
+            const g = new THREE.ExtrudeGeometry(shp, { depth: h, bevelEnabled: false })
+            g.rotateX(-Math.PI / 2)
+            solid.addGeometry(g, col)
+          }
+          run = []
+        }
+        for (let u = S0 + 5; u <= S1 - 5 + 0.01; u += 2.5) {
+          const lo = yBA(u) + 0.5, hi = yAB(u) - 0.5
+          if (hi - lo > 0.35) run.push([u, lo, hi])
+          else flush()
+        }
+        flush()
       }
       // dashed divider between the two ordinary lanes, both directions
       const shiftAt = (u: number) => Math.max(fA ? rbShift(u - S0) : 0, fB ? rbShift(S1 - u) : 0)
@@ -571,9 +595,10 @@ export function buildCity() {
         if (kB === 'signal' && bSh(u + 3) > 0.4) mk(ax, az, d, u, u + 3, medAt(u) - 0.075, medAt(u) + 0.075, WHITE)
         if (kA === 'signal' && aSh(u) > 0.4) mk(ax, az, d, u, u + 3, -medAt(u) - 0.075, -medAt(u) + 0.075, WHITE)
       }
-      // edge lines follow the widening road
-      for (let u = S0; u < S1 - 0.01; u += 3) {
-        const ue = Math.min(u + 3, S1)
+      // edge lines follow the widening road (they hand over to the curved kerb where the road sweeps into a roundabout)
+      const clipA = rbA ? Math.max(0, rbFillet(rbA).uc - S0) : 0, clipB = rbB ? Math.max(0, rbFillet(rbB).uc - (B - S1)) : 0
+      for (let u = S0 + clipA; u < S1 - clipB - 0.01; u += 3) {
+        const ue = Math.min(u + 3, S1 - clipB)
         const h0 = sgh(u), h1 = sgh(ue)
         marks.upQuad([at(ax, az, d, u, h0.right - 0.35), at(ax, az, d, ue, h1.right - 0.35), at(ax, az, d, ue, h1.right - 0.15), at(ax, az, d, u, h0.right - 0.15)], 0.02, WHITE)
         marks.upQuad([at(ax, az, d, u, -(h0.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.35)), at(ax, az, d, u, -(h0.left - 0.35))], 0.02, WHITE)
@@ -583,7 +608,6 @@ export function buildCity() {
       const roundEnd0 = nodeKind(i, j) === 'round'
       if (!roundEnd1) mk(ax, az, d, S1 - 2.3, S1 - 1.7, 0.4, HALF_ROAD - 0.1, WHITE)
       if (!roundEnd0) mk(ax, az, d, S0 + 1.7, S0 + 2.3, -HALF_ROAD + 0.1, -0.4, WHITE)
-      const rbA = rbSpec(i, j), rbB = rbSpec(i + dx, j + dz)
       // a signalised roundabout has a stop bar before the crosswalk
       if (rbB?.signals) mk(ax, az, d, S1 - 18.4, S1 - 17.8, rbShift(18) + 0.2, HALF_MID + rbShift(18) - 0.1, WHITE)
       if (rbA?.signals) mk(ax, az, d, S0 + 17.8, S0 + 18.4, -(HALF_MID + rbShift(18) - 0.1), -(rbShift(18) + 0.2), WHITE)
@@ -611,6 +635,12 @@ export function buildCity() {
         const g = new THREE.ExtrudeGeometry(shape, { depth: 0.17, bevelEnabled: false })
         g.rotateX(-Math.PI / 2)
         solid.addGeometry(g, [0.66, 0.67, 0.69])
+        // planted (grass) top inside the kerb, like a real splitter island
+        const gin: Pt2[] = [[1.0, -(half[0][1] - 0.4)], [1.0, half[0][1] - 0.4], [9, half[1][1] - 0.4], [19, half[2][1] - 0.38], [24, 0.12], [19, -(half[2][1] - 0.38)], [9, -(half[1][1] - 0.4)]]
+        const gsh = new THREE.Shape(gin.map(([a, b]) => { const [wx, wz] = at(ax, az, d, uEnd - ds * a, b); return new THREE.Vector2(wx, -wz) }))
+        const gg = new THREE.ExtrudeGeometry(gsh, { depth: 0.2, bevelEnabled: false })
+        gg.rotateX(-Math.PI / 2)
+        solid.addGeometry(gg, [0.24, 0.46, 0.2])
         // reflective yellow nose on the approaching end
         const nose = at(ax, az, d, uEnd - ds * 29.4, 0)
         solid.box(nose[0], 0, nose[1], 0.4, 0.5, 0.4, 0, YELLOW)
@@ -635,6 +665,23 @@ export function buildCity() {
         g.translate(0, 0.027, 0)
         marks.addGeometry(g, [0.82, 0.82, 0.78], 3)
       }
+      // zebra crossing across each arm, a car length back from the yield line (it passes through a gap either side of the splitter island)
+      const zebra = (uEnd: number, ds: 1 | -1, spec: NonNullable<ReturnType<typeof rbSpec>>) => {
+        const back = spec.signals ? 12.5 : 6.5
+        const isl = (spec.splitter ? rbShift(back + 1.5) : 1.1) + 0.45
+        const edge = sgh(uEnd - ds * (back + 1.5))
+        for (const sg of [-1, 1] as const) {
+          const lim = (sg === 1 ? edge.right : edge.left) - 0.75
+          // on a one-lane roundabout the entry's left lane is a raised island there: no stripes on it
+          const wedge = sg === ds && spec.laneR.length === 1 ? wedgeSpan(back + 1.5, spec.splitter) : null
+          for (let v = isl; v + 0.55 < lim; v += 1.15) {
+            if (wedge && v + 0.55 > wedge[0] - 0.3 && v < wedge[1] + 0.3) continue
+            mk(ax, az, d, uEnd - ds * (back + 3), uEnd - ds * back, sg * v, sg * (v + 0.55), WHITE)
+          }
+        }
+      }
+      if (roundEnd1 && rbB) zebra(S1, 1, rbB)
+      if (roundEnd0 && rbA) zebra(S0, -1, rbA)
       if (roundEnd1) { teeth(S1, 1, 1, fB, rbB && rbB.laneR.length === 1 ? LANE_W : 0); if (fB) island(S1, 1); else paintedIsland(S1, 1) }
       if (roundEnd0) { teeth(S0, -1, -1, fA, rbA && rbA.laneR.length === 1 ? LANE_W : 0); if (fA) island(S0, -1); else paintedIsland(S0, -1) }
       // painted lane arrows: signal approach = left / straight / right-only; roundabout approach (2 lanes) = left lane straight + left, right lane straight + right.
@@ -731,8 +778,8 @@ export function buildCity() {
         // concrete gutter along both kerbs (the strip of water channel between the asphalt and the kerb)
         for (const sg of [-1, 1] as const) {
           const e0 = (u: number) => (sg === 1 ? sgh(u).right : sgh(u).left)
-          for (let u = S0; u < S1 - 0.01; u += 4) {
-            const ue = Math.min(u + 4, S1)
+          for (let u = S0 + clipA; u < S1 - clipB - 0.01; u += 4) {
+            const ue = Math.min(u + 4, S1 - clipB)
             const a0 = sg * (e0(u) + 0.02), a1 = sg * (e0(u) + 0.55), b0 = sg * (e0(ue) + 0.02), b1 = sg * (e0(ue) + 0.55)
             marks.upQuad([at(ax, az, d, u, a0), at(ax, az, d, ue, b0), at(ax, az, d, ue, b1), at(ax, az, d, u, a1)], 0.016, [0.58, 0.58, 0.6])
           }
@@ -775,18 +822,27 @@ export function buildCity() {
     if (kind === 'signal') {
       // dashed turn-guide lines through the junction box: they show the path of a left turn (new left lane) only
       const guide = (S: V2, E: V2, ctrl: V2, X: V2) => {
-        const pts: V2[] = [S, E]
-        for (let t = 1 / 26; t <= 1.0001; t += 1 / 26) {
-          const u = 1 - t
+        // sample the path finely, then lay short even dashes along it (0.6 m paint, 0.9 m gap: a dotted extension line, as on real roads)
+        const pts: V2[] = [S]
+        for (let k = 0; k <= 160; k++) {
+          const t = k / 160, u = 1 - t
           pts.push([u * u * E[0] + 2 * u * t * ctrl[0] + t * t * X[0], u * u * E[1] + 2 * u * t * ctrl[1] + t * t * X[1]])
         }
-        let acc = 0
+        const DASH = 0.6, PERIOD = 1.5
+        let acc = 0, start: V2 | null = null
         for (let q = 1; q < pts.length; q++) {
           const [x0, z0] = pts[q - 1], [x1, z1] = pts[q]
           const sl = Math.hypot(x1 - x0, z1 - z0)
-          if (sl > 1e-6 && acc % 3.2 < 1.6) {
-            const nx = (-(z1 - z0) / sl) * 0.075, nz = ((x1 - x0) / sl) * 0.075
-            marks.upQuad([[x0 - nx, z0 - nz], [x1 - nx, z1 - nz], [x1 + nx, z1 + nz], [x0 + nx, z0 + nz]], 0.02, WHITE)
+          if (sl < 1e-6) continue
+          const on = acc % PERIOD < DASH
+          if (on && !start) start = [x0, z0]
+          if (start && (!on || q === pts.length - 1)) {
+            const dl = Math.hypot(x0 - start[0], z0 - start[1])
+            if (dl > 0.05) {
+              const nx = (-(z0 - start[1]) / dl) * 0.075, nz = ((x0 - start[0]) / dl) * 0.075
+              marks.upQuad([[start[0] - nx, start[1] - nz], [x0 - nx, z0 - nz], [x0 + nx, z0 + nz], [start[0] + nx, start[1] + nz]], 0.02, WHITE)
+            }
+            start = null
           }
           acc += sl
         }
@@ -798,7 +854,7 @@ export function buildCity() {
         // Guides run along the lane EDGE on the side toward the other lanes, not down the lane's middle: a left turn starts on the
         // line between the left lane and its neighbour (at the stop line) and sweeps in one wide curve onto the matching line of the
         // lane it turns into; a right turn does the same from the line between the right-turn lane and its neighbour.
-        for (const [e, oEdge, xEdge] of [[(tt + 1) % 4, LANE_W / 2, 1.5 * LANE_W]] as Array<[number, number, number]>) { // left turns only: no guide lines for right turns or straight on
+        for (const [e, oEdge, xEdge] of [[(tt + 1) % 4, LANE_W, 2 * LANE_W]] as Array<[number, number, number]>) { // left turns only: no guide lines for right turns or straight on
           const o = oEdge
           const E: V2 = [cx + aox * BOX + alx * o, cz + aoz * BOX + alz * o]
           const [eox, eoz] = dirv(e), [erx, erz] = dirv(e - 1)
@@ -888,23 +944,47 @@ export function buildCity() {
           }
         }
       }
-      // kerbed pavement around the outside, between the arms
-      // a kerbed seal across the mouth of every closed arm (no pedestrian pavement)
-      const kerbSecs: Array<[number, number]> = []
-      for (let d = 0; d < 4; d++) if (armClosed(i, j, d)) kerbSecs.push([(d * Math.PI) / 2 - armHalf - 0.02, (d * Math.PI) / 2 + armHalf + 0.02])
-      for (const [a0, a1] of kerbSecs) {
-        const sh = new THREE.Shape()
-        sh.absarc(cx, -cz, spec.outer + 4, a0, a1, false)
-        sh.absarc(cx, -cz, spec.outer + 0.1, a1, a0, true)
-        const g = new THREE.ExtrudeGeometry(sh, { depth: 0.15, bevelEnabled: false, curveSegments: 14 })
-        g.rotateX(-Math.PI / 2)
-        solid.addGeometry(g, CONC)
-        // outer edge line along the kerb
-        const m = 10
-        for (let w = 0; w < m; w++) {
-          const e0 = a0 + ((a1 - a0) * w) / m, e1 = a0 + ((a1 - a0) * (w + 1)) / m
-          const p = (r: number, a: number): V2 => [cx + r * Math.cos(a), cz - r * Math.sin(a)]
-          marks.upQuad([p(spec.outer - 0.5, e0), p(spec.outer - 0.5, e1), p(spec.outer - 0.3, e1), p(spec.outer - 0.3, e0)], 0.02, WHITE)
+      // Curved kerbs sweep every road into the ring (a flared mouth, as on a real roundabout), with a white edge line round the outside
+      {
+        const f = rbFillet(spec)
+        const gaps: Array<[number, number]> = []
+        for (let d = 0; d < 4; d++) {
+          if (armClosed(i, j, d)) continue
+          const [dx, dz] = dirv(d)
+          const L2 = (u: number, v: number): V2 => [cx + dx * u - dz * v, cz + dz * u + dx * v]
+          gaps.push([(d * Math.PI) / 2 - f.ang, (d * Math.PI) / 2 + f.ang])
+          for (const sg of [-1, 1]) {
+            const C: V2 = [f.uc, sg * (f.hwC + f.Rf)]
+            const p1 = Math.atan2(-sg, 0), p2raw = Math.atan2(-C[1], -C[0])
+            let dp = p2raw - p1
+            dp = Math.atan2(Math.sin(dp), Math.cos(dp))
+            const N = 14
+            const arc = (rad: number, k: number): V2 => { const p = p1 + (dp * k) / N; return [C[0] + rad * Math.cos(p), C[1] + rad * Math.sin(p)] }
+            const poly: V2[] = []
+            for (let k = 0; k <= N; k++) poly.push(arc(f.Rf, k))
+            const bT = Math.atan2(C[1], C[0]), um = Math.sqrt(Math.max(0, spec.outer ** 2 - f.hwM ** 2)), bM = Math.atan2(sg * (f.hwM - 0.8), um)
+            for (let k = 0; k <= 6; k++) { const bb = bT + ((bM - bT) * k) / 6; poly.push([(spec.outer - 0.4) * Math.cos(bb), (spec.outer - 0.4) * Math.sin(bb)]) }
+            poly.push([f.uc, sg * (f.hwC - 0.8)])
+            const shp = new THREE.Shape(poly.map(([u, v]) => { const [x, z] = L2(u, v); return new THREE.Vector2(x, -z) }))
+            const g = new THREE.ShapeGeometry(shp)
+            g.rotateX(-Math.PI / 2)
+            g.translate(0, 0.0006, 0)
+            asphalt.addGeometry(g, [1, 1, 1], 4)
+            for (let k = 0; k < N; k++) {
+              const q = (rad: number, kk: number) => L2(...arc(rad, kk))
+              marks.upQuad([q(f.Rf + 0.15, k), q(f.Rf + 0.15, k + 1), q(f.Rf + 0.35, k + 1), q(f.Rf + 0.35, k)], 0.02, WHITE)
+              marks.upQuad([q(f.Rf - 0.55, k), q(f.Rf - 0.55, k + 1), q(f.Rf - 0.02, k + 1), q(f.Rf - 0.02, k)], 0.016, [0.58, 0.58, 0.6]) // gutter
+            }
+          }
+        }
+        // the ring's outer edge line, everywhere except across the road mouths
+        const p = (r: number, a: number): V2 => [cx + r * Math.cos(a), cz - r * Math.sin(a)]
+        const M = 120
+        for (let k = 0; k < M; k++) {
+          const a0 = (k / M) * Math.PI * 2, a1 = ((k + 1) / M) * Math.PI * 2, am = (a0 + a1) / 2
+          if (gaps.some(([g0, g1]) => { const c = (g0 + g1) / 2; return Math.abs(Math.atan2(Math.sin(am - c), Math.cos(am - c))) < (g1 - g0) / 2 })) continue
+          marks.upQuad([p(spec.outer - 0.35, a0), p(spec.outer - 0.35, a1), p(spec.outer - 0.15, a1), p(spec.outer - 0.15, a0)], 0.02, WHITE)
+          marks.upQuad([p(spec.outer + 0.02, a0), p(spec.outer + 0.02, a1), p(spec.outer + 0.55, a1), p(spec.outer + 0.55, a0)], 0.016, [0.58, 0.58, 0.6])
         }
       }
     }
@@ -917,18 +997,23 @@ export function buildCity() {
       const face: V2 = [ox, oz]
       const crossIdx = a % 2 === 0 ? i : 4 + j // road that crosses the one being driven along
       const yaw = Math.atan2(ox, oz)
-      const HW = kind === 'signal' ? HALF_ROAD : HALF_MID // half-width of the approach where the signs stand
+      // half-width of the road u metres out along this arm: it is wider wherever the median is present (towards a signalised junction),
+      // so signs always stand on the verge, never in a lane
+      const [nbx, nbz] = dirv(a)
+      const kNb = nodeKind(i + nbx, j + nbz), clrNb = clearance(i + nbx, j + nbz)
+      const HWat = (u: number) => HALF_MID + LANE_W * medFac(kind, kNb, clr, clrNb, u)
+      const HW = HWat(clr + 2.5)
 
       // roadside signs on the right-hand verge
       const side = (u: number, h: number, w: number, hh: number, r: Rect) => {
         // beside the road: the verge starts further out where the roundabout entrance flares
-        const [x, z] = P(u, HW + 1.7 + (flareOf(i, j) ? rbShift(u - clr) : 0))
+        const [x, z] = P(u, HWat(u) + 1.7 + (flareOf(i, j) ? rbShift(u - clr) : 0))
         post(x, z, h)
         signQuad(x + ox * 0.08, h + hh / 2 - 0.1, z + oz * 0.08, w, hh, face, r)
       }
       // advance street-name sign, well before the junction: the name of the road you are about to meet
       {
-        const [ax2, az2] = P(clr + 78, HW + 1.9 + (flareOf(i, j) ? rbShift(78) : 0))
+        const [ax2, az2] = P(clr + 78, HWat(clr + 78) + 1.9 + (flareOf(i, j) ? rbShift(78) : 0))
         post(ax2, az2, 3.0, 0.11)
         signQuad(ax2 + ox * 0.09, 2.45, az2 + oz * 0.09, 1.9, 0.95, face, PLATE(crossIdx))
       }

@@ -12,6 +12,7 @@ export const LANES = 3 // lanes in each direction at a signalised junction appro
 export const LANES_MID = 2 // lanes in each direction on an ordinary stretch of road
 export const HALF_MID = LANES_MID * LANE_W // half the width of the ordinary 2-lane road
 export const HALF_ROAD = LANES * LANE_W // half the width where a third (turn) lane is added
+export const MED0 = 100, MED1 = 140 // the median at a signalised junction: full width within MED0 m of it, gone by MED1
 export const FLARE = 80 // length of the full 3-lane section before a signalised junction
 export const TAPER = 30 // the road widens from 2 to 3 lanes over this distance
 /** how far the road has widened (0..1) at distance d before the junction's edge */
@@ -234,8 +235,8 @@ function buildPieces() {
         // approaching a signalised junction the through lanes shift outward over the taper to make room for the new left-turn lane
         if (toKind === 'signal') { if (segLen - FLARE - TAPER > 0) bps.add(segLen - FLARE - TAPER); if (segLen - FLARE > 0) bps.add(segLen - FLARE) }
         // next to a roundabout the median closes up over 20..80 m
-        if (kind === 'round') for (const dd of [20, 80]) if (dd < segLen) bps.add(dd)
-        if (toKind === 'round') for (const dd of [20, 80]) if (segLen - dd > 0) bps.add(segLen - dd)
+        if (kind === 'signal') for (const dd of [100, 140]) if (dd < segLen) bps.add(dd)
+        if (toKind === 'signal') for (const dd of [100, 140]) if (segLen - dd > 0) bps.add(segLen - dd)
         const sorted = [...bps].sort((p, q) => p - q)
         for (let k = 0; k < LANES; k++) {
           const o = aiOff(k)
@@ -551,8 +552,10 @@ export function nearestNode(x: number, z: number) {
  *  away from the centre line, leaving a flush median that the back-to-back left-turn lanes fill as the junction nears; next to a
  *  roundabout the road closes up to its ordinary width. */
 export function medFac(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number) {
-  const w = (k: NodeKind, d: number) => (k === 'signal' ? 1 : Math.min(1, Math.max(0, (d - 20) / 60)))
-  return Math.min(w(kA, u - clrA), w(kB, B - u - clrB))
+  // the median belongs to the signalised junction: full width within MED0 of it, gone by MED1. Towards a roundabout the road is then
+  // an ordinary two-lanes-each-way road with a double yellow line
+  const w = (k: NodeKind, d: number) => (k !== 'signal' ? 0 : d <= MED0 ? 1 : d >= MED1 ? 0 : 1 - (d - MED0) / (MED1 - MED0))
+  return Math.max(w(kA, u - clrA), w(kB, B - u - clrB))
 }
 
 /**
@@ -564,9 +567,10 @@ export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number
   const dA = u - clrA
   const dB = B - u - clrB
   return {
-    // a road that meets a signalised junction has a median (one lane each side of the centre line) for the left-turn lanes
-    right: HALF_MID + LANE_W * medFac(kA, kB, clrA, clrB, u) + (flB ? rbShift(dB) : 0),
-    left: HALF_MID + LANE_W * medFac(kA, kB, clrA, clrB, u) + (flA ? rbShift(dA) : 0),
+    // a road that meets a signalised junction has a median (one lane each side of the centre line) for the left-turn lanes;
+    // beside a roundabout's splitter island BOTH carriageways (entry and exit) move outward
+    right: HALF_MID + LANE_W * medFac(kA, kB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0),
+    left: HALF_MID + LANE_W * medFac(kA, kB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0),
   }
 }
 
@@ -641,11 +645,32 @@ const wedgeHit = (back: number, v: number, rb: RbSpec | undefined) => {
   return !!s && v >= s[0] && v <= s[1]
 }
 
+/** The curved kerb that sweeps each road into a roundabout: a fillet of radius Rf between the road's edge and the ring's outer edge.
+ *  In the arm's own frame (u outward from the centre, v sideways) its centre is at (uc, +/-(hwC + Rf)); it touches the road edge at u = uc. */
+export function rbFillet(spec: RbSpec) {
+  const Rf = Math.min(14, Math.max(5, spec.outer * 0.3))
+  const hwM = HALF_MID + 0.5 + (spec.splitter ? RB_SHIFT : 0)
+  let hwC = hwM, uc = 0
+  for (let k = 0; k < 3; k++) {
+    uc = Math.sqrt((spec.outer + Rf) ** 2 - (hwC + Rf) ** 2)
+    hwC = HALF_MID + 0.5 + (spec.splitter ? rbShift(Math.max(0, uc - spec.outer)) : 0)
+  }
+  return { Rf, uc, hwC, hwM, ang: Math.atan2(hwC + Rf, uc) }
+}
+
 export function onAsphalt(x: number, z: number) {
   const nn = nearestNode(x, z)
   if (nn.spec) {
     const r = Math.hypot(nn.rx, nn.rz)
     if (r < nn.spec.outer) return r > nn.spec.island
+    // the flared mouths: between the road edge, the ring and the curved kerb
+    const f = rbFillet(nn.spec)
+    if (r < nn.spec.outer + f.Rf + 2) for (let d = 0; d < 4; d++) {
+      if (armClosed(nn.i, nn.j, d)) continue
+      const [dx, dz] = dirv(d)
+      const u = nn.rx * dx + nn.rz * dz, av = Math.abs(-nn.rx * dz + nn.rz * dx)
+      if (u > 0 && u <= f.uc && av * f.uc <= (f.hwC + f.Rf) * u && Math.hypot(u - f.uc, av - (f.hwC + f.Rf)) >= f.Rf - 0.2) return true
+    }
   } else if (Math.abs(nn.rx) < BOX + 0.2 && Math.abs(nn.rz) < BOX + 0.2) {
     // the junction is a cross with rounded corners
     return inPoly(nn.rx, nn.rz, junctionOutline(nn.i, nn.j).pts)

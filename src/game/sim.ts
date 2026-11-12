@@ -224,6 +224,7 @@ function fail(reason: string, tips: string[]) {
 const autoLane = { t: 0, on: false, h0: 0, dir: 1 as -1 | 1, p0: 0, w: 4.7, sig: false }
 
 /** Space: an "auto" mode that steers the car smoothly into the middle of its lane and straightens it, then lets go */
+let steerHold = 0, steerHoldDir = 0 // how long a steering key has been held, and which way
 const autoCentre = { on: false, t: 0, ok: 0, prevH: NaN, dhS: 0 }
 
 /** state of the highway merge attempt */
@@ -377,13 +378,13 @@ export function stepSim(dt: number) {
   if (input.gasTap) { input.gasTap = false; if (sim.cruise) sim.cruise = 0; else if (sim.speed > 5) { sim.cruise = sim.speed; say(`Cruise control on`, 'info') } }
   const thrT = input.up ? 1 : sim.cruise ? clamp((sim.cruise - sim.speed) * 0.7 + 0.12, 0, 1) : 0
   const brkT = input.down ? 1 : 0
-  sim.thr += (thrT - sim.thr) * Math.min(1, dt * (thrT ? 2.5 : 5))
-  sim.brk += (brkT - sim.brk) * Math.min(1, dt * (brkT ? 7 : 10))
+  sim.thr += (thrT - sim.thr) * Math.min(1, dt * (thrT ? 7 : 6))
+  sim.brk += (brkT - sim.brk) * Math.min(1, dt * (brkT ? 16 : 12))
   const v = sim.speed
-  const aEng = sim.thr * 3.8 * Math.max(0, 1 - (v / 44) ** 2)
+  const aEng = sim.thr * 5.6 * Math.max(0, 1 - (v / 44) ** 2)
   const drag = v > 0.05 ? 0.25 + 0.0009 * v * v : 0 // rolling + air resistance
   const engBrake = (1 - sim.thr) * (v > 0.2 ? 0.7 : 0) // lifting off the pedal slows the car
-  const aBrk = sim.brk * 8.5
+  const aBrk = sim.brk * 10.5
   const aOff = !onRoad && v > 0.05 ? 5 : 0
   sim.speed = Math.max(0, v + (aEng - drag - engBrake - aBrk - aOff) * dt)
   updateEngine(dt)
@@ -398,8 +399,17 @@ export function stepSim(dt: number) {
   if (!autoLane.on && !autoCentre.on) {
     // the wheel keeps turning while an arrow (or the on-screen button) is held and springs back to straight when it is released
     const dirIn = (input.right ? 1 : 0) - (input.left ? 1 : 0)
-    if (dirIn) sim.wheel = clamp(sim.wheel + dirIn * 0.45 * dt, -1, 1)
-    else sim.wheel = Math.abs(sim.wheel) < 1.4 * dt ? 0 : sim.wheel - Math.sign(sim.wheel) * 1.4 * dt
+    if (dirIn) {
+      // it answers at once and winds on faster the longer the key is held; steering back against the lock is quicker still
+      steerHold = dirIn === steerHoldDir ? steerHold + dt : 0
+      steerHoldDir = dirIn
+      const against = sim.wheel * dirIn < 0
+      const wr = against ? 2.6 : 0.9 + 1.3 * Math.min(1, steerHold / 0.5)
+      sim.wheel = clamp(sim.wheel + dirIn * wr * dt, -1, 1)
+    } else {
+      steerHold = 0; steerHoldDir = 0
+      sim.wheel = Math.abs(sim.wheel) < 2.2 * dt ? 0 : sim.wheel - Math.sign(sim.wheel) * 2.2 * dt
+    }
   }
   let target = sim.wheel
   // double-tap lane change: the car steers itself over to the next lane, then straightens up
@@ -459,10 +469,18 @@ export function stepSim(dt: number) {
       }
     }
   }
-  const rate = target ? 1.5 + sens : 3
+  const manual = !autoLane.on && !autoCentre.on
+  const rate = manual ? 6 : target ? 1.5 + sens : 3
   // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
   const err = target - sim.steerIn
-  sim.steerIn += clamp(err * Math.min(1, dt * (target ? 5 : 7)) + Math.sign(err) * Math.min(Math.abs(err), rate * dt * 0.25), -rate * dt, rate * dt)
+  // by hand the road wheels follow the steering wheel directly (no extra lag: what you press is what the car does)
+  {
+    // ease toward the target and never step past it (stepping past made the wheel flutter about its target)
+    const k = 1 - Math.exp(-dt * (manual ? 16 : target ? 5 : 7))
+    let step = err * k + Math.sign(err) * Math.min(Math.abs(err) * (1 - k), rate * dt * 0.25)
+    step = clamp(step, -rate * dt, rate * dt)
+    sim.steerIn += Math.abs(step) > Math.abs(err) ? err : step
+  }
   sim.steer = sim.steerIn * (0.55 * sens / (1 + (sim.speed / 9) ** 2))
   // the car's heading turns with a little inertia, so a turn starts and ends smoothly instead of snapping
   const yawTarget = -(sim.speed / WHEELBASE) * Math.tan(sim.steer)
