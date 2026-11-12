@@ -166,6 +166,8 @@ const _Ev = new THREE.Vector3()
 const _X = new THREE.Vector3()
 const _Z = new THREE.Vector3()
 const _M = new THREE.Matrix4()
+const _P = new THREE.Vector3()
+const _DB = new THREE.Vector2()
 
 /**
  * A planar mirror that renders exactly what the driver's eye would see through the
@@ -189,7 +191,12 @@ export class MirrorGlass extends THREE.Mesh {
 
   constructor(geometry: THREE.BufferGeometry, o: MirrorGlassOpts) {
     const wide = o.wide ?? 1
-    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], { samples: 4, type: THREE.HalfFloatType })
+    // mipmapped, with anisotropic filtering: a mirror is often much smaller on screen than its picture, and without mipmaps the
+    // picture shimmers and looks blocky when it is shrunk onto the glass
+    const rt = new THREE.WebGLRenderTarget(o.res[0], o.res[1], {
+      samples: 4, type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter,
+    })
+    rt.texture.anisotropy = 8
     const material = new THREE.ShaderMaterial({
       uniforms: {
         tDiffuse: { value: rt.texture },
@@ -224,6 +231,7 @@ export class MirrorGlass extends THREE.Mesh {
 
     const dist = _E.clone().sub(_C).dot(_N)
     if (dist <= 0.02) return // looking at the back of the mirror
+    this.fitResolution(renderer, camera)
 
     // eye reflected through the mirror plane
     _Ev.copy(_E).addScaledVector(_N, -2 * dist)
@@ -268,6 +276,33 @@ export class MirrorGlass extends THREE.Mesh {
     renderer.setRenderTarget(prevRT)
     this.visible = true
   }
+
+  /**
+   * Size the mirror's picture to how big the mirror is on screen right now (at the screen's real pixel density), with some headroom:
+   * sharp when you look at a mirror and it fills much of the view, and no wasted work when it is small in a corner. Re-checked a few
+   * times a second; the picture is only re-allocated when the right size has changed noticeably.
+   */
+  private fitT = 0
+  private fitResolution(renderer: THREE.WebGLRenderer, camera: THREE.Camera) {
+    if (++this.fitT % 15 !== 1) return
+    const db = renderer.getDrawingBufferSize(_DB)
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+    for (const [cx, cy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      _P.set(cx * this.half.x, cy * this.half.y, 0).applyMatrix4(this.matrixWorld).project(camera)
+      if (_P.z > 1) return // behind the camera: keep what we have
+      x0 = Math.min(x0, _P.x); x1 = Math.max(x1, _P.x); y0 = Math.min(y0, _P.y); y1 = Math.max(y1, _P.y)
+    }
+    const pw = ((x1 - x0) / 2) * db.x, ph = ((y1 - y0) / 2) * db.y // the mirror's size on screen, in pixels
+    const aspect = this.half.x / this.half.y
+    // 1.6x the on-screen size (the convex mirror shows a wider view, and it keeps fine detail), within sensible limits
+    let w = Math.max(pw, ph * aspect) * 1.6 * this.wide
+    w = Math.max(this.minW, Math.min(this.maxW, w))
+    const h = w / aspect
+    const cur = this.rt.width
+    if (Math.abs(w - cur) / cur > 0.18) this.rt.setSize(Math.round(w), Math.round(h))
+  }
+  private minW = 512
+  private maxW = 2400
 
   dispose() {
     this.rt.dispose()

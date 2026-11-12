@@ -59,7 +59,7 @@ export const glowMat = new THREE.ShaderMaterial({
       vec4 wp = m * vec4( position * 0.0, 1.0 );
       vec3 n = normalize( ( m * vec4( 0.0, 0.0, 1.0, 0.0 ) ).xyz );
       vec3 v = normalize( cameraPosition - wp.xyz );
-      vBeam = smoothstep( 0.86, 0.985, dot( n, v ) );
+      vBeam = smoothstep( 0.25, 0.6, dot( n, v ) );
       vCol = instanceColor;
       vUv = uv;
       gl_Position = projectionMatrix * viewMatrix * ( m * vec4( position, 1.0 ) );
@@ -72,7 +72,7 @@ export const glowMat = new THREE.ShaderMaterial({
       float r = length( vUv - 0.5 ) * 2.0;
       float a = pow( max( 0.0, 1.0 - r ), 2.6 );
       float lit = step( 0.35, max( vCol.r, max( vCol.g, vCol.b ) ) );
-      gl_FragColor = vec4( vCol * a * 0.8 * vBeam * lit, 1.0 );
+      gl_FragColor = vec4( vCol * a * 0.55 * vBeam * lit, 1.0 );
     }`,
 })
 // left-turn arrow lamp: points to the viewer's left (local -x)
@@ -103,7 +103,7 @@ export const lampMat = new THREE.ShaderMaterial({
       vec4 wp = m * vec4( position, 1.0 );
       vec3 n = normalize( ( m * vec4( 0.0, 0.0, 1.0, 0.0 ) ).xyz );
       vec3 v = normalize( cameraPosition - wp.xyz );
-      vBeam = smoothstep( 0.82, 0.975, dot( n, v ) );
+      vBeam = smoothstep( 0.2, 0.5, dot( n, v ) ); // lit from anywhere in front (dark only from the side roads or behind)
       vCol = instanceColor;
       vP = position.xy / 0.165;
       gl_Position = projectionMatrix * viewMatrix * wp;
@@ -118,12 +118,8 @@ export const lampMat = new THREE.ShaderMaterial({
       vec3 col;
       if ( uRound > 0.5 ) {
         float r = length( vP );
-        float dome = sqrt( max( 0.0, 1.0 - r * r * 0.9 ) );
-        // lit: a bright domed LED lens (rings of LEDs, hot centre, slightly darker rim)
-        float ang = atan( vP.y, vP.x );
-        float leds = 0.9 + 0.1 * sin( r * 46.0 ) * sin( ang * 18.0 );
-        vec3 on = vCol * ( 0.62 + 0.55 * dome ) * leds;
-        on += vCol * 0.5 * pow( max( 0.0, 1.0 - r ), 3.0 );
+        // lit: a clean, evenly bright coloured dot (no fine pattern: that shimmered and flickered at a distance)
+        vec3 on = vCol * ( 0.95 + 0.25 * ( 1.0 - r * r ) );
         // off: dark glass with a soft window reflection
         float spec = pow( max( 0.0, 1.0 - length( vP - vec2( -0.34, 0.4 ) ) * 1.6 ), 2.5 );
         vec3 off = vec3( 0.022, 0.026, 0.03 ) + vec3( 0.16, 0.19, 0.24 ) * spec + vec3( 0.03 ) * pow( r, 4.0 );

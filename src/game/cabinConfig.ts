@@ -97,7 +97,7 @@ export const FRONT_PITCH = -0.17 // the resting view: nearly level (about 10 deg
 export const LOOK_TARGETS: Record<Look, LookTarget> = {
   front: { yaw: FRONT_YAW, pitch: FRONT_PITCH, fov: 60.6, lean: V(0, 0, 0) },
   left: glance(MIRRORS[0], 0.5, 0.45, V(-0.05, 0, -0.02)),
-  center: glance(MIRRORS[1], 0.8, 0.85, V(0.05, 0.03, 0)),
+  center: glance(MIRRORS[1], 0.8, 0.85, V(0, 0, 0)), // the eyes move, not the head: the rear-view mirror is close, so any head movement swings its view
   right: glance(MIRRORS[2], 0.62, 0.45, V(0.14, 0, -0.04)),
   // A / D: a shoulder check over the left / right blind spot (head turned right round)
   blindL: { yaw: 2.3, pitch: -0.1, fov: 60.6, lean: V(-0.06, 0.02, 0.06) },

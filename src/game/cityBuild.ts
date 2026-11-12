@@ -1232,7 +1232,7 @@ export function buildCity() {
         const axis = a % 2 === 0 ? 0 : 1
         const lensY = HEAD_LENSY
         const [px, pz] = P(uf, qEdge)
-        const top = 6.55
+        const top = 8.3 // the mast arm: signal heads hang well above the traffic, as on a real signal pole
         tube([px, 0.35, pz], [px, top, pz], 0.25, 0.14, POLE, 14)
         // base plate with bolts, a hand-hole cover and a pedestrian push-button
         tube([px, 0, pz], [px, 0.4, pz], 0.4, 0.3, [0.4, 0.41, 0.44], 14)
@@ -1247,7 +1247,7 @@ export function buildCity() {
         tube([px, top - 1.0, pz], [m1x * 0.15 + px * 0.85, top - 0.45, m1z * 0.15 + pz * 0.85], 0.05, 0.05, POLE, 6)
         ;lanesHere.forEach(({ lat: q, use }) => {
           const [hx, hz] = P(uf, q)
-          const yc = 4.75
+          const yc = 6.5
           // hanger from the arm to the head
           const armY = top - 0.28 + ((midQ - q) / (midQ - endQ)) * 0.16
           tube([hx, armY, hz], [hx, yc + 0.66 * HS, hz], 0.04, 0.04, POLE, 6)
@@ -1257,18 +1257,18 @@ export function buildCity() {
         })
         // far-left corner pole: a second head, seen from the right-hand lanes too
         const [lx, lz] = P(uf, -qEdge)
-        tube([lx, 0.3, lz], [lx, 5.4, lz], 0.2, 0.12, POLE, 12)
+        tube([lx, 0.3, lz], [lx, 6.2, lz], 0.2, 0.12, POLE, 12)
         tube([lx, 0, lz], [lx, 0.35, lz], 0.34, 0.26, [0.4, 0.41, 0.44], 12)
-        signalHead(lx, lz, 3.7, ox, oz)
-        for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * HEAD_LAMP, y: 3.7 + lensY[l], z: lz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
+        signalHead(lx, lz, 4.5, ox, oz)
+        for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * HEAD_LAMP, y: 4.5 + lensY[l], z: lz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
         // junctions without a left arrow: "LEFT TURN YIELD ON GREEN" on the mast arm over the left lane
         if (!hasLeftArrow(n, a % 2)) {
           const [ysx, ysz] = P(uf, lanesHere[0].lat)
-          signQuad(ysx + ox * 0.16, 7.3, ysz + oz * 0.16, 0.8, 0.98, face, SIGN.leftYield)
+          signQuad(ysx + ox * 0.16, 9.05, ysz + oz * 0.16, 0.8, 0.98, face, SIGN.leftYield)
         }
         // street-name blade on the mast arm
         const [nx, nz] = P(uf, qEdge * 0.62)
-        signQuad(nx + ox * 0.15, 7.05, nz + oz * 0.15, 2.2, 1.1, face, PLATE(crossIdx))
+        signQuad(nx + ox * 0.15, 8.8, nz + oz * 0.15, 2.2, 1.1, face, PLATE(crossIdx))
       } else {
         // give way + roundabout signs at the entry, chevrons on the island
         const rsp = rbSpec(i, j)!
@@ -1283,9 +1283,9 @@ export function buildCity() {
           const sh = rbShift(18.5)
           for (const q of [HALF_MID + sh + 1.3, 0]) {
             const [hx, hz] = P(uh, q)
-            tube([hx, 0, hz], [hx, 5.3, hz], 0.2, 0.12, POLE, 10)
-            signalHead(hx, hz, 3.6, ox, oz)
-            for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: 3.6 + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
+            tube([hx, 0, hz], [hx, 6.1, hz], 0.2, 0.12, POLE, 10)
+            signalHead(hx, hz, 4.4, ox, oz)
+            for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: 4.4 + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
           }
         }
         if (!rsp.domed) {
