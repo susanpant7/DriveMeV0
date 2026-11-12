@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medFac, rbFillet, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
+import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -498,7 +498,7 @@ export function buildCity() {
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const cA = clearance(i, j), cB = clearance(i + dx, j + dz)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz)
-      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB)
+      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2))
       const u0 = kA === 'round' ? cA - 3 : cA
       const u1 = kB === 'round' ? B - cB + 3 : B - cB
       for (let u = u0; u < u1 - 0.01; u += 4) {
@@ -542,13 +542,14 @@ export function buildCity() {
       const S0 = clrA, S1 = B - clrB
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz) // lanes flare beside a splitter island at these ends
-      const sgh = (u: number) => segHalves(kA, kB, S0, B - S1, u, fA, fB)
+      const tA = jTypeOf(i, j, d % 2), tB = jTypeOf(i + dx, j + dz, d % 2)
+      const sgh = (u: number) => segHalves(kA, kB, S0, B - S1, u, fA, fB, tA, tB)
       const rbA = rbSpec(i, j), rbB = rbSpec(i + dx, j + dz)
       // Each carriageway sits one lane out from the centre line (the median) so the through lanes run straight across junctions. The median's
       // two edge lines (yellow) meet in the middle as the left-turn lanes open up in it near a signalised junction.
-      const medAt = (u: number) => LANE_W * medFac(kA, kB, S0, B - S1, u)
-      const aSh = (u: number) => (kA === 'signal' ? LANE_W * flare(u - S0) : 0) // pocket width at A's end
-      const bSh = (u: number) => (kB === 'signal' ? LANE_W * flare(S1 - u) : 0) // pocket width at B's end
+      const medAt = (u: number) => medW(tA, tB, S0, B - S1, u)
+      const aSh = (u: number) => pocketW(tA, u - S0, medAt(u)) // width of the left-turn lane(s) at A's end
+      const bSh = (u: number) => pocketW(tB, S1 - u, medAt(u))
       for (let u = S0; u < S1 - 0.01; u += 3) {
         const ue = Math.min(u + 3, S1)
         const yAB = (x: number) => Math.max(0, medAt(x) - bSh(x)), yBA = (x: number) => -Math.max(0, medAt(x) - aSh(x))
@@ -592,8 +593,14 @@ export function buildCity() {
       }
       // the left-turn lane's own dashed divider (the median's edge, where the pocket lane meets the first through lane)
       for (let u = S0 + 4; u + 3 < S1 - 12; u += 12) {
-        if (kB === 'signal' && bSh(u + 3) > 0.4) mk(ax, az, d, u, u + 3, medAt(u) - 0.075, medAt(u) + 0.075, WHITE)
-        if (kA === 'signal' && aSh(u) > 0.4) mk(ax, az, d, u, u + 3, -medAt(u) - 0.075, -medAt(u) + 0.075, WHITE)
+        if (tB && bSh(u + 3) > 0.4) mk(ax, az, d, u, u + 3, medAt(u) - 0.075, medAt(u) + 0.075, WHITE)
+        if (tA && aSh(u) > 0.4) mk(ax, az, d, u, u + 3, -medAt(u) - 0.075, -medAt(u) + 0.075, WHITE)
+        // between two left-turn lanes
+        if (tB?.nL === 2 && bSh(u + 3) > 1.5 * LANE_W) mk(ax, az, d, u, u + 3, medAt(u) - bSh(u) / 2 - 0.075, medAt(u) - bSh(u) / 2 + 0.075, WHITE)
+        if (tA?.nL === 2 && aSh(u) > 1.5 * LANE_W) mk(ax, az, d, u, u + 3, -(medAt(u) - aSh(u) / 2) - 0.075, -(medAt(u) - aSh(u) / 2) + 0.075, WHITE)
+        // the right-turn-only lane's divider
+        if (tB?.rOnly && flare(S1 - u - 3) > 0.25) mk(ax, az, d, u, u + 3, medAt(u) + 2 * LANE_W - 0.075, medAt(u) + 2 * LANE_W + 0.075, WHITE)
+        if (tA?.rOnly && flare(u - S0) > 0.25) mk(ax, az, d, u, u + 3, -(medAt(u) + 2 * LANE_W) - 0.075, -(medAt(u) + 2 * LANE_W) + 0.075, WHITE)
       }
       // edge lines follow the widening road (they hand over to the curved kerb where the road sweeps into a roundabout)
       const clipA = rbA ? Math.max(0, rbFillet(rbA).uc - S0) : 0, clipB = rbB ? Math.max(0, rbFillet(rbB).uc - (B - S1)) : 0
@@ -606,8 +613,8 @@ export function buildCity() {
       // stop lines + zebra crossings at both ends
       const roundEnd1 = nodeKind(i + dx, j + dz) === 'round'
       const roundEnd0 = nodeKind(i, j) === 'round'
-      if (!roundEnd1) mk(ax, az, d, S1 - 2.3, S1 - 1.7, 0.4, HALF_ROAD - 0.1, WHITE)
-      if (!roundEnd0) mk(ax, az, d, S0 + 1.7, S0 + 2.3, -HALF_ROAD + 0.1, -0.4, WHITE)
+      if (tB) mk(ax, az, d, S1 - 2.3, S1 - 1.7, 0.4, jHalf(tB) - 0.1, WHITE)
+      if (tA) mk(ax, az, d, S0 + 1.7, S0 + 2.3, -jHalf(tA) + 0.1, -0.4, WHITE)
       // a signalised roundabout has a stop bar before the crosswalk
       if (rbB?.signals) mk(ax, az, d, S1 - 18.4, S1 - 17.8, rbShift(18) + 0.2, HALF_MID + rbShift(18) - 0.1, WHITE)
       if (rbA?.signals) mk(ax, az, d, S0 + 17.8, S0 + 18.4, -(HALF_MID + rbShift(18) - 0.1), -(rbShift(18) + 0.2), WHITE)
@@ -691,7 +698,13 @@ export function buildCity() {
         const rbE = uEnd === S1 ? rbB : rbA
         const flE = uEnd === S1 ? fB : fA
         const twoLane = (rbE?.laneR.length ?? 2) === 2
-        endKinds(round, twoLane).forEach((kind, k) => {
+        const tE = uEnd === S1 ? tB : tA
+        if (tE) for (const ln of jLanes(tE)) {
+          // lane-use arrows of this junction's layout (turn-only lanes also say ONLY)
+          for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * ln.lat, ln.use)
+          if (ln.use === 'L' || ln.use === 'R') roadText(ax, az, d, uEnd - ds * 38, ds, v0sign * ln.lat, 2.2, 4.6, SIGN.only)
+        }
+        else endKinds(round, twoLane).forEach((kind, k) => {
           if (!kind) return
           for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneOff(k) + (round && flE ? rbShift(back) : 0)), kind)
         })
@@ -719,11 +732,6 @@ export function buildCity() {
           // merge arrows in the closing lane, well before the taper
           for (const back of [158, 140]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneOff(0) + (flE ? rbShift(back) : 0)), 'M')
         }
-      }
-      // "ONLY" on the left-turn lane of a signalised approach
-      for (const [uEnd, ds, sig, v0sign] of [[S1, 1, kB === 'signal', 1], [S0, -1, kA === 'signal', -1]] as Array<[number, 1 | -1, boolean, 1 | -1]>) {
-        if (!sig) continue
-        roadText(ax, az, d, uEnd - ds * 38, ds, v0sign * laneOff(0), 2.2, 4.6, SIGN.only) // the left lane is turn-only
       }
       // speed-limit signs on the right-hand verge in both directions, mid-block. Each one stands where ITS side of the
       // road is still 2 lanes wide (not inside the widened approach to a signalised junction or a roundabout flare).
@@ -854,7 +862,11 @@ export function buildCity() {
         // Guides run along the lane EDGE on the side toward the other lanes, not down the lane's middle: a left turn starts on the
         // line between the left lane and its neighbour (at the stop line) and sweeps in one wide curve onto the matching line of the
         // lane it turns into; a right turn does the same from the line between the right-turn lane and its neighbour.
-        for (const [e, oEdge, xEdge] of [[(tt + 1) % 4, LANE_W, 2 * LANE_W]] as Array<[number, number, number]>) { // left turns only: no guide lines for right turns or straight on
+        // one per left-turning lane, from the right-hand end of that lane's stop line onto the same edge of the lane it turns into
+        const jt = jTypeOf(i, j, ar % 2)!, mOut = jTypeOf(i, j, (ar + 1) % 2)!.nL * LANE_W
+        const lefts: Array<[number, number, number]> = jt.nL === 2 ? [[(tt + 1) % 4, LANE_W, mOut + LANE_W], [(tt + 1) % 4, 2 * LANE_W, mOut + 2 * LANE_W]] : [[(tt + 1) % 4, LANE_W, mOut + LANE_W]]
+        if (armClosed(i, j, ar) || armClosed(i, j, (tt + 1) % 4)) continue
+        for (const [e, oEdge, xEdge] of lefts) {
           const o = oEdge
           const E: V2 = [cx + aox * BOX + alx * o, cz + aoz * BOX + alz * o]
           const [eox, eoz] = dirv(e), [erx, erz] = dirv(e - 1)
@@ -1000,8 +1012,9 @@ export function buildCity() {
       // half-width of the road u metres out along this arm: it is wider wherever the median is present (towards a signalised junction),
       // so signs always stand on the verge, never in a lane
       const [nbx, nbz] = dirv(a)
-      const kNb = nodeKind(i + nbx, j + nbz), clrNb = clearance(i + nbx, j + nbz)
-      const HWat = (u: number) => HALF_MID + LANE_W * medFac(kind, kNb, clr, clrNb, u)
+      const clrNb = clearance(i + nbx, j + nbz)
+      const jt = jTypeOf(i, j, a % 2), jtNb = jTypeOf(i + nbx, j + nbz, a % 2)
+      const HWat = (u: number) => HALF_MID + medW(jt, jtNb, clr, clrNb, u) + (jt?.rOnly ? LANE_W * flare(u - clr) : 0)
       const HW = HWat(clr + 2.5)
 
       // roadside signs on the right-hand verge
@@ -1022,7 +1035,7 @@ export function buildCity() {
       side(clr + 30, 2.4, 0.85, 1.05, SIGN.speed)
       if (kind === 'signal') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
       if (kind === 'signal') {
-        side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows)
+        if (jt && jt.nL === 1 && !jt.rOnly) side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows of the 3-lane layout)
       } else if (rbSpec(i, j)!.laneR.length === 2) side(clr + 50, 2.5, 1.7, 1.7, SIGN.rbLanes) // roundabout lane-use sign (matches the painted arrows)
       else {
         // one-lane roundabout: warn that the left lane ends and traffic must merge right, well before it
@@ -1035,7 +1048,8 @@ export function buildCity() {
         // Signals hang ACROSS the road on the FAR side of the junction, facing the waiting traffic: a tapered pole on the far
         // verge with a mast arm over the lanes and one three-section head per lane, plus a pole head at the far-left corner.
         const uf = -(clr + 1.5)
-        const qEdge = HALF_ROAD + 1.7
+        const lanesHere = jLanes(jt!)
+        const qEdge = jHalf(jt!) + 1.7
         const axis = a % 2 === 0 ? 0 : 1
         const lensY = HEAD_LENSY
         const [px, pz] = P(uf, qEdge)
@@ -1052,15 +1066,15 @@ export function buildCity() {
         tube([m1x, top - 0.3, m1z], [m2x, top - 0.14, m2z], 0.12, 0.085, POLE, 12)
         // gusset where the arm meets the pole
         tube([px, top - 1.0, pz], [m1x * 0.15 + px * 0.85, top - 0.45, m1z * 0.15 + pz * 0.85], 0.05, 0.05, POLE, 6)
-        ;[laneOff(0), laneOff(1), laneOff(2)].forEach((q, lane) => {
+        ;lanesHere.forEach(({ lat: q, use }) => {
           const [hx, hz] = P(uf, q)
           const yc = 3.9
           // hanger from the arm to the head
           const armY = top - 0.28 + ((midQ - q) / (midQ - endQ)) * 0.16
           tube([hx, armY, hz], [hx, yc + 0.66 * HS, hz], 0.04, 0.04, POLE, 6)
-          signalHead(hx, hz, yc, ox, oz, lane === 0 && hasLeftArrow(n))
+          signalHead(hx, hz, yc, ox, oz, use === 'L' && hasLeftArrow(n, a % 2))
           // the left lane has its own left-turn ARROW signal; the other lanes show the through signal
-          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: yc + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: lane === 0 && hasLeftArrow(n) })
+          for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: yc + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: use === 'L' && hasLeftArrow(n, a % 2) })
         })
         // far-left corner pole: a second head, seen from the right-hand lanes too
         const [lx, lz] = P(uf, -qEdge)
@@ -1069,8 +1083,8 @@ export function buildCity() {
         signalHead(lx, lz, 3.1, ox, oz)
         for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * HEAD_LAMP, y: 3.1 + lensY[l], z: lz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
         // junctions without a left arrow: "LEFT TURN YIELD ON GREEN" on the mast arm over the left lane
-        if (!hasLeftArrow(n)) {
-          const [ysx, ysz] = P(uf, laneOff(0))
+        if (!hasLeftArrow(n, a % 2)) {
+          const [ysx, ysz] = P(uf, lanesHere[0].lat)
           signQuad(ysx + ox * 0.16, 6.15, ysz + oz * 0.16, 0.8, 0.98, face, SIGN.leftYield)
         }
         // street-name blade on the mast arm

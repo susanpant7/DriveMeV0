@@ -8,10 +8,13 @@ export const B = 250 // distance between junction centres
 export const G = 4 // junctions per side before the map repeats
 export const P = B * G // period of the world
 export const LANE_W = 5.2 // 17 ft: a very generous lane (US standard is 11-12 ft)
-export const LANES = 3 // lanes in each direction at a signalised junction approach
+/** Lane indices on a road: 0 and 1 are the two ordinary lanes (0 nearer the centre). Approaching a signalised junction extra lanes may open:
+ *  2 = left-turn lane beside lane 0, 3 = a second left-turn lane beside that, 4 = right-turn-only lane outside lane 1. */
+export const LANES = 5
+export const L_LEFT = 2, L_LEFT2 = 3, L_RIGHT = 4
 export const LANES_MID = 2 // lanes in each direction on an ordinary stretch of road
 export const HALF_MID = LANES_MID * LANE_W // half the width of the ordinary 2-lane road
-export const HALF_ROAD = LANES * LANE_W // half the width where a third (turn) lane is added
+export const HALF_ROAD = 4 * LANE_W // half the width of the widest junction approach (two ordinary lanes + two turn lanes)
 export const MED0 = 100, MED1 = 140 // the median at a signalised junction: full width within MED0 m of it, gone by MED1
 export const FLARE = 80 // length of the full 3-lane section before a signalised junction
 export const TAPER = 30 // the road widens from 2 to 3 lanes over this distance
@@ -62,6 +65,35 @@ export function armClosed(i: number, j: number, d: number) {
   const dd = mod(d, 4)
   const [dx, dz] = DIRS[dd]
   return dd === 0 || dd === 3 ? set.has(`${mod(i, G)},${mod(j, G)},${dd}`) : set.has(`${mod(i + dx, G)},${mod(j + dz, G)},${(dd + 2) % 4}`)
+}
+/** How a signalised junction's approaches are laid out (every arm of a junction is the same):
+ *  nL = how many left-turn-only lanes open up in the median (0: the left lane is shared left + straight on), rOnly = an extra right-turn-only lane. */
+export interface JType { nL: 0 | 1 | 2; rOnly: boolean; label: string }
+// The median is a property of the whole avenue, so no lane ever shifts sideways along a road or across a junction: lanes are only ever
+// ADDED beside the existing ones (left-turn lanes inside the median, a right-turn lane on the outside). Avenues that meet a roundabout
+// have no median (the left lane there is shared: left + straight on).
+const ROW_NL: Array<0 | 1 | 2> = [0, 2, 0, 1] // east-west avenues (by j): left-turn lanes on their approaches
+const COL_NL: Array<0 | 1 | 2> = [0, 1, 0, 1] // north-south avenues (by i)
+/** layout of the approaches along one axis of a junction (0 = the east-west road, 1 = the north-south road) */
+export function jTypeOf(i: number, j: number, axis: number): JType | null {
+  if (nodeKind(i, j) !== 'signal') return null
+  const mi = mod(i, G), mj = mod(j, G)
+  const nL = axis === 1 ? COL_NL[mi] : ROW_NL[mj]
+  const rOnly = nL < 2 && (mi * 3 + mj * 5 + axis * 2) % 3 === 0
+  return { nL, rOnly, label: '' }
+}
+/** half-width of the approach to a signalised junction right at the junction (to the outer lane edge) */
+export const jHalf = (t: JType) => LANE_W * (2 + t.nL + (t.rOnly ? 1 : 0))
+/** The lanes of an approach at the stop line, left to right: lane index, its centre (m from the centre line) and what it may do. */
+export function jLanes(t: JType): Array<{ lane: number; lat: number; use: 'L' | 'SL' | 'S' | 'SR' | 'R' }> {
+  const m = t.nL * LANE_W, W = LANE_W
+  const out: Array<{ lane: number; lat: number; use: 'L' | 'SL' | 'S' | 'SR' | 'R' }> = []
+  if (t.nL === 2) out.push({ lane: L_LEFT2, lat: m - 1.5 * W, use: 'L' })
+  if (t.nL >= 1) out.push({ lane: L_LEFT, lat: m - 0.5 * W, use: 'L' })
+  out.push({ lane: 0, lat: m + 0.5 * W, use: t.nL === 0 ? 'SL' : 'S' })
+  out.push({ lane: 1, lat: m + 1.5 * W, use: t.rOnly ? 'S' : 'SR' })
+  if (t.rOnly) out.push({ lane: L_RIGHT, lat: m + 2.5 * W, use: 'R' })
+  return out
 }
 /** wrap a coordinate difference into [-P/2, P/2) so "nearest copy" maths works */
 /** the world repeats every `period` metres (the grid city); a real city does not repeat, so its period is effectively infinite */
@@ -234,25 +266,28 @@ function buildPieces() {
         if (flB) for (const [dd] of RB_ISLAND) if (segLen - dd > 0) bps.add(segLen - dd)
         // approaching a signalised junction the through lanes shift outward over the taper to make room for the new left-turn lane
         if (toKind === 'signal') { if (segLen - FLARE - TAPER > 0) bps.add(segLen - FLARE - TAPER); if (segLen - FLARE > 0) bps.add(segLen - FLARE) }
-        // next to a roundabout the median closes up over 20..80 m
-        if (kind === 'signal') for (const dd of [100, 140]) if (dd < segLen) bps.add(dd)
-        if (toKind === 'signal') for (const dd of [100, 140]) if (segLen - dd > 0) bps.add(segLen - dd)
+        // where the median starts and stops changing width
+        const tA = jTypeOf(i, j, d % 2), tB = jTypeOf(ni, nj, d % 2)
+        for (const dd of tA && tB ? [80, segLen - 80] : [MED0, MED1]) { if (tA && dd < segLen) bps.add(dd); if (tB && segLen - dd > 0) bps.add(segLen - dd) }
         const sorted = [...bps].sort((p, q) => p - q)
         for (let k = 0; k < LANES; k++) {
-          const o = aiOff(k)
           const pts: Pt[] = sorted.map((sv) => {
-            // Each carriageway sits one lane out from the centre line (the median), so the through lanes run dead straight across a junction.
-            // The new left-turn lane grows out of the median beside the through lanes as the junction nears.
-            const med = LANE_W * medFac(kind, toKind, clrA, clrB, clrA + sv)
-            const off = (toKind === 'signal' && k === LANES - 1 ? med - LANE_W * flare(segLen - sv) / 2 : o + med) + (flA ? rbShift(sv) : 0) + (flB ? rbShift(segLen - sv) : 0)
+            // Each carriageway sits the median's width out from the centre line, so the through lanes (0, 1) run dead straight across a
+            // junction. The left-turn lanes (2, and 3 beside it) open up inside the median; the right-turn lane (4) opens outside lane 1.
+            const med = medW(tA, tB, clrA, clrB, clrA + sv)
+            const dB = segLen - sv
+            const f = tB && tB.nL ? pocketW(tB, dB, med) / (tB.nL * LANE_W) : 0
+            const base = k === L_LEFT ? med - 0.5 * LANE_W * f : k === L_LEFT2 ? med - 1.5 * LANE_W * f : k === L_RIGHT ? med + 1.5 * LANE_W + LANE_W * flare(dB) : med + aiOff(k)
+            const off = base + (flA ? rbShift(sv) : 0) + (flB ? rbShift(segLen - sv) : 0)
             return [cx + dx * (clrA + sv) + rx * off, cz + dz * (clrA + sv) + rz * off] as Pt
           })
           const rbB = rbSpec(ni, nj)
-          const aiOk = k === LANES - 1 ? toKind === 'signal' : rbB ? rbB.aiLanes.includes(k) : true // the 3rd lane only exists at a signalised junction
+          // the turn lanes only exist at a signalised junction of the right type
+          const aiOk = k === L_LEFT ? !!tB && tB.nL >= 1 : k === L_LEFT2 ? !!tB && tB.nL === 2 : k === L_RIGHT ? !!tB && tB.rOnly : rbB ? rbB.aiLanes.includes(k) : true
           const id = addPiece('edge', pts, 22, {
             node: nodeIndex(ni, nj), arm: arrive, lane: k, toKind, axis: arrive % 2 === 0 ? 0 : 1, aiOk,
           })
-          if (k === LANES - 1 && toKind === 'signal') PIECES[id].laneFrom = PIECES[id].len - FLARE
+          if (k >= 2) PIECES[id].laneFrom = PIECES[id].len - FLARE
           LINKS.edgeOut.set(`${n}:${d}:${k}`, id)
           sibIds.push(id)
           if (aiOk) EDGE_IDS.push(id)
@@ -266,11 +301,18 @@ function buildPieces() {
           const t = (a + 2) % 4 // travel direction of cars arriving via arm a
           const [ox, oz] = dirv(a)
           const [lx, lz] = dirv(a + 1)
+          const jt = jTypeOf(i, j, a % 2)!
+          const m = jt.nL * LANE_W
+          const mOut = jTypeOf(i, j, (a + 1) % 2)!.nL * LANE_W // the median of the cross road, which turning traffic drives out along // the median: every lane sits this far out, on the way in and on the way out
+          // which lanes may do what (see JType): left turns from the pocket lane(s), or from lane 0 when there is no pocket;
+          // right turns from the right-turn-only lane, or from lane 1 when there is none
+          const leftFrom: Array<[number, number]> = jt.nL === 0 ? [[0, 0]] : jt.nL === 1 ? [[L_LEFT, 0]] : [[L_LEFT2, 0], [L_LEFT, 1]] // [from lane, into lane]
+          const rightFrom = jt.rOnly ? L_RIGHT : 1
           for (let k = 0; k < LANES; k++) {
-            // at the junction: lane 2 = left-turn lane (next to the centre line), lane 0 = straight on, lane 1 = straight on or right turn
-            const o = k === LANES - 1 ? aiOff(0) : aiOff(k) + LANE_W
+            if ((k === L_LEFT && jt.nL < 1) || (k === L_LEFT2 && jt.nL < 2) || (k === L_RIGHT && !jt.rOnly)) continue
+            const o = k === L_LEFT ? m - 0.5 * LANE_W : k === L_LEFT2 ? m - 1.5 * LANE_W : k === L_RIGHT ? m + 2.5 * LANE_W : m + aiOff(k)
             const E: Pt = [cx + ox * BOX + lx * o, cz + oz * BOX + lz * o]
-            // straight: lanes 0 and 1 carry on into their own lane of the road beyond (a gentle S-curve back towards the centre)
+            // straight: lanes 0 and 1 carry on dead straight into their own lane of the road beyond
             const [sx, sz] = dirv(t)
             const [srx, srz] = dirv(t - 1)
             // a single-lane roundabout (or a mini one) has a ONE-lane entry: the left lane is closed there, so traffic in it
@@ -278,31 +320,32 @@ function buildPieces() {
             const ahead = rbSpec(i + sx, j + sz)
             const oneLaneAhead = !!ahead && ahead.laneR.length === 1
             const toLane = k === 0 && oneLaneAhead ? 1 : k
-            const exitOff = aiOff(toLane) + LANE_W
+            const exitOff = aiOff(toLane) + m
             const Xs: Pt = [cx + sx * BOX + srx * exitOff, cz + sz * BOX + srz * exitOff]
             if (k <= 1 && !armClosed(i, j, t)) {
               const shape: Pt[] = bez3(E, [E[0] + sx * BOX * 0.9, E[1] + sz * BOX * 0.9], [Xs[0] - sx * BOX * 0.9, Xs[1] - sz * BOX * 0.9], Xs, 12)
               LINKS.connS.set(`${n}:${a}:${k}`, addPiece('conn', shape, 14, { node: n, arm: t, lane: toLane }))
             }
-            // left turn (the left-most lane, the new one, only turns left)
-            if (k === LANES - 1 && !armClosed(i, j, (t + 1) % 4)) {
+            // left turn
+            const lf = leftFrom.find(([from]) => from === k)
+            if (lf && !armClosed(i, j, (t + 1) % 4)) {
               const e = (t + 1) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
               // if the road you turn onto leads to a one-lane roundabout, turn into its right lane (the left one is closed there)
               const aheadL = rbSpec(i + ex, j + ez)
-              const lLane = aheadL && aheadL.laneR.length === 1 ? 1 : 0
-              const xo = aiOff(lLane) + LANE_W
+              const lLane = aheadL && aheadL.laneR.length === 1 ? 1 : lf[1]
+              const xo = aiOff(lLane) + mOut
               const Xl: Pt = [cx + ex * BOX + erx * xo, cz + ez * BOX + erz * xo]
               const ctrl: Pt = sz === 0 ? [Xl[0], E[1]] : [E[0], Xl[1]]
               LINKS.connL.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xl, 16), 6.5, { node: n, arm: e, lane: lLane }))
             }
-            // right turn (from the right-most lane, which also goes straight on)
-            if (k === 1 && !armClosed(i, j, (t + 3) % 4)) {
+            // right turn
+            if (k === rightFrom && !armClosed(i, j, (t + 3) % 4)) {
               const e = (t + 3) % 4
               const [ex, ez] = dirv(e)
               const [erx, erz] = dirv(e - 1)
-              const Xr: Pt = [cx + ex * BOX + erx * (aiOff(1) + LANE_W), cz + ez * BOX + erz * (aiOff(1) + LANE_W)]
+              const Xr: Pt = [cx + ex * BOX + erx * (aiOff(1) + mOut), cz + ez * BOX + erz * (aiOff(1) + mOut)]
               const ctrl: Pt = sz === 0 ? [Xr[0], E[1]] : [E[0], Xr[1]]
               LINKS.connR.set(`${n}:${a}:${k}`, addPiece('conn', bez2(E, ctrl, Xr, 12), 6.5, { node: n, arm: e, lane: 1 }))
             }
@@ -363,7 +406,7 @@ function buildAll() {
   for (const p of PIECES) {
     if (p.kind !== 'edge' || p.toKind !== 'signal') continue
     const key = `${p.node}:${p.arm}:${p.lane}`
-    const can = p.lane === LANES - 1 ? LINKS.connL.has(key) : p.lane === 1 ? LINKS.connS.has(key) || LINKS.connR.has(key) : LINKS.connS.has(key)
+    const can = LINKS.connL.has(key) || LINKS.connS.has(key) || LINKS.connR.has(key)
     if (!can) p.aiOk = false
   }
   for (let k = EDGE_IDS.length - 1; k >= 0; k--) if (!PIECES[EDGE_IDS[k]].aiOk) EDGE_IDS.splice(k, 1)
@@ -436,7 +479,10 @@ const T1 = [0, 0]
  */
 const ARROW_AT: Array<[number, number]> = [[1, 1], [3, 3], [1, 2], [0, 3], [3, 0], [2, 1]]
 export const LEFT_ARROW = new Set(ARROW_AT.map(([i, j]) => mod(i, G) * G + mod(j, G)))
-export const hasLeftArrow = (node: number) => LEFT_ARROW.has(node)
+export const hasLeftArrow = (node: number, axis: number) => {
+  const t = jTypeOf(Math.floor(node / G), node % G, axis)
+  return !!t && (t.nL === 2 || (t.nL === 1 && LEFT_ARROW.has(node))) // a shared left lane has no arrow; two left-turn lanes always have one
+}
 export const CYCLE = 54
 const nodeOffsets: number[] = Array.from({ length: 64 }, (_, n) => ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE)
 const nodeOffset = (n: number) => nodeOffsets[n] ?? ((((Math.sin(n * 91.7) * 43758.5453) % 1) + 1) % 1) * CYCLE
@@ -446,8 +492,8 @@ export function signalColor(node: number, axis: 0 | 1, t: number, move: 'T' | 'L
   const a = axis === 1 ? ph : mod(ph - 27, CYCLE) // east-west runs 27 s after north-south
   // Junctions WITHOUT a left-turn arrow: one long green for the whole approach, left turns allowed on the round green
   // light but they must yield to oncoming traffic. Junctions WITH an arrow: through first, then a protected left arrow.
-  if (!LEFT_ARROW.has(node)) move = 'T'
-  const permissive = !LEFT_ARROW.has(node)
+  if (!hasLeftArrow(node, axis)) move = 'T'
+  const permissive = !hasLeftArrow(node, axis)
   const g0 = move === 'T' ? 0 : 17
   const g1 = permissive ? 23 : move === 'T' ? 13 : 23
   if (a >= g0 && a < g1) return 0
@@ -548,29 +594,32 @@ export function nearestNode(x: number, z: number) {
   return { i, j, n: nodeIndex(i, j), cx, cz, kind: nodeKind(i, j), spec: rbSpec(i, j), rx: x - cx, rz: z - cz }
 }
 
-/** How much of the central median is present at distance u from A (0..1). Between two signalised junctions each carriageway sits one lane
- *  away from the centre line, leaving a flush median that the back-to-back left-turn lanes fill as the junction nears; next to a
- *  roundabout the road closes up to its ordinary width. */
-export function medFac(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number) {
-  // the median belongs to the signalised junction: full width within MED0 of it, gone by MED1. Towards a roundabout the road is then
-  // an ordinary two-lanes-each-way road with a double yellow line
-  const w = (k: NodeKind, d: number) => (k !== 'signal' ? 0 : d <= MED0 ? 1 : d >= MED1 ? 0 : 1 - (d - MED0) / (MED1 - MED0))
-  return Math.max(w(kA, u - clrA), w(kB, B - u - clrB))
+/** Width (m) of the median on each side of the centre line at distance u from A. Every carriageway sits this far out from the centre
+ *  line, so the through lanes run dead straight across a junction; the junction's left-turn lanes open up inside the median. The median
+ *  belongs to the signalised junctions: between two of them it blends from one junction's width to the other's, towards a roundabout it
+ *  closes up and the road is an ordinary two-lanes-each-way road. */
+export function medW(tA: JType | null, tB: JType | null, clrA: number, clrB: number, u: number) {
+  const ss = !!tA && !!tB
+  const R0 = ss ? 80 : MED0, R1 = ss ? B - clrA - clrB - 80 : MED1
+  const ramp = (d: number) => (d <= R0 ? 1 : d >= R1 ? 0 : 1 - (d - R0) / (R1 - R0))
+  return LANE_W * ((tA?.nL ?? 0) * ramp(u - clrA) + (tB?.nL ?? 0) * ramp(B - u - clrB))
 }
+/** width (m) of the left-turn pocket(s) of junction type t, d metres before its edge, given the median width there */
+export function pocketW(t: JType | null, d: number, med: number) { return t ? Math.min(t.nL * LANE_W * flare(d), med) : 0 }
 
 /**
  * Half-widths of the road between node A and node B (A -> B runs east or south), at distance u from A's centre.
  * `right` is the +v side (west of a southbound road, south of an eastbound one) and `left` the other side.
  * The road only widens on the approach side of a signalised junction, where the third lane is added.
  */
-export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number, flA = kA === 'round', flB = kB === 'round') {
+export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number, u: number, flA = kA === 'round', flB = kB === 'round', tA: JType | null = null, tB: JType | null = null) {
   const dA = u - clrA
   const dB = B - u - clrB
   return {
-    // a road that meets a signalised junction has a median (one lane each side of the centre line) for the left-turn lanes;
-    // beside a roundabout's splitter island BOTH carriageways (entry and exit) move outward
-    right: HALF_MID + LANE_W * medFac(kA, kB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0),
-    left: HALF_MID + LANE_W * medFac(kA, kB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0),
+    // the median, the roundabout flare (BOTH carriageways move outward beside the splitter island) and, on the side that approaches
+    // a junction with one, the right-turn-only lane
+    right: HALF_MID + medW(tA, tB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0) + (tB?.rOnly ? LANE_W * flare(dB) : 0),
+    left: HALF_MID + medW(tA, tB, clrA, clrB, u) + Math.max(flA ? rbShift(dA) : 0, flB ? rbShift(dB) : 0) + (tA?.rOnly ? LANE_W * flare(dA) : 0),
   }
 }
 
@@ -578,7 +627,7 @@ export function segHalves(kA: NodeKind, kB: NodeKind, clrA: number, clrB: number
 /** Pavement half-widths (incl. the 0.5 m edge) of the road arm `d` of node (i,j) where it meets the junction box, measured on its
  *  [+z or -x side ("r"), -z or +x side ("l")]. The junction's corners join these real road edges. */
 function armEdge(i: number, j: number, d: number): [number, number] {
-  const def = HALF_MID + 0.5
+  const def = jHalf(jTypeOf(i, j, d % 2) ?? { nL: 0, rOnly: false, label: '' }) + 0.5
   if (armClosed(i, j, d)) return [def, def]
   const [dx, dz] = dirv(d)
   const fwd = d === 0 || d === 3
@@ -588,7 +637,7 @@ function armEdge(i: number, j: number, d: number): [number, number] {
   const kA = nodeKind(ai, aj), kB = nodeKind(ai + ex, aj + ez)
   const cA = clearance(ai, aj), cB = clearance(ai + ex, aj + ez)
   const u = fwd ? cA : B - cB
-  const h = segHalves(kA, kB, cA, cB, u, flareOf(ai, aj), flareOf(ai + ex, aj + ez))
+  const h = segHalves(kA, kB, cA, cB, u, flareOf(ai, aj), flareOf(ai + ex, aj + ez), jTypeOf(ai, aj, dd % 2), jTypeOf(ai + ex, aj + ez, dd % 2))
   return [h.right + 0.5, h.left + 0.5]
 }
 const outlines = new Map<string, Array<[number, number]>>()
@@ -686,7 +735,7 @@ export function onAsphalt(x: number, z: number) {
     const cA = clearance(i, jA)
     const cB = clearance(i, jA + 1)
     if (!armClosed(i, jA, 3) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
-      const h = segHalves(kA, kB, cA, cB, u, flareOf(i, jA), flareOf(i, jA + 1))
+      const h = segHalves(kA, kB, cA, cB, u, flareOf(i, jA), flareOf(i, jA + 1), jTypeOf(i, jA, 1), jTypeOf(i, jA + 1, 1))
       if (wedgeHit(B - cB - u, -lat, rbSpec(i, jA + 1)) || wedgeHit(u - cA, lat, rbSpec(i, jA))) return false // on the island that closes a lane
       if (Math.abs(lat) < (lat < 0 ? h.right : h.left) + 0.2) return true
     }
@@ -702,7 +751,7 @@ export function onAsphalt(x: number, z: number) {
     const cA = clearance(iA, j)
     const cB = clearance(iA + 1, j)
     if (!armClosed(iA, j, 0) && u >= (kA === 'round' ? cA - 3 : cA) && u <= (kB === 'round' ? B - cB + 3 : B - cB)) {
-      const h = segHalves(kA, kB, cA, cB, u, flareOf(iA, j), flareOf(iA + 1, j))
+      const h = segHalves(kA, kB, cA, cB, u, flareOf(iA, j), flareOf(iA + 1, j), jTypeOf(iA, j, 0), jTypeOf(iA + 1, j, 0))
       if (wedgeHit(B - cB - u, lat, rbSpec(iA + 1, j)) || wedgeHit(u - cA, -lat, rbSpec(iA, j))) return false
       if (Math.abs(lat) < (lat > 0 ? h.right : h.left) + 0.2) return true
     }

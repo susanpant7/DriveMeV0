@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { flare, medFac, nodeKind, setLayout, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { flare, medW, pocketW, jTypeOf, setLayout, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -686,23 +686,26 @@ function laneInfo() {
   const behind = fwd > 0 ? cell : cell + 1, ahead = fwd > 0 ? cell + 1 : cell
   const ci = alongZ ? Math.round(sim.x / B) : Math.round(sim.z / B)
   const nodeAt = (c: number) => (alongZ ? [ci, c] : [c, ci]) as [number, number]
-  const kB = nodeKind(...nodeAt(behind)), kA = nodeKind(...nodeAt(ahead))
-  const med = LANE_W * medFac(kB, kA, clearance(...nodeAt(behind)), clearance(...nodeAt(ahead)), Math.abs(pos - behind * B))
-  if (med > 0.01) {
-    const pocket = kA === 'signal' ? LANE_W * flare(Math.abs(pos - ahead * B) - clearance(...nodeAt(ahead))) : 0 // width of the turn lane
+  const tBehind = jTypeOf(...nodeAt(behind), alongZ ? 1 : 0), tAhead = jTypeOf(...nodeAt(ahead), alongZ ? 1 : 0)
+  const med = medW(tBehind, tAhead, clearance(...nodeAt(behind)), clearance(...nodeAt(ahead)), Math.abs(pos - behind * B))
+  const dAhead = Math.abs(pos - ahead * B) - clearance(...nodeAt(ahead))
+  const rPocket = tAhead?.rOnly ? LANE_W * flare(dAhead) : 0
+  if (med > 0.01 || rPocket > 0.01) {
+    const pocket = pocketW(tAhead, dAhead, med) // width of the left-turn lane(s)
+    const nP = pocket > 0.01 ? tAhead!.nL : 0
     const yellow = Math.max(0, med - pocket)
-    let k: number, e: number
+    let k: number, e: number, left = false
     if (r < yellow) { k = -1; e = r - yellow }
-    else if (r < med) { k = 0; e = r - (yellow + med) / 2 }
+    else if (r < med && nP) { const pw = pocket / nP, idx = Math.min(nP - 1, Math.floor((r - yellow) / pw)); k = idx; e = r - (yellow + pw * (idx + 0.5)); left = true }
     else {
-      const j = Math.floor((r - med) / LANE_W)
-      k = j + (pocket > 0.01 ? 1 : 0)
-      e = r - med - LANE_W * (j + 0.5)
+      const j = Math.max(0, Math.floor((r - med) / LANE_W))
+      k = j + nP
+      e = j >= 2 ? r - med - 2 * LANE_W - rPocket / 2 : r - med - LANE_W * (j + 0.5)
     }
-    return { d, r, k, e }
+    return { d, r, k, e, left }
   }
   const k = r < 0 ? -1 : r < LANE_W ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
-  return { d, r, k, e: k < 0 ? r : r - laneOff(k) }
+  return { d, r, k, e: k < 0 ? r : r - laneOff(k), left: false }
 }
 
 function trackLane() {
@@ -890,11 +893,11 @@ function trackStop() {
     let st = sim.stop
     if (!st || st.n !== nn.n || st.d !== d) st = sim.stop = { n: nn.n, d, prevU: u, passed: false, credited: false }
     // the left lane has its own left-turn arrow; everyone else follows the through signal
-    const col = signalColor(nn.n, d % 2 === 0 ? 0 : 1, sim.t, laneInfo()?.k === 0 ? 'L' : 'T')
+    const col = signalColor(nn.n, d % 2 === 0 ? 0 : 1, sim.t, laneInfo()?.left ? 'L' : 'T')
     if (!st.passed && st.prevU >= LINE && u < LINE) {
       st.passed = true
       // turning left on a plain green (no arrow): you must give way to oncoming traffic
-      if (col === 0 && laneInfo()?.k === 0 && !hasLeftArrow(nn.n) && sim.signal === -1 && sim.speed > 0.5) {
+      if (col === 0 && laneInfo()?.left && !hasLeftArrow(nn.n, d % 2) && sim.signal === -1 && sim.speed > 0.5) {
         const fxp = -Math.sin(sim.h), fzp = -Math.cos(sim.h)
         const cxn = nn.cx, czn = nn.cz
         for (const c of cars) {

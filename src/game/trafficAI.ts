@@ -1,4 +1,4 @@
-import { WEDGE_LEN, B, BOX, EDGE_IDS, LANES, LANE_W, LINKS, P, PIECES, SPEED_LIMIT, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
+import { WEDGE_LEN, B, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, SPEED_LIMIT, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
 
 export const MAX_CARS = 900
 export const CAR_L = 4.4
@@ -100,29 +100,33 @@ const laneOk = (p: Piece, k: number, s?: number) => {
 }
 /** Where a lane sits across the road, left to right. Approaching a signalised junction the NEW left-turn lane (index 2) is the left-most
  *  one, then lane 0 (straight on) and lane 1 (straight on or right). Elsewhere the order is simply 0, 1, 2. */
-const physIdx = (p: Piece, k: number) => (p.toKind === 'signal' && k === LANES - 1 ? -1 : k)
+const physIdx = (p: Piece, k: number) => (p.toKind !== 'signal' ? k : k === L_LEFT2 ? -2 : k === L_LEFT ? -1 : k === L_RIGHT ? 2 : k)
 /** the lane next to `p.lane` on its right (dir +1) or left (dir -1), or -1 */
 const nbr = (p: Piece, dir: -1 | 1): number => {
   const want = physIdx(p, p.lane) + dir
   for (let k = 0; k < LANES; k++) if (physIdx(p, k) === want) return k
   return -1
 }
+/** may a car in lane k of this approach turn left / go straight on / turn right at the junction ahead? */
+const does = (p: Piece, k: number, m: 'L' | 'S' | 'R') => (m === 'L' ? LINKS.connL : m === 'R' ? LINKS.connR : LINKS.connS).has(`${p.node}:${p.arm}:${k}`)
+/** the lanes of this approach (usable by traffic) from which manoeuvre m can be made */
+const lanesFor = (p: Piece, m: 'L' | 'S' | 'R') => { const out: number[] = []; for (let k = 0; k < LANES; k++) if (laneOk(p, k) && does(p, k, m)) out.push(k); return out }
 const hasLeft = (p: Piece) => {
-  if (p.hl === undefined) p.hl = p.toKind === 'signal' && laneOk(p, LANES - 1) && LINKS.connL.has(`${p.node}:${p.arm}:${LANES - 1}`) && leftExitOk(p)
+  if (p.hl === undefined) p.hl = p.toKind === 'signal' && lanesFor(p, 'L').length > 0 && leftExitOk(p)
   return p.hl
 }
 
-/** What the car will actually do at the end of this road. The lane it is in decides: the left lane turns left. */
+/** What the car will actually do at the end of this road: what it plans, if its lane allows that; otherwise what the lane allows. */
 function maneuver(c: AiCar, p: Piece): 'L' | 'S' | 'R' {
   if (p.toKind !== 'signal') return 'S'
-  if (p.lane === LANES - 1) return 'L' // the new left lane only turns left
-  if (p.lane === 1 && c.plan === 'R' && canRight(p)) return 'R' // the right lane goes straight on or turns right
-  return 'S'
+  if (c.plan !== 'S' && does(p, p.lane, c.plan)) return c.plan
+  if (does(p, p.lane, 'S')) return 'S'
+  return does(p, p.lane, 'L') ? 'L' : does(p, p.lane, 'R') ? 'R' : 'S'
 }
 
 /** can a car at this junction go straight on / turn right at all? (not at a T-junction whose road does not continue / turn) */
-const canStraight = (p: Piece) => LINKS.connS.has(`${p.node}:${p.arm}:1`)
-const canRight = (p: Piece) => LINKS.connR.has(`${p.node}:${p.arm}:1`)
+const canStraight = (p: Piece) => lanesFor(p, 'S').length > 0
+const canRight = (p: Piece) => lanesFor(p, 'R').length > 0
 
 function planEdge(c: AiCar, p: Piece) {
   c.plan = 'S'
@@ -136,9 +140,13 @@ function planEdge(c: AiCar, p: Piece) {
 }
 
 function reqLane(c: AiCar, p: Piece) {
-  if (c.plan === 'L' && hasLeft(p)) return LANES - 1 // the new left lane
-  if (c.plan === 'R') return 1 // the right lane
-  return p.lane === 0 || p.lane === 1 ? p.lane : 0 // straight on: either through lane
+  const m = c.plan === 'L' && hasLeft(p) ? 'L' : c.plan === 'R' && canRight(p) ? 'R' : 'S'
+  if (does(p, p.lane, m) && laneOk(p, p.lane)) return p.lane // already in a lane that does it
+  const ok = lanesFor(p, m)
+  if (!ok.length) return p.lane
+  // the nearest suitable lane (with two left-turn lanes, cars spread over both)
+  if (m === 'L' && ok.length > 1) return ok[c.id % ok.length]
+  return ok.reduce((best, k) => (Math.abs(physIdx(p, k) - physIdx(p, p.lane)) < Math.abs(physIdx(p, best) - physIdx(p, p.lane)) ? k : best), ok[0])
 }
 
 /** Right lane: at (or just under) the speed limit. Left lanes may go faster. */
@@ -158,7 +166,7 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     pieceAt(p, s, tmp)
     const x = mod(tmp.x, P)
     const z = mod(tmp.z, P)
-    if (p.toKind === 'signal' && p.lane === LANES - 1 && !hasLeft(p)) continue // the left-turn lane needs a left turn to exist
+    if (p.toKind === 'signal' && (p.lane === L_LEFT || p.lane === L_LEFT2) && !hasLeft(p)) continue // a left-turn lane needs a left turn to exist
     if (p.laneFrom !== undefined && s < p.laneFrom + 4) continue // the added right-turn lane only exists near the junction
     if (player) {
       const dd = Math.hypot(wrapD(x - player.x), wrapD(z - player.z))
@@ -181,7 +189,7 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     c.waitL = 0
     c.rbWait = 0
     planEdge(c, p)
-    if (p.toKind === 'signal') c.plan = p.lane === LANES - 1 ? 'L' : p.lane === 1 && canRight(p) && Math.random() < 0.4 ? 'R' : 'S'
+    if (p.toKind === 'signal') c.plan = !does(p, p.lane, 'S') ? (does(p, p.lane, 'L') ? 'L' : 'R') : does(p, p.lane, 'R') && Math.random() < 0.4 ? 'R' : does(p, p.lane, 'L') && hasLeft(p) && Math.random() < 0.25 ? 'L' : 'S'
     c.color = pick(COLORS)
     const r = Math.random()
     // body type: sedans most common, then pickups and vans; a few classics and sports cars for variety

@@ -1,4 +1,4 @@
-import { LAYOUT, junctionOutline, armClosed, B, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
+import { LAYOUT, junctionOutline, jTypeOf, armClosed, B, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
 import { fmtDist, nav, type Step } from './nav'
 import { sim } from './sim'
 
@@ -69,7 +69,7 @@ function buildPaths(): MapPaths {
       const left: V2[] = [], right: V2[] = []
       for (let u = u0; u <= u1 + 0.01; u += 4) {
         const uu = Math.min(u, u1)
-        const h = segHalves(kA, kB, cA, cB, uu, fA, fB)
+        const h = segHalves(kA, kB, cA, cB, uu, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2))
         right.push(at(cx, cz, d, uu, h.right + 0.5))
         left.push(at(cx, cz, d, uu, -(h.left + 0.5)))
       }
