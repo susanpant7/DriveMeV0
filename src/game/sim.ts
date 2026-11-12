@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { rampAt, nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { resCol, rampAt, nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -7,18 +7,26 @@ import { LD1, NB_EDGE_L, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z
 import { rampHeading, rampX, forkHeading, NB_X as HW_LANES } from '../highway/layout'
 import { clearLane, initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
-import { CAR_L, CAR_W, whyStuck, junctionBusy, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
+import { CAR_L, CAR_W, setTrafficTarget, whyStuck, junctionBusy, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
 export { CAR_L, CAR_W }
 export const WHEELBASE = 2.7
 export const LIMIT = SPEED_LIMIT // city speed limit: 30 mph (about 48 km/h), in m/s
-export const TRAFFIC_LEVELS = [45, 165, 420, 780, 900] // the town's roads are about 12 km long in all (the cap is MAX_CARS)
+/**
+ * Traffic depends on where you drive. For each level (1 light .. 5 heavy) the number of cars in the area around you (about 340 m
+ * each way): a residential street is quiet even when busy, the city has two to three times as many, the highway the most (see
+ * highway/traffic.ts). Roughly: heavy traffic means about 5 cars near you in a residential street, 10-15 in the city, 50 on the highway.
+ */
+export const TRAFFIC_RES = [4, 8, 12, 16, 20]
+export const TRAFFIC_CITY = [10, 20, 30, 40, 50]
+export const TRAFFIC_COUNTRY = [8, 14, 20, 26, 32] // the roundabout course (open country)
 
 // Rules-engine tuning
 const SIGNAL_MIN = 1.0 // signal must be on this long before moving
 const SIDE_CHECK_WINDOW = 5 // side-mirror glance must be this recent
 const REAR_CHECK_WINDOW = 8 // rear-view glance must be this recent
 const GLANCE_TIME = 0.3 // a glance only counts after looking this long
+const BLIND_CHECK_WINDOW = 6 // a look into the blind spot must be this recent when you change lanes
 
 /* ---------- input & simulation state (read by r3f components each frame) ---------- */
 export const input = {
@@ -96,6 +104,8 @@ export const sim = {
   look: 'front' as Look,
   lookSince: 0,
   lastCheck: { left: -99, center: -99, right: -99 },
+  /** when you last looked over your shoulder into the left / right blind spot (the only check the game asks for) */
+  lastBlind: { left: -99, right: -99 },
   score: 0,
   changes: 0,
   clean: 0,
@@ -187,7 +197,7 @@ function trackHighway(): boolean {
       if (!hw.crossed && x - halfW < NB_EDGE_R - 0.15 && z <= Z_GORE) {
         hw.crossed = true
         if (sim.signal !== -1) say('ALERT: you changed lanes without signalling!', 'alert')
-        if (sim.t - sim.lastCheck.left > 6 && sim.t - sim.lastCheck.center > 6) say('Check your left mirror / blind spot before merging.', 'warn')
+        if (sim.t - sim.lastBlind.left > BLIND_CHECK_WINDOW) say('Check your left blind spot before merging.', 'warn')
         if (sim.speed < 22) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
       }
       if (hw.crossed && x + halfW <= NB_EDGE_R + 0.2) { hw.stage = 'merged'; hw.mergedAt = sim.t }
@@ -206,7 +216,7 @@ function trackHighway(): boolean {
     if (!hw.crossed && x - halfW > NB_EDGE_R - 0.05 && z <= start && z > gore - 20) {
       hw.crossed = true
       if (sim.signal !== 1) say('ALERT: you changed lanes without signalling!', 'alert')
-      if (sim.t - sim.lastCheck.right > 6) say('Check your right mirror before moving over.', 'warn')
+      if (sim.t - sim.lastBlind.right > BLIND_CHECK_WINDOW) say('Check your right blind spot before moving over.', 'warn')
     }
     if (hw.crossed && !hw.exitTaken && z <= gore) hw.exitTaken = x > NB_EDGE_R
     if (hw.exitTaken && !hw.sigOffWarn && z < gore - 120 && sim.signal !== 0) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
@@ -221,7 +231,7 @@ function trackHighway(): boolean {
     if (!hw.crossed && x - halfW < ldEdge - 0.1 && z < 700) {
       hw.crossed = true
       if (sim.signal !== -1) say('ALERT: you changed lanes without signalling!', 'alert')
-      if (sim.t - sim.lastCheck.left > 6) say('Check your left mirror / blind spot before moving over.', 'warn')
+      if (sim.t - sim.lastBlind.left > BLIND_CHECK_WINDOW) say('Check your left blind spot before moving over.', 'warn')
     }
     if (z <= LD1 + 15 && x > ldEdge) return fail('Your lane ended before you moved over.', ['Look for a gap early when you see "Right lane ends": signal, check your mirror and blind spot, then move left.'])
     if (z < -250) advanceHighway()
@@ -268,7 +278,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   const pose = WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
-    signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 },
+    signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 }, lastBlind: { left: -99, right: -99 },
     score: keep, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
     warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0, head: { yaw: 0, pitch: 0 }, wheel: 0, cruise: 0, rbl: { node: -1, lane: -1 },
   })
@@ -280,11 +290,27 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   else initTraffic()
   applyTraffic()
 }
-export function applyTraffic() {
-  const n = TRAFFIC_LEVELS[useGame.getState().traffic - 1]
-  if (WORLD.highway) return
-  { const m = useGame.getState().mode; setActiveCount(m === 'roundabout' ? Math.round(n * 0.4) : m === 'residential' ? Math.round(n * 0.55) : n, playerObs()) } // the roundabout course is a small loop: fewer cars keep it flowing
+/** 1 deep in the residential district, 0 deep in the city, in between near the boundary */
+function resDistrictShare(x: number) {
+  const c = cellX(x), f = (x - nodeX(c)) / (nodeX(c + 1) - nodeX(c)) // which block, and how far across it
+  const here = resCol(c) ? 1 : 0, next = resCol(c + 1) ? 1 : 0, prev = resCol(c - 1) ? 1 : 0
+  return f < 0.5 ? here + (prev - here) * Math.max(0, 0.5 - f) : here + (next - here) * Math.max(0, f - 0.5)
 }
+/** how many cars there should be around you right now, for the traffic level and where you are */
+function trafficHere() {
+  const L = useGame.getState().traffic - 1
+  const m = useGame.getState().mode
+  if (m === 'roundabout') return TRAFFIC_COUNTRY[L]
+  if (m === 'residential') return TRAFFIC_RES[L]
+  // the Mixed course: by the district you are in (blended over the last block either side of the boundary)
+  if (m === 'mixed') { const r = resDistrictShare(sim.x); return Math.round(TRAFFIC_RES[L] * r + TRAFFIC_CITY[L] * (1 - r)) }
+  return TRAFFIC_CITY[L]
+}
+export function applyTraffic() {
+  if (WORLD.highway) return
+  setActiveCount(trafficHere(), playerObs())
+}
+let trafficCheckT = 0
 resetSim()
 
 export function startGame() {
@@ -568,6 +594,7 @@ export function stepSim(dt: number) {
     sim.lookSince = sim.t
   }
   if (sim.look !== 'front' && sim.t - sim.lookSince >= GLANCE_TIME) sim.lastCheck[sim.look === 'blindL' ? 'left' : sim.look === 'blindR' ? 'right' : sim.look] = sim.t
+  if ((sim.look === 'blindL' || sim.look === 'blindR') && sim.t - sim.lookSince >= GLANCE_TIME) sim.lastBlind[sim.look === 'blindL' ? 'left' : 'right'] = sim.t
 
   // ---- hard obstacles ----
   if (!WORLD.highway && inIsland(sim.x, sim.z)) return crash('You drove into the roundabout island.', ['Go around the island, keeping it on your left.'])
@@ -585,6 +612,8 @@ export function stepSim(dt: number) {
   if (sim.offRoadT > 0.5) return pauseOffRoad()
 
   // ---- traffic ----
+  // the Mixed course: the amount of traffic follows the district you are driving in (re-checked every couple of seconds)
+  if (!WORLD.highway && useGame.getState().mode === 'mixed' && (trafficCheckT += dt) > 2) { trafficCheckT = 0; setTrafficTarget(trafficHere()) }
   if (WORLD.highway) stepHighwayTraffic(dt, sim.t, playerObs())
   else stepTraffic(dt, sim.t, playerObs())
   for (const c of cars) {
@@ -787,8 +816,8 @@ function startManeuver(dir: -1 | 1, k0: number, target: number) {
   const infractions: string[] = []
   if (sim.signal !== dir) infractions.push(`No ${side} signal`)
   else if (sim.t - sim.signalSince < SIGNAL_MIN) infractions.push('Signalled too late')
-  if (sim.t - sim.lastCheck[side] > SIDE_CHECK_WINDOW) infractions.push(`Did not check ${side} mirror`)
-  if (sim.t - sim.lastCheck.center > REAR_CHECK_WINDOW) infractions.push('Did not check rear-view mirror')
+  // (mirror glances are not checked: only the look over your shoulder into the blind spot)
+  if (sim.t - sim.lastBlind[side] > BLIND_CHECK_WINDOW) infractions.push(`Did not check your ${side} blind spot`)
   sim.man = { dir, k0, target, infractions }
   infractions.forEach((m) => say(m, 'warn'))
 }

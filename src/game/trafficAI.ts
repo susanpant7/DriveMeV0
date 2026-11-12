@@ -174,6 +174,7 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     const z = mod(tmp.z, P)
     if (p.toKind === 'signal' && (p.lane === L_LEFT || p.lane === L_LEFT2) && !hasLeft(p)) continue // a left-turn lane needs a left turn to exist
     if (p.laneFrom !== undefined && s < p.laneFrom + 4) continue // the added right-turn lane only exists near the junction
+    if (p.one && LAYOUT.kind === 'mixed' && Math.random() > 0.35) continue // quiet residential streets: most traffic is on the main roads
     if (player) {
       const dd = Math.hypot(wrapD(x - player.x), wrapD(z - player.z))
       if (dd < minD || dd > WIN_MAX) continue
@@ -221,8 +222,15 @@ export function initTraffic() {
 initTraffic()
 
 let targetCars = 0
+let zoneTarget = -1
+/**
+ * Change how many cars there are without anyone popping in or out of view: new ones appear out of sight (in the spawn window),
+ * and surplus ones are taken away when they are recycled (far behind you).
+ */
+export function setTrafficTarget(n: number) { targetCars = Math.min(n, cars.length); zoneTarget = n }
 export function setActiveCount(n: number, player: Obstacle | null) {
   targetCars = n
+  zoneTarget = -1
   cars.forEach((c, i) => {
     const want = i < n
     if (want && !c.active) {
@@ -568,6 +576,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
   for (const c of cars) {
     if (!c.active) continue
     if (Math.hypot(wrapD(c.x - player.x), wrapD(c.z - player.z)) > WIN_RECYCLE) {
+      if (zoneTarget >= 0 && c.id >= zoneTarget) { c.active = false; continue } // fewer cars wanted here now: this one leaves, out of sight
       spawn(c, player, 190) // reappear far ahead / behind, out of sight
       if (Math.hypot(wrapD(c.x - player.x), wrapD(c.z - player.z)) > WIN_RECYCLE) continue // no free spot yet: try again next frame
     }

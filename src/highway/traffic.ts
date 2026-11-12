@@ -25,7 +25,6 @@ interface Hw {
 const hw: Hw[] = []
 let ncars = 0
 let level = 1
-const DENSITY = [1.0, 1.9, 2.6, 3.3, 4.0] // level 2 is as busy as the old maximum
 const MARGIN = [28, 28, 24, 21, 18] // minimum bumper gap when placing traffic: busier levels pack the lanes tighter
 const WINDOW = 650 // cars live this far ahead of / behind the player
 
@@ -43,7 +42,10 @@ const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
 const MPH = 0.44704
 /** the speed band (m/s) of a lane; `fromRight` = 0 for the right-most lane of its carriageway */
 const bandOf = (fromRight: number): [number, number] => [(70 + 5 * fromRight) * MPH, (75 + 5 * fromRight) * MPH]
-const LANE_COUNT = [9, 10, 11, 12, 22] // vehicles per lane within the window at normal density
+const LANE_COUNT = [9, 10, 11, 12, 22] // how the vehicles are shared between the lanes (the right-hand lanes are busier)
+const LANE_SUM = LANE_COUNT.reduce((a, b) => a + b, 0)
+/** vehicles in the window around you (about 1.3 km of highway) by level: heavy traffic is about 50 within sight */
+const HW_TOTAL = [24, 46, 68, 90, 115]
 
 function describe(c: AiCar, i: number) {
   const h = hw[i]
@@ -89,11 +91,11 @@ export function initHighwayTraffic(playerZ: number) {
   for (const c of cars) c.active = false
   while (hw.length < cars.length) hw.push({ dir: 1, lane: 0, v0: 25, lat: 0, target: -1, vlo: 31.4, vhi: 33, vgoal: 32, vt: 0, cool: 0 })
   ncars = 0
-  const dens = DENSITY[level - 1]
   const lanes: Array<[1 | -1, number]> = NBX.map((_, k) => [1, k] as [1 | -1, number]) // one direction only: no oncoming traffic
   for (const [dir, lane] of lanes) {
     if (scen.type === 'lanedrop' && dir === 1 && lane === 4) continue
-    const n = Math.min(28, Math.round(LANE_COUNT[lane] * dens)) // 28 is about as many as fit in a lane's window
+    // the level sets the total number of vehicles in the window (about 1.3 km), shared out between the lanes like real traffic
+    const n = Math.min(28, Math.round((HW_TOTAL[level - 1] * LANE_COUNT[lane]) / LANE_SUM))
     for (let k = 0; k < n; k++) {
       const i = ncars
       if (i >= 420) break
