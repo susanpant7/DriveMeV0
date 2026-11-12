@@ -1,4 +1,4 @@
-import { LAYOUT, armOne, nodeX, nodeZ, roadLen, junctionOutline, jTypeOf, armClosed, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
+import { roadPoint, LAYOUT, armBase, nodeX, nodeZ, roadLen, junctionOutline, jTypeOf, armClosed, HORIZONTAL_NAMES, LOTS, P, VERTICAL_NAMES, clearance, dirv, flareOf, G, mod, nodeKind, rbSpec, ringDelta, segHalves } from './map'
 import { fmtDist, nav, type Step } from './nav'
 import { sim } from './sim'
 
@@ -21,16 +21,14 @@ let paths: MapPaths | null = null
 let pathsVer = -1
 
 type V2 = [number, number]
-const at = (ax: number, az: number, d: number, u: number, v: number): V2 => {
-  const [dx, dz] = dirv(d), [rx, rz] = dirv(d - 1)
-  return [ax + dx * u + rx * v, az + dz * u + rz * v]
-}
+const at = (ax: number, az: number, d: number, u: number, v: number): V2 => roadPoint(ax, az, d, u, v) // (follows the bends of residential streets)
 
 function buildPaths(): MapPaths {
   const land = new Path2D(), parks = new Path2D(), buildings = new Path2D(), roads = new Path2D(), centre = new Path2D()
   const islands = new Path2D(), domes = new Path2D(), aprons = new Path2D(), signals = new Path2D()
   const labels: MapPaths['labels'] = []
   for (const l of LOTS) {
+    if (l.empty) continue
     if (l.park) parks.rect(l.x0, l.z0, l.x1 - l.x0, l.z1 - l.z0)
     else {
       land.rect(l.x0, l.z0, l.x1 - l.x0, l.z1 - l.z0)
@@ -70,7 +68,7 @@ function buildPaths(): MapPaths {
       const left: V2[] = [], right: V2[] = []
       for (let u = u0; u <= u1 + 0.01; u += 4) {
         const uu = Math.min(u, u1)
-        const h = segHalves(kA, kB, cA, cB, uu, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L, armOne(i, j, d))
+        const h = segHalves(kA, kB, cA, cB, uu, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L, armBase(i, j, d))
         right.push(at(cx, cz, d, uu, h.right + 0.5))
         left.push(at(cx, cz, d, uu, -(h.left + 0.5)))
       }

@@ -364,3 +364,7 @@ canvas { touch-action: none; }
 .fadecard b { font-size: clamp(22px, 4vw, 36px); letter-spacing: .02em; padding: 6px 16px; border-radius: 8px; background: #0b6b3a; border: 2px solid #fff; }
 .fadecard span { font-size: clamp(13px, 2vw, 17px); color: #cfd8e3; }
 @keyframes fadecard { 0%, 45% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+
+.pts.neg b { color: #ff8a8a; }
+.finalpts { margin: 2px 0 10px; color: var(--muted); }
+.finalpts b { color: #fff; font-size: 1.15em; }

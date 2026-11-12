@@ -1,4 +1,4 @@
-import { G, wrapD, nodeX, nodeZ, armOne, jTypeOf, LANE_W, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
+import { roadPoint, laneC, G, wrapD, nodeX, nodeZ, armOne, jTypeOf, LANE_W, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
 
 /** Practice modes (no highway yet). */
 export type Mode = 'residential' | 'city' | 'highway' | 'roundabout' | 'mixed'
@@ -215,8 +215,13 @@ export function startRoute(mode: Mode) {
   const [dx, dz] = dirv(dir)
   const [rx, rz] = dirv(dir - 1)
   // the outer lane of the 2-lane road; a residential street has just the one, which sits beyond the centre turn lane where there is one
-  const lane = armOne(i0, j0, dir) ? (jTypeOf(i0, j0, dir % 2)?.mw ?? 0) * LANE_W + laneOff(0) : laneOff(1)
-  return { x: nodeX(i0) - dx * 100 + rx * lane, z: nodeZ(j0) - dz * 100 + rz * lane, h: headingOfDir(dir) }
+  const lane = armOne(i0, j0, dir) ? (jTypeOf(i0, j0, dir % 2)?.mw ?? 0) * LANE_W + laneC(0, true) : laneOff(1)
+  // 100 m before the first junction, in the lane, facing along the road (which may bend)
+  const back = mod(dir + 2, 4)
+  const [x, z] = roadPoint(nodeX(i0), nodeZ(j0), back, 100, -lane)
+  const [x2, z2] = roadPoint(nodeX(i0), nodeZ(j0), back, 98, -lane)
+  void dx; void dz; void rx; void rz
+  return { x, z, h: Math.atan2(-(x2 - x), -(z2 - z)) }
 }
 
 function setSteps(steps: Step[]) {

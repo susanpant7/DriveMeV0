@@ -3,10 +3,10 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { wrapD } from './map'
+import { PARKED, wrapD } from './map'
 import { extrudeProfile } from './geom'
 import { sim } from './sim'
-import { MAX_CARS, cars } from './trafficAI'
+import { MAX_CARS, cars, type AiCar } from './trafficAI'
 
 type Pt = [number, number]
 interface ModelDef {
@@ -118,7 +118,8 @@ const colorOf = (hex: string) => {
 }
 
 interface Motion { spin: number; h: number; pitch: number; roll: number; speed: number; rawH: number; x: number; z: number; ok: boolean }
-const motion: Motion[] = Array.from({ length: MAX_CARS }, () => ({ spin: 0, h: 0, pitch: 0, roll: 0, speed: 0, rawH: 0, x: 0, z: 0, ok: false }))
+const MAX_PARKED = 600
+const motion: Motion[] = Array.from({ length: MAX_CARS + MAX_PARKED }, () => ({ spin: 0, h: 0, pitch: 0, roll: 0, speed: 0, rawH: 0, x: 0, z: 0, ok: false }))
 const _e = new THREE.Euler(0, 0, 0, 'YXZ')
 const angDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a))
 
@@ -208,8 +209,17 @@ export function Traffic() {
     let nb = 0
     let nr = 0
     const now = performance.now()
-    for (const c of cars) {
-      if (!c.active) continue
+    // the moving traffic, then the cars parked along residential streets (near you only: they never move)
+    type DrawCar = Pick<AiCar, 'id' | 'x' | 'z' | 'h' | 'speed' | 'kind' | 'color' | 'braking' | 'sig'>
+    const list: DrawCar[] = []
+    for (const c of cars) if (c.active) list.push(c)
+    for (let q = 0; q < PARKED.length && q < MAX_PARKED; q++) {
+      const pk = PARKED[q]
+      const ox = wrapD(pk.x - sim.x), oz = wrapD(pk.z - sim.z)
+      if (ox * ox + oz * oz > 200 * 200) continue
+      list.push({ id: MAX_CARS + q, x: pk.x, z: pk.z, h: Math.atan2(-pk.tx, -pk.tz), speed: 0, kind: pk.kind, color: pk.color, braking: false, sig: 0 })
+    }
+    for (const c of list) {
       const dx = wrapD(c.x - sim.x)
       const dz = wrapD(c.z - sim.z)
       if (dx * dx + dz * dz > 320 * 320) continue

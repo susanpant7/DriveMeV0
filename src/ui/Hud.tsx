@@ -88,8 +88,8 @@ function ControlsList() {
     <ul className="controls">
       <li><span><Key>↑</Key></span> Accelerator <em>hold to speed up, release to slow down</em></li>
       <li><span><Key>↓</Key></span> Brake <em>like a real pedal: a tap slows you gently; the longer you hold it, the harder it brakes (firm after about a second, an emergency stop after about two)</em></li>
-      <li><span><Key>←</Key><Key>→</Key></span> Steer <em>hold to keep turning the wheel; let go and it returns to straight. <Key>Space</Key> centres the view, cancels the indicator and eases the car into the middle of its lane; hold it and the car stays in the middle of its lane, even round bends and roundabouts</em></li>
-      <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator</li>
+      <li><span><Key>←</Key><Key>→</Key></span> Steer <em>hold to keep turning the wheel; let go and it returns to straight. <Key>Space</Key> centres the view and eases the car into the middle of its lane; hold it and the car stays in the middle of its lane, even round bends and roundabouts</em></li>
+      <li><span><Key>Q</Key><Key>E</Key></span> Left / right indicator <em>press the same one again to switch it off; it also switches itself off when the wheel comes back to straight after a turn</em></li>
       <li><span>Drag</span> Look around <em>press and drag with the mouse, or swipe with two fingers on a trackpad (the view holds, tap to look ahead again); aim at a mirror to check it</em></li>
       <li><span><Key>A</Key><Key>D</Key><Key>W</Key><Key>S</Key></span> Turn your head <em>like the wheel: each press turns it a little and it stays (A left, D right, W up, S down; combine them, e.g. A + W). Double-press A or D to look over that shoulder into the blind spot (about 120°). <Key>Space</Key> centres the view and the wheel and gently steers the car into the middle of its lane (auto mode: steering by hand cancels it)</em></li>
       <li><span><Key>Esc</Key></span> Pause <span className="gap" /><Key>M</Key> mute</li>
@@ -248,7 +248,6 @@ function RbDiagram({ diag }: { diag: RbDiag }) {
 
 function PlayingHud() {
   const hud = useGame((s) => s.hud)
-  const mode = useGame((s) => s.mode)
   const messages = useGame((s) => s.messages)
   const { touch } = useViewport()
   const [help, setHelp] = useState(true)
@@ -259,7 +258,7 @@ function PlayingHud() {
   return (
     <>
       <div className="tl">
-        {(mode === 'highway' || mode === 'roundabout') && <div className="pts"><small>POINTS</small><b>{Math.floor(hud.score)}</b></div>}
+        <div className={`pts${hud.score < 0 ? ' neg' : ''}`} title="+2 for every rule followed, −2 for every mistake"><small>POINTS</small><b>{Math.round(hud.score)}</b></div>
         <div className="toasts">
           {messages.map((m) => (
             <div key={m.id} className={`toast ${m.kind}`}>{m.text}</div>
@@ -298,6 +297,7 @@ export function Hud() {
   const pauseReason = useGame((s) => s.pauseReason)
   const tips = useGame((s) => s.crashTips)
   const diag = useGame((s) => s.crashDiag)
+  const finalScore = useGame((s) => s.hud.score)
   const start = startGame
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
@@ -399,6 +399,7 @@ export function Hud() {
             <div className="badge">Game over</div>
             <h2>You crashed</h2>
             <p className="reason">{reason}</p>
+            <p className="finalpts">Points this drive: <b>{Math.round(finalScore)}</b></p>
             {diag && <RbDiagram diag={diag} />}
             {tips.length > 0 && (
               <ul className="tips">

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { LAYOUT, RAMP_AT, RAMP_HALF, RAMP_I, RAMP_J, rampLine, nodeX, nodeZ, roadLen, stubZ, armCtrl, armOne, halfMid, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
+import { streetMph, bendAt, roadPoint, laneC, LAYOUT, RAMP_AT, RAMP_HALF, RAMP_I, RAMP_J, rampLine, nodeX, nodeZ, roadLen, stubZ, armCtrl, armOne, armBase, resStyle, PARKED, PARKED_KINDS, PARKED_COLORS, PARK_W, RES_LANE_W, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -127,7 +127,10 @@ export const ATLAS_H = 1536
 const cell = (i: number): Rect => ({ x: i * 256, y: 0, w: 256, h: 256 })
 const cell2 = (i: number): Rect => ({ x: i * 256, y: 896, w: 256, h: 256 })
 const cell3 = (i: number): Rect => ({ x: i * 256, y: 1280, w: 256, h: 256 })
-export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7), speed25: cell3(6), stop: cell3(0), allWay: cell3(1), stopAhead: cell3(2), yieldAhead: cell3(3), crossTraffic: cell3(4), stopText: cell3(5), hwEntrance: cell3(7) }
+const cell4 = (i: number): Rect => ({ x: i * 256, y: 384, w: 256, h: 256 })
+export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7), speed25: cell3(6), speed15: cell4(0), speed10: cell4(1), stop: cell3(0), allWay: cell3(1), stopAhead: cell3(2), yieldAhead: cell3(3), crossTraffic: cell3(4), stopText: cell3(5), hwEntrance: cell3(7) }
+/** the speed-limit sign for a limit in mph */
+const limitSign = (mph: number) => (mph <= 10 ? SIGN.speed10 : mph <= 15 ? SIGN.speed15 : mph <= 25 ? SIGN.speed25 : SIGN.speed)
 export const PLATE = (i: number): Rect => ({ x: i * 256, y: 256, w: 256, h: 128 })
 
 function arrowHead(g: CanvasRenderingContext2D, x: number, y: number, ang: number, s: number) {
@@ -145,6 +148,8 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
 export function drawSpeedSign(g: CanvasRenderingContext2D, units: 'kmh' | 'mph') {
   drawLimit(g, units, SIGN.speed, 30)
   drawLimit(g, units, SIGN.speed25, 25)
+  drawLimit(g, units, SIGN.speed15, 15)
+  drawLimit(g, units, SIGN.speed10, 10)
 }
 function drawLimit(g: CanvasRenderingContext2D, units: 'kmh' | 'mph', r: Rect, mph: number) {
   const { x, y, w, h } = r
@@ -156,7 +161,7 @@ function drawLimit(g: CanvasRenderingContext2D, units: 'kmh' | 'mph', r: Rect, m
   g.fillText('SPEED', x + 128, y + 52)
   g.fillText('LIMIT', x + 128, y + 90)
   g.font = '700 118px Arial, sans-serif'
-  g.fillText(units === 'mph' ? String(mph) : mph === 25 ? '40' : '50', x + 128, y + 172)
+  g.fillText(units === 'mph' ? String(mph) : String({ 10: 15, 15: 25, 25: 40, 30: 50 }[mph] ?? Math.round(mph * 1.609)), x + 128, y + 172)
 }
 
 export function makeAtlas(units: 'kmh' | 'mph') {
@@ -460,6 +465,7 @@ export function buildCity() {
   const asphalt = new MB(), marks = new MB(), solid = new MB(), buildings = new MB(), signs = new MB(), wear = new Wear()
   const lamps: LampDef[] = []
   const trees: TreeDef[] = []
+  PARKED.length = 0
   const WHITE: V3 = [0.92, 0.92, 0.9], YELLOW: V3 = [0.95, 0.75, 0.1]
   const POLE: V3 = [0.45, 0.47, 0.5]
   const rectUV = (r: Rect): [V2, V2, V2, V2] => {
@@ -512,10 +518,45 @@ export function buildCity() {
     solid.box(x, 0, z, t, h, t, 0, color)
   }
 
-  const at = (ax: number, az: number, d: number, u: number, v: number): V2 => {
-    const [dx, dz] = dirv(d), [rx, rz] = dirv(d - 1)
-    return [ax + dx * u + rx * v, az + dz * u + rz * v]
+  // ---- a detached house: walls, a pitched roof along the street, front door and windows facing the street, chimney, driveway to the
+  // kerb, a mailbox and a tree. (hx, hz) is its centre; local x runs along the street, local +z away from it (yaw from the street's
+  // direction); `drive` is how far its front is from the kerb. ----
+  const WALLS: V3[] = [[0.86, 0.82, 0.72], [0.78, 0.72, 0.62], [0.9, 0.9, 0.86], [0.7, 0.76, 0.8], [0.8, 0.66, 0.56], [0.74, 0.8, 0.7], [0.92, 0.88, 0.8]]
+  const ROOFS: V3[] = [[0.36, 0.2, 0.16], [0.26, 0.27, 0.3], [0.42, 0.3, 0.22], [0.2, 0.24, 0.28], [0.3, 0.32, 0.36]]
+  const house = (hx: number, hz: number, yaw: number, w: number, dp: number, drive: number, rnd: (k: number) => number) => {
+    const c = Math.cos(yaw), sn = Math.sin(yaw)
+    const W = (lx: number, lz: number): V2 => [hx + lx * c + lz * sn, hz - lx * sn + lz * c] // local -> world
+    const wallH = 3.0 + (rnd(1) < 0.35 ? 2.8 : 0) // some have two floors
+    const wall = WALLS[Math.floor(rnd(2) * WALLS.length)], roof = ROOFS[Math.floor(rnd(3) * ROOFS.length)]
+    solid.box(hx, 0, hz, w, wallH, dp, yaw, wall)
+    // pitched roof: a triangular prism, ridge along the street, with a little overhang
+    const span = dp + 1.0, len = w + 1.0, rise = 2.1 + rnd(4) * 0.8
+    const rg = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(-span / 2, 0), new THREE.Vector2(span / 2, 0), new THREE.Vector2(0, rise)]), { depth: len, bevelEnabled: false })
+    rg.translate(0, 0, -len / 2)
+    rg.rotateY(Math.PI / 2 + yaw)
+    rg.translate(hx, wallH, hz)
+    solid.addGeometry(rg, roof)
+    // front (towards the street): door, two windows; a chimney
+    const [dx, dz] = W(rnd(5) < 0.5 ? -1.6 : 1.6, -dp / 2 - 0.03)
+    solid.box(dx, 0, dz, 1.1, 2.1, 0.08, yaw, [0.32, 0.2, 0.14])
+    for (const ox of [-w / 2 + 2.2, w / 2 - 2.2]) { const [wx, wz] = W(ox, -dp / 2 - 0.03); solid.box(wx, 1.0, wz, 1.6, 1.2, 0.08, yaw, [0.58, 0.7, 0.82]) }
+    { const [cx2, cz2] = W(w * 0.3, dp * 0.15); solid.box(cx2, wallH + 0.6, cz2, 0.7, 2.2, 0.7, yaw, [0.5, 0.32, 0.26]) }
+    // driveway from the garage side down to the kerb, and a mailbox at the end of it
+    const gx = rnd(6) < 0.5 ? -w / 2 + 1.8 : w / 2 - 1.8
+    { const [px, pz] = W(gx, -dp / 2 - drive / 2); solid.box(px, 0, pz, 3.2, 0.05, drive, yaw, [0.55, 0.55, 0.57]) }
+    { const [mx, mz] = W(gx + (gx < 0 ? 2.4 : -2.4), -dp / 2 - drive + 0.5); solid.box(mx, 0, mz, 0.09, 1.05, 0.09, yaw, [0.3, 0.3, 0.32]); solid.box(mx, 1.05, mz, 0.24, 0.24, 0.48, yaw, [0.15, 0.17, 0.2]) }
+    // a tree in the front garden, another in the back
+    { const [tx, tz] = W(-gx * 0.9, -dp / 2 - drive * 0.5); trees.push({ x: tx, z: tz, s: 0.65 + rnd(7) * 0.4 }) }
+    if (rnd(8) < 0.7) { const [tx, tz] = W((rnd(9) - 0.5) * w, dp / 2 + 6 + rnd(10) * 6); trees.push({ x: tx, z: tz, s: 0.7 + rnd(11) * 0.5 }) }
+    return gx // the side (local x) the driveway is on
   }
+  // a parked car (drawn with the real car models, with the traffic): where it is, which way the street runs, which car and colour
+  const parkedCar = (x: number, z: number, tx: number, tz: number, k: number) => {
+    const h = hashN(x, z, k), h2 = hashN(z, x, k + 3)
+    PARKED.push({ x, z, tx, tz, kind: PARKED_KINDS[Math.floor(h * PARKED_KINDS.length)], color: PARKED_COLORS[Math.floor(h2 * PARKED_COLORS.length)] })
+  }
+  // a point on a road (u along it from the node at ax, az; v to the right of its centre line): residential streets may bend
+  const at = (ax: number, az: number, d: number, u: number, v: number): V2 => roadPoint(ax, az, d, u, v)
   // ---------------- roads ----------------
   // Ordinary roads are 2 lanes each way; on the approach to a signalised junction the road widens (outward) for a third lane.
   for (let i = 0; i < G; i++) for (let j = 0; j < G; j++) {
@@ -551,8 +592,8 @@ export function buildCity() {
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const cA = clearance(i, j, d % 2), cB = clearance(i + dx, j + dz, d % 2)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz)
-      const L = roadLen(i, j, d), one = armOne(i, j, d)
-      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L, one)
+      const L = roadLen(i, j, d)
+      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L, armBase(i, j, d))
       const u0 = kA === 'round' ? cA - 3 : cA
       const u1 = kB === 'round' ? L - cB + 3 : L - cB
       for (let u = u0; u < u1 - 0.01; u += 4) {
@@ -599,7 +640,8 @@ export function buildCity() {
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz) // lanes flare beside a splitter island at these ends
       const tA = jTypeOf(i, j, d % 2), tB = jTypeOf(i + dx, j + dz, d % 2)
-      const sgh = (u: number) => segHalves(kA, kB, S0, L - S1, u, fA, fB, tA, tB, L, one)
+      const sgh = (u: number) => segHalves(kA, kB, S0, L - S1, u, fA, fB, tA, tB, L, armBase(i, j, d))
+      const style = resStyle(d % 2, d % 2 === 0 ? j : i) // the kind of residential street (null: a town road)
       const rbA = rbSpec(i, j), rbB = rbSpec(i + dx, j + dz)
       // Each carriageway sits one lane out from the centre line (the median) so the through lanes run straight across junctions. The median's
       // two edge lines (yellow) meet in the middle as the left-turn lanes open up in it near a signalised junction.
@@ -627,8 +669,13 @@ export function buildCity() {
         // pairs of opposing left-turn arrows in the two-way section
         for (const uu of [STUBU - 24, STUBU + 24]) { arrow(ax, az, d, uu + 2.5, 1, 0, 'L'); arrow(ax, az, d, uu - 2.5, -1, 0, 'L') }
       }
-      for (let u = S0; !centreRd && u < S1 - 0.01; u += 3) {
+      for (let u = S0; !centreRd && style !== 'dense' && u < S1 - 0.01; u += 3) { // (a dense residential street has no lines)
         const ue = Math.min(u + 3, S1)
+        if (style === 'normal') {
+          // two lanes separated by a broken yellow line (3 m dashes, 6 m gaps)
+          if (Math.floor((u - S0) / 3) % 3 === 0) marks.upQuad([at(ax, az, d, u, -0.07), at(ax, az, d, ue, -0.07), at(ax, az, d, ue, 0.07), at(ax, az, d, u, 0.07)], 0.02, YELLOW)
+          continue
+        }
         const yAB = (x: number) => Math.max(0, medAt(x) - bSh(x)), yBA = (x: number) => -Math.max(0, medAt(x) - aSh(x))
         marks.upQuad([at(ax, az, d, u, yAB(u) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.13), at(ax, az, d, ue, yAB(ue) + 0.27), at(ax, az, d, u, yAB(u) + 0.27)], 0.02, YELLOW)
         marks.upQuad([at(ax, az, d, u, yBA(u) - 0.27), at(ax, az, d, ue, yBA(ue) - 0.27), at(ax, az, d, ue, yBA(ue) - 0.13), at(ax, az, d, u, yBA(u) - 0.13)], 0.02, YELLOW)
@@ -679,12 +726,38 @@ export function buildCity() {
         if (tB?.rOnly && flare(S1 - u - 3) > 0.25) mk(ax, az, d, u, u + 3, medAt(u) + 2 * LANE_W - 0.075, medAt(u) + 2 * LANE_W + 0.075, WHITE)
         if (tA?.rOnly && flare(u - S0) > 0.25) mk(ax, az, d, u, u + 3, -(medAt(u) + 2 * LANE_W) - 0.075, -(medAt(u) + 2 * LANE_W) + 0.075, WHITE)
       }
+      // houses along both sides of a residential street, facing it (they follow its bends)
+      if (one) {
+        const rr = (u: number, k: number) => hashN(ax * 0.37 + u * 1.7, az * 0.53 + d, k)
+        for (const sg of [1, -1] as const) {
+          // (no houses near a roundabout: it stands in open ground, with room to see the traffic going round)
+          for (let u = S0 + (kA === 'round' ? 75 : 24) + rr(sg, 0) * 6; u < S1 - (kB === 'round' ? 75 : 22); ) {
+            const w = 11 + rr(u, 1) * 4, dp = 8.5 + rr(u, 2) * 2.5, drive = 6.5 + rr(u, 3) * 3
+            const edge = sg === 1 ? sgh(u).right : sgh(u).left
+            const [p0x, p0z] = at(ax, az, d, u - 1, 0), [p1x, p1z] = at(ax, az, d, u + 1, 0)
+            const tl = Math.hypot(p1x - p0x, p1z - p0z) || 1
+            const yaw = Math.atan2(-(p1z - p0z) / tl, (p1x - p0x) / tl) + (sg === 1 ? 0 : Math.PI) // local +z points away from the street
+            const [hx, hz] = at(ax, az, d, u, sg * (edge + 1.2 + drive + dp / 2))
+            const gx = house(hx, hz, yaw, w, dp, drive + 1.2, (k) => rr(u + 0.5, 10 + k))
+            // a dense street: a car parked at the kerb in front of most houses (clear of the driveway)
+            if (style === 'dense' && rr(u, 5) < 0.45 && !(kA === 'round' && u < S0 + 95) && !(kB === 'round' && u > S1 - 95)) {
+              const uc = u - sg * gx * 0.55, [q0x, q0z] = at(ax, az, d, uc - 1, 0), [q1x, q1z] = at(ax, az, d, uc + 1, 0)
+              const ql = Math.hypot(q1x - q0x, q1z - q0z) || 1
+              const [px, pz] = at(ax, az, d, uc, sg * (RES_LANE_W + PARK_W / 2))
+              parkedCar(px, pz, (q1x - q0x) / ql, (q1z - q0z) / ql, Math.floor(u))
+            }
+            // gardens between the houses: tight on a dense street, wide where there are fewer houses
+            u += w + (style === 'dense' ? 3 + rr(u, 4) * 3 : style === 'centre' ? 16 + rr(u, 4) * 14 : 9 + rr(u, 4) * 8)
+          }
+        }
+      }
       // edge lines follow the widening road (they hand over to the curved kerb where the road sweeps into a roundabout)
-      const clipA = rbA ? Math.max(0, rbFillet(rbA).uc - S0) : 0, clipB = rbB ? Math.max(0, rbFillet(rbB).uc - (L - S1)) : 0
+      const clipA = rbA ? Math.max(0, rbFillet(rbA, armBase(i, j, d)).uc - S0) : 0, clipB = rbB ? Math.max(0, rbFillet(rbB, armBase(i, j, d)).uc - (L - S1)) : 0
       for (let u = S0 + clipA; u < S1 - clipB - 0.01; u += 3) {
         const ue = Math.min(u + 3, S1 - clipB)
         const h0 = sgh(u), h1 = sgh(ue)
         if (centreRd && stubsOn() && u + 1.5 > STUBU - STUB.half - 3 && u + 1.5 < STUBU + STUB.half + 3) continue // the mouth of a side street
+        if (style === 'dense') continue // a dense residential street has no edge lines either
         const rampMouth = LAYOUT.kind === 'mixed' && d === 0 && i === RAMP_I && j === RAMP_J && u + 1.5 > RAMP_AT - 32 && u < RAMP_AT + 6
         if (!rampMouth) marks.upQuad([at(ax, az, d, u, h0.right - 0.35), at(ax, az, d, ue, h1.right - 0.35), at(ax, az, d, ue, h1.right - 0.15), at(ax, az, d, u, h0.right - 0.15)], 0.02, WHITE)
         marks.upQuad([at(ax, az, d, u, -(h0.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.35)), at(ax, az, d, u, -(h0.left - 0.35))], 0.02, WHITE)
@@ -790,7 +863,7 @@ export function buildCity() {
         }
         else endKinds(round, twoLane).forEach((kind, k) => {
           if (!kind) return
-          for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneOff(k) + (round && flE ? rbShift(back) : 0)), kind)
+          for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneC(k, one) + (round && flE ? rbShift(back) : 0)), kind)
         })
         if (round && !twoLane && !one) {
           // The left lane really ends: a raised island starts as a point 130 m out and widens until it fills the lane at 60 m, so the
@@ -828,7 +901,7 @@ export function buildCity() {
           const uSign = sgv === 1 ? uPlus : uMinus
           const [sx, sz] = at(ax, az, d, uSign, sgv * ((sgv === 1 ? sgh(uSign).right : sgh(uSign).left) + 1.7)) // beside the road as wide as it is right there
           post(sx, sz, 2.4)
-          signQuad(sx - fdv[0] * sgv * 0.08, 2.15, sz - fdv[1] * sgv * 0.08, 0.85, 1.05, [-fdv[0] * sgv, -fdv[1] * sgv], one ? SIGN.speed25 : SIGN.speed)
+          signQuad(sx - fdv[0] * sgv * 0.08, 2.15, sz - fdv[1] * sgv * 0.08, 0.85, 1.05, [-fdv[0] * sgv, -fdv[1] * sgv], limitSign(streetMph(d % 2, d % 2 === 0 ? j : i)))
         }
       }
       // street trees
@@ -847,7 +920,7 @@ export function buildCity() {
         }
         for (const sg of [-1, 1] as const) {
           for (let k = 0; k < (one ? 1 : 2); k++) {
-            const c = sg * laneOff(k)
+            const c = sg * laneC(k, one)
             track(c - 0.85, 0.72, 0.17) // left wheel track
             track(c + 0.85, 0.72, 0.17) // right wheel track
             track(c, 0.5, 0.06) // oil drip down the middle of the lane
@@ -856,7 +929,7 @@ export function buildCity() {
         // patches (a different, slightly darker or lighter square of asphalt) and cracks
         for (let u = S0 + 12; u < S1 - 12; u += 17 + hashN(ax + u, az, 9) * 20) {
           const r1 = hashN(ax + u, az + 3, 10), r2 = hashN(ax + u, az + 5, 11), r3 = hashN(ax + u, az + 7, 12)
-          const lane = (r1 < 0.5 ? -1 : 1) * (laneOff(r2 < 0.5 || one ? 0 : 1) + (r3 - 0.5) * 1.4)
+          const lane = (r1 < 0.5 ? -1 : 1) * (laneC(r2 < 0.5 || one ? 0 : 1, one) + (r3 - 0.5) * (one ? 0.8 : 1.4))
           const L = 1.6 + r2 * 3.4, W = 1.2 + r3 * 1.8
           wear.quad(at(ax, az, d, u, lane - W / 2), at(ax, az, d, u + L, lane - W / 2), at(ax, az, d, u + L, lane + W / 2), at(ax, az, d, u, lane + W / 2), 0.013, 0.28 + r1 * 0.2, r2 < 0.35 ? 0.25 : 0)
           // a hairline crack running across the patch
@@ -864,7 +937,7 @@ export function buildCity() {
         }
         // transverse tar seams every ~12 m across both directions
         for (let u = S0 + 9; u < S1 - 8; u += 11.7) {
-          wear.quad(at(ax, az, d, u, -halfMid(one)), at(ax, az, d, u + 0.09, -halfMid(one)), at(ax, az, d, u + 0.09, halfMid(one)), at(ax, az, d, u, halfMid(one)), 0.014, 0.35)
+          wear.quad(at(ax, az, d, u, -armBase(i, j, d)), at(ax, az, d, u + 0.09, -armBase(i, j, d)), at(ax, az, d, u + 0.09, armBase(i, j, d)), at(ax, az, d, u, armBase(i, j, d)), 0.014, 0.35)
         }
         void LIGHT
         // concrete gutter along both kerbs (the strip of water channel between the asphalt and the kerb)
@@ -950,6 +1023,7 @@ export function buildCity() {
         const e1 = (tt + 1) % 4
         const lefts: Array<[number, number, number]> = jt.nL === 2 ? [[e1, mIn - LANE_W, mOut + LANE_W], [e1, mIn, mOut + 2 * LANE_W]] : jt.nL === 1 ? [[e1, mIn, mOut + LANE_W]] : [[e1, mIn + LANE_W, mOut + LANE_W]]
         if (armClosed(i, j, ar) || armClosed(i, j, (tt + 1) % 4)) continue
+        if (jt.one || jTypeOf(i, j, (ar + 1) % 2)!.one) continue // residential junctions have no turn-guide lines
         for (const [e, oEdge, xEdge] of lefts) {
           const o = oEdge
           const bIn = clearance(i, j, ar % 2), bOut = clearance(i, j, e % 2)
@@ -1043,10 +1117,10 @@ export function buildCity() {
       }
       // Curved kerbs sweep every road into the ring (a flared mouth, as on a real roundabout), with a white edge line round the outside
       {
-        const f = rbFillet(spec)
         const gaps: Array<[number, number]> = []
         for (let d = 0; d < 4; d++) {
           if (armClosed(i, j, d)) continue
+          const f = rbFillet(spec, armBase(i, j, d)) // each mouth fits the road on its arm (a residential street is narrow)
           const [dx, dz] = dirv(d)
           const L2 = (u: number, v: number): V2 => [cx + dx * u - dz * v, cz + dz * u + dx * v]
           gaps.push([(d * Math.PI) / 2 - f.ang, (d * Math.PI) / 2 + f.ang])
@@ -1090,7 +1164,7 @@ export function buildCity() {
       if (armClosed(i, j, a)) continue
       const [ox, oz] = dirv(a)
       const [rx, rz] = dirv(a + 1) // right of the inbound travel direction
-      const P = (u: number, q: number): V2 => [cx + ox * u + rx * q, cz + oz * u + rz * q]
+      const P = (u: number, q: number): V2 => { const qb = q - bendAt(cx, cz, a, u); return [cx + ox * u + rx * qb, cz + oz * u + rz * qb] } // (q: right of the inbound driver)
       const face: V2 = [ox, oz]
       const crossIdx = a % 2 === 0 ? i : 4 + j // road that crosses the one being driven along
       const yaw = Math.atan2(ox, oz)
@@ -1102,7 +1176,7 @@ export function buildCity() {
       const jt = jTypeOf(i, j, a % 2), jtNb = jTypeOf(i + nbx, j + nbz, a % 2)
       const Lnb = roadLen(i, j, a)
       const oneHere = armOne(i, j, a)
-      const HWat = (u: number) => halfMid(oneHere) + medW(jt, jtNb, clr, clrNb, u, Lnb) + (jt?.rOnly ? LANE_W * flare(u - clr) : 0)
+      const HWat = (u: number) => armBase(i, j, a) + medW(jt, jtNb, clr, clrNb, u, Lnb) + (jt?.rOnly ? LANE_W * flare(u - clr) : 0)
       const HW = HWat(clr + 2.5)
 
       // roadside signs on the right-hand verge
@@ -1123,7 +1197,7 @@ export function buildCity() {
       else if (ctl === 'light') side(clr + 62, 2.6, 1.1, 1.1, SIGN.sigWarn)
       else if (ctl !== 'free') side(clr + 62, 2.6, 1.3, 1.3, ctl === 'stop' ? SIGN.stopAhead : SIGN.yieldAhead)
       if (kind !== 'signal') side(clr + 120, 2.6, 1.5, 1.5, SIGN.rbWarn) // an early warning as well
-      side(clr + 30, 2.4, 0.85, 1.05, oneHere ? SIGN.speed25 : SIGN.speed)
+      side(clr + 30, 2.4, 0.85, 1.05, limitSign(streetMph(a % 2, a % 2 === 0 ? j : i)))
       if (kind === 'signal' && ctl === 'light') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
       if (kind === 'signal') {
         if (jt && jt.nL === 1 && !jt.rOnly && !jt.one) side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows of the 3-lane layout)
@@ -1274,6 +1348,7 @@ export function buildCity() {
 
   // ---------------- blocks: plazas, buildings, parks ----------------
   for (const l of LOTS) {
+    if (l.empty) continue
     if (l.park) {
       for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) {
         trees.push({ x: l.x0 + 8 + a * 18 + hashN(l.x0, a, b) * 5, z: l.z0 + 8 + b * 18 + hashN(l.z0, b, a) * 5, s: 0.9 + hashN(a, b, l.x0) * 0.6 })
@@ -1281,42 +1356,8 @@ export function buildCity() {
       continue
     }
     if (l.res) {
-      // residential block: four detached houses with pitched roofs, driveways and garden trees (no big buildings)
-      const WALLS: V3[] = [[0.86, 0.82, 0.72], [0.78, 0.72, 0.62], [0.9, 0.9, 0.86], [0.7, 0.76, 0.8], [0.8, 0.66, 0.56], [0.74, 0.8, 0.7]]
-      const ROOFS: V3[] = [[0.36, 0.2, 0.16], [0.26, 0.27, 0.3], [0.42, 0.3, 0.22], [0.2, 0.24, 0.28]]
-      const mx = (l.x0 + l.x1) / 2, mz = (l.z0 + l.z1) / 2, qx = (l.x1 - l.x0) / 4, qz = (l.z1 - l.z0) / 4
-      let hn = 0
-      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
-        const r = (k: number) => hashN(l.x0 + sx * 7, l.z0 + sz * 11, k + hn)
-        hn += 5
-        const hx = mx + sx * qx + (r(1) - 0.5) * 3, hz = mz + sz * qz + (r(2) - 0.5) * 3
-        const alongX = r(3) < 0.5 // which way the ridge runs
-        const w = 11 + r(4) * 4, dp = 8 + r(5) * 2.5, wallH = 3.1 + (r(6) < 0.35 ? 2.8 : 0) // some have two floors
-        const bx = alongX ? w : dp, bz = alongX ? dp : w
-        const wall = WALLS[Math.floor(r(7) * WALLS.length)], roof = ROOFS[Math.floor(r(8) * ROOFS.length)]
-        solid.box(hx, 0, hz, bx, wallH, bz, 0, wall)
-        // pitched roof: a triangular prism along the ridge, with a small overhang
-        const span = dp + 1.0, len = w + 1.0, rise = 2.3
-        const tri = new THREE.Shape([new THREE.Vector2(-span / 2, 0), new THREE.Vector2(span / 2, 0), new THREE.Vector2(0, rise)])
-        const rg = new THREE.ExtrudeGeometry(tri, { depth: len, bevelEnabled: false })
-        rg.translate(0, 0, -len / 2)
-        if (alongX) rg.rotateY(Math.PI / 2)
-        rg.translate(hx, wallH, hz)
-        solid.addGeometry(rg, roof)
-        // door, windows and a chimney
-        const fz = alongX ? sz * -1 : 0, fx = alongX ? 0 : sx * -1 // the front faces the middle of the block's nearest street side
-        const frontX = hx - fx * (bx / 2 + 0.03), frontZ = hz - fz * (bz / 2 + 0.03)
-        solid.box(frontX, 0, frontZ, fx ? 0.08 : 1.1, 2.1, fz ? 0.08 : 1.1, 0, [0.3, 0.2, 0.14])
-        for (const o of [-3.2, 3.2]) solid.box(frontX + (fz ? o : 0), 1.1, frontZ + (fx ? o : 0), fx ? 0.08 : 1.6, 1.2, fz ? 0.08 : 1.6, 0, [0.55, 0.68, 0.8])
-        solid.box(hx + (alongX ? w * 0.28 : 0), wallH + 0.8, hz + (alongX ? 0 : w * 0.28), 0.7, 2.2, 0.7, 0, [0.5, 0.32, 0.26])
-        // driveway out toward the nearer street
-        const toX = Math.abs(hx - (sx < 0 ? l.x0 : l.x1)) < Math.abs(hz - (sz < 0 ? l.z0 : l.z1))
-        if (toX) solid.box((hx + (sx < 0 ? l.x0 - 4 : l.x1 + 4)) / 2 + sx * bx / 4, 0, hz + 3, Math.abs(hx - (sx < 0 ? l.x0 - 4 : l.x1 + 4)) - bx / 2, 0.05, 3.2, 0, [0.5, 0.5, 0.52])
-        else solid.box(hx + 3, 0, (hz + (sz < 0 ? l.z0 - 4 : l.z1 + 4)) / 2 + sz * bz / 4, 3.2, 0.05, Math.abs(hz - (sz < 0 ? l.z0 - 4 : l.z1 + 4)) - bz / 2, 0, [0.5, 0.5, 0.52])
-        // garden trees
-        trees.push({ x: hx + sx * (bx / 2 + 4 + r(9) * 3), z: hz - sz * (bz / 2 + 3), s: 0.7 + r(10) * 0.5 })
-        if (r(11) < 0.6) trees.push({ x: hx - sx * (bx / 2 + 3), z: hz + sz * (bz / 2 + 4 + r(12) * 2), s: 0.6 + r(13) * 0.5 })
-      }
+      // residential block: the houses line the streets (see above); the middle of the block is back gardens with trees
+      for (let k = 0; k < 4; k++) trees.push({ x: l.x0 + (l.x1 - l.x0) * (0.25 + hashN(l.x0, l.z0, k) * 0.5), z: l.z0 + (l.z1 - l.z0) * (0.25 + hashN(l.z0, l.x0, k + 5) * 0.5), s: 0.8 + hashN(l.x0 + k, l.z0, 9) * 0.5 })
       continue
     }
     solid.box((l.x0 + l.x1) / 2, 0, (l.z0 + l.z1) / 2, l.x1 - l.x0, 0.08, l.z1 - l.z0, 0, [0.55, 0.56, 0.58])

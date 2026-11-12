@@ -155,8 +155,8 @@ function reqLane(c: AiCar, p: Piece) {
 }
 
 /** Right lane: at (or just under) the speed limit. Left lanes may go faster. */
-function laneV0(c: AiCar, lane: number, one = false) {
-  if (one) return Math.min(c.pref, speedLimit(true) * 1.02) // a residential street: about 25 mph
+function laneV0(c: AiCar, lane: number, one = false, lim?: number) {
+  if (one) return Math.min(c.pref, (lim ?? speedLimit(true)) * 1.02) // a residential street: about its limit (10 to 25 mph)
   if (lane >= 1) return Math.min(c.pref, speedLimit(false) * 0.99) // right / outer lane: at the speed limit
   return Math.min(c.pref, 16.5) // inner lane: may go a little faster
 }
@@ -188,7 +188,7 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     c.lane = p.lane
     c.style = Math.random() < 0.7 ? 0 : 1
     c.pref = c.style === 0 ? rand(12.4, 13.3) : rand(15, 19)
-    c.v0 = laneV0(c, p.lane, p.one)
+    c.v0 = laneV0(c, p.lane, p.one, p.lim)
     // never appear moving faster than the car could stop from before the nearest car (it may be the tail of a queue)
     c.speed = Math.min(c.v0 * 0.85, Math.sqrt(2 * 3 * Math.max(0, near - 10)))
     c.lcT = -1
@@ -203,8 +203,10 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     if (p.toKind === 'signal') c.plan = !does(p, p.lane, 'S') ? (does(p, p.lane, 'L') ? 'L' : 'R') : does(p, p.lane, 'R') && Math.random() < 0.4 ? 'R' : does(p, p.lane, 'L') && hasLeft(p) && Math.random() < 0.25 ? 'L' : 'S'
     c.color = pick(COLORS)
     const r = Math.random()
+    const homeStreet = LAYOUT.kind === 'res' || !!p.one // residential streets: small cars and SUVs only
     // body type: sedans most common, then pickups and vans; a few classics and sports cars for variety
     c.kind = r < 0.5 ? 0 : r < 0.72 ? 1 : r < 0.82 ? 2 : r < 0.88 ? 3 : r < 0.93 ? 4 : 5
+    if (homeStreet && c.kind === 2) c.kind = 0 // no vans on residential streets
     c.stuck = 0
     c.ghost = 0
     place(c)
@@ -338,8 +340,9 @@ function idm(v: number, v0: number, gap: number, dv: number) {
 const ringCars = new Map<number, number[]>() // car indices circulating in each roundabout
 // spatial grid so each car only looks at its neighbours (hundreds of cars stay cheap)
 const CELL = 50
-const CN = P / CELL
-const grid: number[][] = Array.from({ length: CN * CN }, () => [])
+/** cells per side: the world's period changes with the course (the residential town is smaller), so it is kept up to date */
+let CN = Math.round(P / CELL)
+const grid: number[][] = Array.from({ length: 40 * 40 }, () => [])
 const cellOf = (x: number, z: number) => (Math.floor(x / CELL) % CN) * CN + (Math.floor(z / CELL) % CN)
 
 
@@ -559,6 +562,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       cars[i].active = spawn(cars[i], player, 150)
     }
   }
+  CN = Math.round(P / CELL)
   for (const g of grid) g.length = 0
   for (const l of ringCars.values()) l.length = 0
   for (let i = 0; i < cars.length; i++) {
@@ -805,7 +809,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       c.lcWant = 0
       if (np.kind === 'edge') {
         c.turnSig = 0
-        c.v0 = laneV0(c, np.lane, np.one)
+        c.v0 = laneV0(c, np.lane, np.one, np.lim)
         c.cool = rand(0.3, 2)
         planEdge(c, np)
       }
