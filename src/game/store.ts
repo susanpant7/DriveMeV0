@@ -57,6 +57,10 @@ interface GameState {
   /** the highway course: which scenario is being driven, and a counter that changes whenever a new one is built */
   hwType: string
   hwVersion: number
+  /** Mixed course: driving the town, or out on the highway */
+  leg: 'town' | 'highway'
+  /** a short black-screen card shown while the scene changes (town <-> highway) */
+  fade: { id: number; text: string; sub: string } | null
   /** paused and adjusting the mirrors (only possible while the game is paused) */
   adjusting: boolean
 }
@@ -106,6 +110,8 @@ export const useGame = create<GameState>(() => ({
   nav: { text: '', sub: '', icon: 'S', dist: 0, arrived: 0 },
   hwType: 'merge',
   hwVersion: 0,
+  leg: 'town',
+  fade: null,
   adjusting: false,
   units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
   lookMode: load<'eye' | 'motion'>('driveme.look', 'eye', (v) => v === 'eye' || v === 'motion'),

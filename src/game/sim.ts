@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { rampAt, nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -125,6 +125,20 @@ export const sim = {
 /** points for the highway course (shown in the corner); they only ever go up */
 function award(n: number) { if (n > 0) sim.score += n }
 
+let fadeId = 0
+/** Mixed course: from the end of the town's on-ramp onto the highway (the highway's own on-ramp, merge first) */
+function enterHighway() {
+  useGame.setState({ leg: 'highway', fade: { id: ++fadeId, text: 'I-5 North', sub: 'Build up speed on the ramp, then merge' } })
+  resetSim('merge', true)
+}
+/** Mixed course: off the highway exit and back into the city (the route then leads through the residential district again) */
+function leaveHighway() {
+  nav.start = 'city'
+  useGame.setState({ leg: 'town', fade: { id: ++fadeId, text: 'Exit 12 · City Centre', sub: 'Slow down: 30 mph in town' } })
+  resetSim('merge', true)
+}
+const mixedHw = () => useGame.getState().mode === 'mixed'
+
 /** Move on to the next scenario: back to the start of the course, with the traffic carried along (the plain highway looks the same). */
 function advanceHighway() {
   const cur = scen.type
@@ -132,7 +146,10 @@ function advanceHighway() {
   award(cur === 'fork' ? 50 : cur === 'merge' || (cur === 'exit' && hw.exitTaken) || (cur === 'lanedrop' && hw.crossed) ? 100 : 0)
   if (cur === 'fork') say(sim.x > 12 ? 'You are now on I-405 East.' : 'You are now on I-5 North.', 'info')
   const pool: HwType[] = ['exit', 'fork', 'lanedrop']
-  const next: HwType = pool[Math.floor(Math.random() * pool.length)]
+  // on the Mixed course the next thing after merging is the exit back into the city (a missed exit comes round again)
+  const next: HwType = mixedHw() ? 'exit' : pool[Math.floor(Math.random() * pool.length)]
+  if (mixedHw() && cur === 'exit' && !hw.exitTaken) say('You missed the exit. Take the next one: get into the right lane early.', 'warn')
+  else if (mixedHw() && cur === 'merge') say('Next: take the exit on the right back into the city.', 'info')
   if (next === 'lanedrop') clearLane(4)
   const baseX = sim.x - (cur === 'fork' ? forkShift(sim.z) : 0)
   const dz = SPAWN_Z - sim.z
@@ -193,6 +210,7 @@ function trackHighway(): boolean {
     }
     if (hw.crossed && !hw.exitTaken && z <= gore) hw.exitTaken = x > NB_EDGE_R
     if (hw.exitTaken && !hw.sigOffWarn && z < gore - 120 && sim.signal !== 0) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
+    if (mixedHw() && hw.exitTaken && z < -150) { award(100); leaveHighway(); return false }
     if (z < (hw.exitTaken ? -150 : -350)) advanceHighway()
     return false
   }
@@ -236,11 +254,12 @@ const playerObs = () => (WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: 
 
 /* ---------- lifecycle ---------- */
 let brakeHold = 0 // how long the brake has been held (s)
+let onResStreet = false // the street you are on (or last were on) is a residential one
 
 export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   const keep = keepScore ? sim.score : 0
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
-  WORLD.highway = useGame.getState().mode === 'highway'
+  WORLD.highway = useGame.getState().mode === 'highway' || (useGame.getState().mode === 'mixed' && useGame.getState().leg === 'highway')
   WORLD_PERIOD.v = WORLD.highway ? 1e7 : P
   autoCentre.on = false
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
@@ -270,6 +289,8 @@ resetSim()
 
 export function startGame() {
   initAudio()
+  nav.start = 'res' // the Mixed course starts in the residential district
+  useGame.setState({ leg: 'town', fade: null })
   resetSim()
   useGame.setState({ status: 'playing', pauseReason: 'user', adjusting: false, messages: [], crashReason: '', crashTips: [], crashDiag: null, hud: { ...initialHud } })
 }
@@ -324,7 +345,7 @@ function recoverToRoad() {
   const fz = -Math.cos(sim.h)
   const ns = Math.abs(nn.rx) <= Math.abs(nn.rz)
   // the outer lane of the 2-lane road; a residential street has just the one (beyond its centre turn lane, where there is one)
-  const lane = oneLane() ? (jTypeOf(nn.i, nn.j, ns ? 1 : 0)?.mw ?? 0) * LANE_W + laneOff(0) : laneOff(1)
+  const lane = (ns ? oneLane(1, nn.i) : oneLane(0, nn.j)) ? (jTypeOf(nn.i, nn.j, ns ? 1 : 0)?.mw ?? 0) * LANE_W + laneOff(0) : laneOff(1)
   let x: number, z: number, h: number
   if (Math.abs(nn.rx) <= Math.abs(nn.rz)) {
     // nearest road runs north-south (x = the node's column)
@@ -586,6 +607,8 @@ export function stepSim(dt: number) {
     trackStop()
   }
   if (useGame.getState().mode === 'roundabout' && !WORLD.highway) { if (trackRbLane()) return }
+  // Mixed course: at the end of the on-ramp you are taken onto the highway
+  if (!WORLD.highway && useGame.getState().mode === 'mixed' && (rampAt(sim.x, sim.z) ?? 0) > 72) { enterHighway(); return }
   trackSpeed(dt)
 
   sim.hudTimer += dt
@@ -723,7 +746,7 @@ function laneInfo() {
     }
     return { d, r, k, e, left }
   }
-  const k = r < 0 ? -1 : r < LANE_W || oneLane() ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
+  const k = r < 0 ? -1 : r < LANE_W || oneLane(alongZ ? 1 : 0, ci) ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
   return { d, r, k, e: k < 0 ? r : r - laneOff(k), left: false }
 }
 
@@ -958,7 +981,10 @@ function trackStop() {
 
 function currentLimit() {
   if (WORLD.highway) return scen.type === 'merge' && sim.z > Z_GORE + 30 ? 40 : 31.3 // 70 mph on the highway; the on-ramp lets you build speed
-  return speedLimit()
+  // 25 mph on a residential street, 30 on the town's main roads (the last street's limit holds through a junction)
+  const L = laneInfo()
+  if (L) onResStreet = L.d % 2 === 0 ? oneLane(0, nearZ(sim.z)) : oneLane(1, nearX(sim.x))
+  return speedLimit(onResStreet)
 }
 
 function trackSpeed(dt: number) {
@@ -996,4 +1022,4 @@ function syncHud() {
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __why: (c: AiCar) => whyStuck(c, sim.t, playerObs()), __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __world: WORLD, __navfn: { startRoute, navUpdate, navJunctionExit } })
+if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __why: (c: AiCar) => whyStuck(c, sim.t, playerObs()), __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __world: WORLD, __legs: { enterHighway, leaveHighway }, __ramp: rampAt, __navfn: { startRoute, navUpdate, navJunctionExit } })

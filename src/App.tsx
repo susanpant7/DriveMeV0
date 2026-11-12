@@ -22,6 +22,8 @@ const LOWFX = IS_COARSE || (typeof location !== 'undefined' && new URLSearchPara
 export default function App() {
   useEffect(() => installInput(), [])
   const mode = useGame((s) => s.mode)
+  const leg = useGame((s) => s.leg)
+  const hwLeg = mode === 'highway' || (mode === 'mixed' && leg === 'highway') // the Mixed course drives out onto the highway and back
   setLayout(layoutOf(mode)) // the road data must match the chosen course before the scene is built
   return (
     <>
@@ -33,7 +35,8 @@ export default function App() {
         <SunLight />
         <Simulation />
         <Ground />
-        {mode === 'highway' ? <Highway /> : <City key={layoutOf(mode)} />}
+        {hwLeg && <Highway />}
+        {mode !== 'highway' && <group visible={!hwLeg}><City key={layoutOf(mode)} /></group>}
         <Traffic />
         <PlayerRig />
         {!LOWFX && (

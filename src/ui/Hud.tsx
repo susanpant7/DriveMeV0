@@ -157,6 +157,18 @@ function TouchControls() {
   )
 }
 
+/** Mixed course: a short black card while the scene changes between the town and the highway */
+function FadeCard() {
+  const fade = useGame((s) => s.fade)
+  if (!fade) return null
+  return (
+    <div key={fade.id} className="fadecard" aria-live="polite">
+      <b>{fade.text}</b>
+      <span>{fade.sub}</span>
+    </div>
+  )
+}
+
 function TouchHelp() {
   return (
     <ul className="controls">
@@ -287,6 +299,7 @@ export function Hud() {
 
   return (
     <div className={`hud${touch ? ' touch' : ''}`}>
+      <FadeCard />
       {status === 'playing' && <PlayingHud />}
       {touch && portrait && (
         <div className="overlay rotate">

@@ -1,4 +1,4 @@
-import { LAYOUT, WEDGE_LEN, nodeX, nodeZ, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, speedLimit, armCtrl, hasLeftArrow, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
+import { LAYOUT, WEDGE_LEN, clearance, nodeX, nodeZ, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, speedLimit, armCtrl, hasLeftArrow, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
 
 export const MAX_CARS = 900
 export const CAR_L = 4.4
@@ -135,7 +135,7 @@ const canRight = (p: Piece) => lanesFor(p, 'R').length > 0
 
 function planEdge(c: AiCar, p: Piece) {
   c.plan = 'S'
-  if (p.kind === 'edge' && p.toKind === 'round' && p.lane === 0 && rbSpecOfNode(p.node).laneR.length === 1) c.cool = 0 // start merging out of the closing lane at once
+  if (p.kind === 'edge' && p.toKind === 'round' && p.lane === 0 && !p.one && rbSpecOfNode(p.node).laneR.length === 1) c.cool = 0 // start merging out of the closing lane at once
   if (p.kind !== 'edge' || p.toKind !== 'signal') return
   const r = Math.random()
   if (r < 0.18 && hasLeft(p)) c.plan = 'L'
@@ -155,8 +155,9 @@ function reqLane(c: AiCar, p: Piece) {
 }
 
 /** Right lane: at (or just under) the speed limit. Left lanes may go faster. */
-function laneV0(c: AiCar, lane: number) {
-  if (lane >= 1) return Math.min(c.pref, speedLimit() * 0.99) // right / outer lane: at the speed limit
+function laneV0(c: AiCar, lane: number, one = false) {
+  if (one) return Math.min(c.pref, speedLimit(true) * 1.02) // a residential street: about 25 mph
+  if (lane >= 1) return Math.min(c.pref, speedLimit(false) * 0.99) // right / outer lane: at the speed limit
   return Math.min(c.pref, 16.5) // inner lane: may go a little faster
 }
 
@@ -186,7 +187,7 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     c.lane = p.lane
     c.style = Math.random() < 0.7 ? 0 : 1
     c.pref = c.style === 0 ? rand(12.4, 13.3) : rand(15, 19)
-    c.v0 = laneV0(c, p.lane)
+    c.v0 = laneV0(c, p.lane, p.one)
     // never appear moving faster than the car could stop from before the nearest car (it may be the tail of a queue)
     c.speed = Math.min(c.v0 * 0.85, Math.sqrt(2 * 3 * Math.max(0, near - 10)))
     c.lcT = -1
@@ -381,7 +382,7 @@ function startChange(c: AiCar, p: Piece, dir: -1 | 1) {
 function decideLane(c: AiCar, p: Piece, gap: number, lv: number, toEnd: number) {
   let want: -1 | 0 | 1 = 0
   let urgent = false
-  if (p.toKind === 'round' && p.lane === 0 && rbSpecOfNode(p.node).laneR.length === 1) {
+  if (p.toKind === 'round' && p.lane === 0 && !p.one && rbSpecOfNode(p.node).laneR.length === 1) {
     want = 1 // the left lane is closed ahead (one-lane roundabout): merge right in good time
     urgent = true
   } else if (p.toKind === 'signal') {
@@ -429,13 +430,14 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
   const cz = nodeZ(jj)
   const gx = Math.floor(cx / CELL)
   const gz = Math.floor(cz / CELL)
+  const JB = clearance(ji, jj, p.axis ?? 0) // how far the junction reaches along this road (the stop line is just beyond it)
   const fx = -Math.sin(c.h)
   const fz = -Math.cos(c.h)
   const opp = (p.arm + 2) % 4
   // How long will this car need to get across the oncoming lanes? It has toEnd to the junction edge, then about half the junction before it
   // has crossed. A moving driver needs less time than one waiting at the line. The oncoming vehicle is a conflict only if it would
   // reach the crossing point before we are clear (plus a safety margin): so a driver can go if the oncoming car is far enough away.
-  const dCross = Math.max(toEnd - 3.9, 0) + BOX * 0.9
+  const dCross = Math.max(toEnd - 3.9, 0) + JB * 0.9
   const tClear = (-c.speed + Math.sqrt(c.speed * c.speed + 2 * 2 * dCross)) / 2 + 1.2 // accelerating at about 2 m/s2
   const lights = armCtrl(p.node, p.axis ?? 0) === 'light'
   // a green ARROW is a protected turn: oncoming traffic has a red light
@@ -456,14 +458,14 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
           const left = op.len - o.s
           if (o.speed < 0.5 && o.cGap < 10 && left > 4) continue // stuck in a queue behind another car: it is not coming
           if (o.speed < 0.5 && c.waitL > 6) continue // it has been standing there (jammed beyond the junction) while we wait: go
-          const eta = (left + BOX * 0.4) / Math.max(o.speed, 3.5) // when it reaches the crossing point
+          const eta = (left + JB * 0.4) / Math.max(o.speed, 3.5) // when it reaches the crossing point
           if (clearing && (left > (o.speed * o.speed) / 7 + 3 || o.speed < 2)) continue // it will stop for the amber / red
           if (!lights && oppCtl !== 'free' && o.goPiece !== o.piece) continue // it has a STOP / YIELD sign of its own and has not set off yet
-          if (left < 140 && eta < tClear + (c.waitL > 20 ? 0.2 : 1.0) && (!lights || signalColor(p.node, op.axis as 0 | 1, t, 'T') !== 2) && maneuver(o, op) !== 'L') return true
+          if (left < 140 && eta < tClear + (c.waitL > 30 ? -0.3 : c.waitL > 15 ? 0.3 : 1.0) && (!lights || signalColor(p.node, op.axis as 0 | 1, t, 'T') !== 2) && maneuver(o, op) !== 'L') return true
         } else if (op.kind === 'conn' && op.node === p.node && o.speed > 0.8) {
           const ofx = -Math.sin(o.h)
           const ofz = -Math.cos(o.h)
-          if (ofx * fx + ofz * fz < -0.5 && Math.hypot(wrapD(o.x - cx), wrapD(o.z - cz)) < BOX + 4) return true
+          if (ofx * fx + ofz * fz < -0.5 && Math.hypot(wrapD(o.x - cx), wrapD(o.z - cz)) < JB + 4) return true
         }
       }
     }
@@ -476,7 +478,7 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
   if (pfx * fx + pfz * fz < -0.5) {
     const d = Math.hypot(pdx, pdz)
     const approaching = -(pdx * pfx + pdz * pfz) > -6 // the player is still before, or just at, the centre of the junction
-    if (approaching && d < 140 && (d + BOX * 0.4) / Math.max(player.speed, 3.5) < tClear + 1.0) return true
+    if (approaching && d < 140 && (d + JB * 0.4) / Math.max(player.speed, 3.5) < tClear + 1.0) return true
   }
   return false
 }
@@ -701,7 +703,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
     }
 
     // a car still in the closing lane of a one-lane roundabout stops at the nose of the island until it can merge right
-    const wedgeWait = p.kind === 'edge' && p.toKind === 'round' && p.lane === 0 && rbSpecOfNode(p.node).laneR.length === 1 && c.ghost <= 0
+    const wedgeWait = p.kind === 'edge' && p.toKind === 'round' && p.lane === 0 && !p.one && rbSpecOfNode(p.node).laneR.length === 1 && c.ghost <= 0
     if (wedgeWait) {
       const dist = toEnd - WEDGE_LEN - 3
       if (dist > -1 && dist < gap) { gap = Math.max(dist, 0.05); lv = 0 }
@@ -794,7 +796,7 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
       c.lcWant = 0
       if (np.kind === 'edge') {
         c.turnSig = 0
-        c.v0 = laneV0(c, np.lane)
+        c.v0 = laneV0(c, np.lane, np.one)
         c.cool = rand(0.3, 2)
         planEdge(c, np)
       }

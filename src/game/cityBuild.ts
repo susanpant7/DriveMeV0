@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { nodeX, nodeZ, roadLen, stubZ, armCtrl, speedLimit, oneLane, halfMid, LAYOUT, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
+import { LAYOUT, RAMP_AT, RAMP_HALF, RAMP_I, RAMP_J, rampLine, nodeX, nodeZ, roadLen, stubZ, armCtrl, armOne, halfMid, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -127,7 +127,7 @@ export const ATLAS_H = 1536
 const cell = (i: number): Rect => ({ x: i * 256, y: 0, w: 256, h: 256 })
 const cell2 = (i: number): Rect => ({ x: i * 256, y: 896, w: 256, h: 256 })
 const cell3 = (i: number): Rect => ({ x: i * 256, y: 1280, w: 256, h: 256 })
-export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7), stop: cell3(0), allWay: cell3(1), stopAhead: cell3(2), yieldAhead: cell3(3), crossTraffic: cell3(4), stopText: cell3(5) }
+export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7), speed25: cell3(6), stop: cell3(0), allWay: cell3(1), stopAhead: cell3(2), yieldAhead: cell3(3), crossTraffic: cell3(4), stopText: cell3(5), hwEntrance: cell3(7) }
 export const PLATE = (i: number): Rect => ({ x: i * 256, y: 256, w: 256, h: 128 })
 
 function arrowHead(g: CanvasRenderingContext2D, x: number, y: number, ang: number, s: number) {
@@ -143,7 +143,11 @@ function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number,
 }
 
 export function drawSpeedSign(g: CanvasRenderingContext2D, units: 'kmh' | 'mph') {
-  const { x, y, w, h } = SIGN.speed
+  drawLimit(g, units, SIGN.speed, 30)
+  drawLimit(g, units, SIGN.speed25, 25)
+}
+function drawLimit(g: CanvasRenderingContext2D, units: 'kmh' | 'mph', r: Rect, mph: number) {
+  const { x, y, w, h } = r
   g.clearRect(x, y, w, h)
   g.fillStyle = '#fff'; roundRect(g, x + 4, y + 4, w - 8, h - 8, 16); g.fill()
   g.strokeStyle = '#111'; g.lineWidth = 9; roundRect(g, x + 12, y + 12, w - 24, h - 24, 10); g.stroke()
@@ -152,7 +156,6 @@ export function drawSpeedSign(g: CanvasRenderingContext2D, units: 'kmh' | 'mph')
   g.fillText('SPEED', x + 128, y + 52)
   g.fillText('LIMIT', x + 128, y + 90)
   g.font = '700 118px Arial, sans-serif'
-  const mph = Math.round(speedLimit() / 0.44704)
   g.fillText(units === 'mph' ? String(mph) : mph === 25 ? '40' : '50', x + 128, y + 172)
 }
 
@@ -337,6 +340,22 @@ export function makeAtlas(units: 'kmh' | 'mph') {
     // "STOP" painted on the road before the line (white on transparent)
     r = SIGN.stopText
     g.fillStyle = '#fff'; g.font = '800 104px Arial, sans-serif'; g.fillText('STOP', r.x + 128, r.y + 128, 244)
+  }
+  // green guide sign for the highway entrance: route shield, "NORTH", "ENTRANCE" and an arrow up to the right
+  {
+    const r = SIGN.hwEntrance
+    g.fillStyle = '#0b6b3a'; roundRect(g, r.x + 6, r.y + 24, 244, 208, 16); g.fill()
+    g.strokeStyle = '#fff'; g.lineWidth = 6; roundRect(g, r.x + 14, r.y + 32, 228, 192, 11); g.stroke()
+    // interstate shield
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(r.x + 46, r.y + 52); g.lineTo(r.x + 110, r.y + 52); g.quadraticCurveTo(r.x + 114, r.y + 104, r.x + 78, r.y + 124); g.quadraticCurveTo(r.x + 42, r.y + 104, r.x + 46, r.y + 52); g.fill()
+    g.fillStyle = '#1a3f9c'; g.beginPath(); g.moveTo(r.x + 51, r.y + 70); g.lineTo(r.x + 105, r.y + 70); g.quadraticCurveTo(r.x + 108, r.y + 101, r.x + 78, r.y + 118); g.quadraticCurveTo(r.x + 48, r.y + 101, r.x + 51, r.y + 70); g.fill()
+    g.fillStyle = '#c8181c'; g.fillRect(r.x + 49, r.y + 56, 58, 12)
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 30px Arial, sans-serif'; g.fillText('5', r.x + 78, r.y + 94)
+    g.font = '800 30px Arial, sans-serif'; g.fillText('NORTH', r.x + 178, r.y + 88, 120)
+    g.font = '800 28px Arial, sans-serif'; g.fillText('ENTRANCE', r.x + 128, r.y + 156, 210)
+    g.strokeStyle = '#fff'; g.fillStyle = '#fff'; g.lineWidth = 9
+    g.beginPath(); g.moveTo(r.x + 108, r.y + 212); g.lineTo(r.x + 140, r.y + 186); g.stroke()
+    g.beginPath(); g.moveTo(r.x + 154, r.y + 174); g.lineTo(r.x + 128, r.y + 178); g.lineTo(r.x + 148, r.y + 198); g.closePath(); g.fill()
   }
   // "STOP HERE ON RED"
   {
@@ -532,8 +551,8 @@ export function buildCity() {
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const cA = clearance(i, j, d % 2), cB = clearance(i + dx, j + dz, d % 2)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz)
-      const L = roadLen(i, j, d)
-      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L)
+      const L = roadLen(i, j, d), one = armOne(i, j, d)
+      const sgA = (u: number) => segHalves(kA, kB, cA, cB, u, fA, fB, jTypeOf(i, j, d % 2), jTypeOf(i + dx, j + dz, d % 2), L, one)
       const u0 = kA === 'round' ? cA - 3 : cA
       const u1 = kB === 'round' ? L - cB + 3 : L - cB
       for (let u = u0; u < u1 - 0.01; u += 4) {
@@ -575,11 +594,12 @@ export function buildCity() {
       const [dx, dz] = dirv(d)
       const clrA = clearance(i, j, d % 2), clrB = clearance(i + dx, j + dz, d % 2)
       const L = roadLen(i, j, d), STUBU = L / 2 // the side streets are halfway along
+      const one = armOne(i, j, d) // a one-lane residential street
       const S0 = clrA, S1 = L - clrB
       const kA = nodeKind(i, j), kB = nodeKind(i + dx, j + dz)
       const fA = flareOf(i, j), fB = flareOf(i + dx, j + dz) // lanes flare beside a splitter island at these ends
       const tA = jTypeOf(i, j, d % 2), tB = jTypeOf(i + dx, j + dz, d % 2)
-      const sgh = (u: number) => segHalves(kA, kB, S0, L - S1, u, fA, fB, tA, tB, L)
+      const sgh = (u: number) => segHalves(kA, kB, S0, L - S1, u, fA, fB, tA, tB, L, one)
       const rbA = rbSpec(i, j), rbB = rbSpec(i + dx, j + dz)
       // Each carriageway sits one lane out from the centre line (the median) so the through lanes run straight across junctions. The median's
       // two edge lines (yellow) meet in the middle as the left-turn lanes open up in it near a signalised junction.
@@ -638,7 +658,7 @@ export function buildCity() {
       }
       // dashed divider between the two ordinary lanes, both directions
       const shiftAt = (u: number) => Math.max(fA ? rbShift(u - S0) : 0, fB ? rbShift(S1 - u) : 0)
-      for (const sg of oneLane() ? [] : [-1, 1]) {
+      for (const sg of one ? [] : [-1, 1]) {
         // near a roundabout the divider is drawn closer together (3 m dash, 3 m gap) and right up to the entry line
         const uLo = S0 + (kA === 'round' && sg === -1 ? 3 : 4), uHi = S1 - (kB === 'round' && sg === 1 ? 4 : 12)
         for (let u = uLo; u + 3 < uHi; ) {
@@ -665,7 +685,8 @@ export function buildCity() {
         const ue = Math.min(u + 3, S1 - clipB)
         const h0 = sgh(u), h1 = sgh(ue)
         if (centreRd && stubsOn() && u + 1.5 > STUBU - STUB.half - 3 && u + 1.5 < STUBU + STUB.half + 3) continue // the mouth of a side street
-        marks.upQuad([at(ax, az, d, u, h0.right - 0.35), at(ax, az, d, ue, h1.right - 0.35), at(ax, az, d, ue, h1.right - 0.15), at(ax, az, d, u, h0.right - 0.15)], 0.02, WHITE)
+        const rampMouth = LAYOUT.kind === 'mixed' && d === 0 && i === RAMP_I && j === RAMP_J && u + 1.5 > RAMP_AT - 32 && u < RAMP_AT + 6
+        if (!rampMouth) marks.upQuad([at(ax, az, d, u, h0.right - 0.35), at(ax, az, d, ue, h1.right - 0.35), at(ax, az, d, ue, h1.right - 0.15), at(ax, az, d, u, h0.right - 0.15)], 0.02, WHITE)
         marks.upQuad([at(ax, az, d, u, -(h0.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.35)), at(ax, az, d, u, -(h0.left - 0.35))], 0.02, WHITE)
       }
       // stop lines + zebra crossings at both ends
@@ -739,7 +760,7 @@ export function buildCity() {
         for (const sg of [-1, 1] as const) {
           const lim = (sg === 1 ? edge.right : edge.left) - 0.75
           // on a one-lane roundabout the entry's left lane is a raised island there: no stripes on it
-          const wedge = sg === ds && spec.laneR.length === 1 ? wedgeSpan(back + 1.5, spec.splitter) : null
+          const wedge = sg === ds && spec.laneR.length === 1 && !one ? wedgeSpan(back + 1.5, spec.splitter) : null
           for (let v = isl; v + 0.55 < lim; v += 1.15) {
             if (wedge && v + 0.55 > wedge[0] - 0.3 && v < wedge[1] + 0.3) continue
             mk(ax, az, d, uEnd - ds * (back + 3), uEnd - ds * back, sg * v, sg * (v + 0.55), WHITE)
@@ -750,11 +771,11 @@ export function buildCity() {
       if (roundEnd0 && rbA) zebra(S0, -1, rbA)
       if (ctlB === 'yield') teeth(S1, 1, 1, false)
       if (ctlA === 'yield') teeth(S0, -1, -1, false)
-      if (roundEnd1) { teeth(S1, 1, 1, fB, rbB && rbB.laneR.length === 1 ? LANE_W : 0); if (fB) island(S1, 1); else paintedIsland(S1, 1) }
-      if (roundEnd0) { teeth(S0, -1, -1, fA, rbA && rbA.laneR.length === 1 ? LANE_W : 0); if (fA) island(S0, -1); else paintedIsland(S0, -1) }
+      if (roundEnd1) { teeth(S1, 1, 1, fB, rbB && rbB.laneR.length === 1 && !one ? LANE_W : 0); if (fB) island(S1, 1); else paintedIsland(S1, 1) }
+      if (roundEnd0) { teeth(S0, -1, -1, fA, rbA && rbA.laneR.length === 1 && !one ? LANE_W : 0); if (fA) island(S0, -1); else paintedIsland(S0, -1) }
       // painted lane arrows: signal approach = left / straight / right-only; roundabout approach (2 lanes) = left lane straight + left, right lane straight + right.
       // a one-lane roundabout has a one-lane entry: the left lane is closed (hatched) and only the right lane is open
-      const endKinds = (round: boolean, twoLane: boolean): Array<'L' | 'S' | 'R' | 'SL' | 'SR' | null> => (round ? (twoLane ? ['SL', 'SR'] : [null, 'S']) : ['L', 'S', 'SR'])
+      const endKinds = (round: boolean, twoLane: boolean): Array<'L' | 'S' | 'R' | 'SL' | 'SR' | null> => (round ? (one ? ['S'] : twoLane ? ['SL', 'SR'] : [null, 'S']) : ['L', 'S', 'SR'])
       for (const [uEnd, ds, round, v0sign] of [[S1, 1, nodeKind(i + dx, j + dz) === 'round', 1], [S0, -1, nodeKind(i, j) === 'round', -1]] as Array<[number, 1 | -1, boolean, 1 | -1]>) {
         const rbE = uEnd === S1 ? rbB : rbA
         const flE = uEnd === S1 ? fB : fA
@@ -763,7 +784,7 @@ export function buildCity() {
         if (tE) for (const ln of jLanes(tE)) {
           // lane-use arrows of this junction's layout (turn-only lanes also say ONLY)
           // (a residential street's single lane has no arrows: only its centre turn lane is marked)
-          if (ln.use !== 'SLR' && !(oneLane() && ln.use !== 'L')) for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * ln.lat, ln.use)
+          if (ln.use !== 'SLR' && !(one && ln.use !== 'L')) for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * ln.lat, ln.use)
           if (ln.use === 'L' || ln.use === 'R') roadText(ax, az, d, uEnd - ds * 38, ds, v0sign * ln.lat, 2.2, 4.6, SIGN.only)
           if ((uEnd === S1 ? ctlB : ctlA) === 'stop') roadText(ax, az, d, uEnd - ds * 8, ds, v0sign * ln.lat, 2.6, 3.4, SIGN.stopText) // STOP painted before the line
         }
@@ -771,7 +792,7 @@ export function buildCity() {
           if (!kind) return
           for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * (laneOff(k) + (round && flE ? rbShift(back) : 0)), kind)
         })
-        if (round && !twoLane) {
+        if (round && !twoLane && !one) {
           // The left lane really ends: a raised island starts as a point 130 m out and widens until it fills the lane at 60 m, so the
           // two lanes merge into one (like a zipper merge). Merge arrows and signs warn well before it.
           const pts = (inset: number): Array<[number, number]> => {
@@ -807,7 +828,7 @@ export function buildCity() {
           const uSign = sgv === 1 ? uPlus : uMinus
           const [sx, sz] = at(ax, az, d, uSign, sgv * ((sgv === 1 ? sgh(uSign).right : sgh(uSign).left) + 1.7)) // beside the road as wide as it is right there
           post(sx, sz, 2.4)
-          signQuad(sx - fdv[0] * sgv * 0.08, 2.15, sz - fdv[1] * sgv * 0.08, 0.85, 1.05, [-fdv[0] * sgv, -fdv[1] * sgv], SIGN.speed)
+          signQuad(sx - fdv[0] * sgv * 0.08, 2.15, sz - fdv[1] * sgv * 0.08, 0.85, 1.05, [-fdv[0] * sgv, -fdv[1] * sgv], one ? SIGN.speed25 : SIGN.speed)
         }
       }
       // street trees
@@ -825,7 +846,7 @@ export function buildCity() {
           }
         }
         for (const sg of [-1, 1] as const) {
-          for (let k = 0; k < (oneLane() ? 1 : 2); k++) {
+          for (let k = 0; k < (one ? 1 : 2); k++) {
             const c = sg * laneOff(k)
             track(c - 0.85, 0.72, 0.17) // left wheel track
             track(c + 0.85, 0.72, 0.17) // right wheel track
@@ -835,7 +856,7 @@ export function buildCity() {
         // patches (a different, slightly darker or lighter square of asphalt) and cracks
         for (let u = S0 + 12; u < S1 - 12; u += 17 + hashN(ax + u, az, 9) * 20) {
           const r1 = hashN(ax + u, az + 3, 10), r2 = hashN(ax + u, az + 5, 11), r3 = hashN(ax + u, az + 7, 12)
-          const lane = (r1 < 0.5 ? -1 : 1) * (laneOff(r2 < 0.5 || oneLane() ? 0 : 1) + (r3 - 0.5) * 1.4)
+          const lane = (r1 < 0.5 ? -1 : 1) * (laneOff(r2 < 0.5 || one ? 0 : 1) + (r3 - 0.5) * 1.4)
           const L = 1.6 + r2 * 3.4, W = 1.2 + r3 * 1.8
           wear.quad(at(ax, az, d, u, lane - W / 2), at(ax, az, d, u + L, lane - W / 2), at(ax, az, d, u + L, lane + W / 2), at(ax, az, d, u, lane + W / 2), 0.013, 0.28 + r1 * 0.2, r2 < 0.35 ? 0.25 : 0)
           // a hairline crack running across the patch
@@ -843,7 +864,7 @@ export function buildCity() {
         }
         // transverse tar seams every ~12 m across both directions
         for (let u = S0 + 9; u < S1 - 8; u += 11.7) {
-          wear.quad(at(ax, az, d, u, -halfMid()), at(ax, az, d, u + 0.09, -halfMid()), at(ax, az, d, u + 0.09, halfMid()), at(ax, az, d, u, halfMid()), 0.014, 0.35)
+          wear.quad(at(ax, az, d, u, -halfMid(one)), at(ax, az, d, u + 0.09, -halfMid(one)), at(ax, az, d, u + 0.09, halfMid(one)), at(ax, az, d, u, halfMid(one)), 0.014, 0.35)
         }
         void LIGHT
         // concrete gutter along both kerbs (the strip of water channel between the asphalt and the kerb)
@@ -1080,7 +1101,8 @@ export function buildCity() {
       const clrNb = clearance(i + nbx, j + nbz, a % 2)
       const jt = jTypeOf(i, j, a % 2), jtNb = jTypeOf(i + nbx, j + nbz, a % 2)
       const Lnb = roadLen(i, j, a)
-      const HWat = (u: number) => halfMid() + medW(jt, jtNb, clr, clrNb, u, Lnb) + (jt?.rOnly ? LANE_W * flare(u - clr) : 0)
+      const oneHere = armOne(i, j, a)
+      const HWat = (u: number) => halfMid(oneHere) + medW(jt, jtNb, clr, clrNb, u, Lnb) + (jt?.rOnly ? LANE_W * flare(u - clr) : 0)
       const HW = HWat(clr + 2.5)
 
       // roadside signs on the right-hand verge
@@ -1101,12 +1123,12 @@ export function buildCity() {
       else if (ctl === 'light') side(clr + 62, 2.6, 1.1, 1.1, SIGN.sigWarn)
       else if (ctl !== 'free') side(clr + 62, 2.6, 1.3, 1.3, ctl === 'stop' ? SIGN.stopAhead : SIGN.yieldAhead)
       if (kind !== 'signal') side(clr + 120, 2.6, 1.5, 1.5, SIGN.rbWarn) // an early warning as well
-      side(clr + 30, 2.4, 0.85, 1.05, SIGN.speed)
+      side(clr + 30, 2.4, 0.85, 1.05, oneHere ? SIGN.speed25 : SIGN.speed)
       if (kind === 'signal' && ctl === 'light') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
       if (kind === 'signal') {
-        if (jt && jt.nL === 1 && !jt.rOnly && !oneLane()) side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows of the 3-lane layout)
+        if (jt && jt.nL === 1 && !jt.rOnly && !jt.one) side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows of the 3-lane layout)
       } else if (rbSpec(i, j)!.laneR.length === 2) side(clr + 50, 2.5, 1.7, 1.7, SIGN.rbLanes) // roundabout lane-use sign (matches the painted arrows)
-      else {
+      else if (!oneHere) {
         // one-lane roundabout: warn that the left lane ends and traffic must merge right, well before it
         side(clr + 150, 2.6, 1.1, 1.1, SIGN.laneEnds)
         side(clr + 128, 1.7, 1.3, 1.3, SIGN.laneEndsText)
@@ -1226,6 +1248,30 @@ export function buildCity() {
     }
   }
 
+  // ---------------- the highway entrance (Mixed course) ----------------
+  if (LAYOUT.kind === 'mixed') {
+    const { pts } = rampLine()
+    const side = (k: number, off: number): V2 => {
+      const a = pts[Math.max(0, k - 1)], b = pts[Math.min(pts.length - 1, k + 1)]
+      const dx = b[0] - a[0], dz = b[1] - a[1], l = Math.hypot(dx, dz) || 1
+      return [pts[k][0] - (dz / l) * off, pts[k][1] + (dx / l) * off] // + = right of the direction of travel
+    }
+    for (let k = 1; k < pts.length; k++) {
+      asphalt.upQuad([side(k - 1, -RAMP_HALF), side(k, -RAMP_HALF), side(k, RAMP_HALF), side(k - 1, RAMP_HALF)], 0.004, [1, 1, 1])
+      // edge lines: the outer one all along; the inner one only once the ramp has left the road (a broken line beside the road before that)
+      marks.upQuad([side(k - 1, RAMP_HALF - 0.35), side(k, RAMP_HALF - 0.35), side(k, RAMP_HALF - 0.15), side(k - 1, RAMP_HALF - 0.15)], 0.024, WHITE)
+      if (k > 10) marks.upQuad([side(k - 1, -RAMP_HALF + 0.15), side(k, -RAMP_HALF + 0.15), side(k, -RAMP_HALF + 0.35), side(k - 1, -RAMP_HALF + 0.35)], 0.024, WHITE)
+      else if (k > 3 && k % 2 === 0) marks.upQuad([side(k - 1, -RAMP_HALF + 0.1), side(k, -RAMP_HALF + 0.1), side(k, -RAMP_HALF + 0.3), side(k - 1, -RAMP_HALF + 0.3)], 0.024, WHITE)
+    }
+    // guide signs: one in advance, one at the point where the ramp leaves (both face eastbound traffic)
+    const cx = nodeX(RAMP_I)
+    for (const [u, big] of [[RAMP_AT - 62, 2.6], [RAMP_AT + 14, 2.2]] as Array<[number, number]>) {
+      const zEdge = u < RAMP_AT ? pts[0][1] + 2.4 : pts[11][1] + RAMP_HALF + 2.5 // on the verge beside the road / beside the ramp
+      post(cx + u, zEdge, 3.4 + big / 2, 0.12)
+      signQuad(cx + u - 0.1, 2.4 + big / 2, zEdge, big, big, [-1, 0], SIGN.hwEntrance)
+    }
+  }
+
   // ---------------- blocks: plazas, buildings, parks ----------------
   for (const l of LOTS) {
     if (l.park) {
@@ -1234,7 +1280,7 @@ export function buildCity() {
       }
       continue
     }
-    if (LAYOUT.kind === 'res') {
+    if (l.res) {
       // residential block: four detached houses with pitched roofs, driveways and garden trees (no big buildings)
       const WALLS: V3[] = [[0.86, 0.82, 0.72], [0.78, 0.72, 0.62], [0.9, 0.9, 0.86], [0.7, 0.76, 0.8], [0.8, 0.66, 0.56], [0.74, 0.8, 0.7]]
       const ROOFS: V3[] = [[0.36, 0.2, 0.16], [0.26, 0.27, 0.3], [0.42, 0.3, 0.22], [0.2, 0.24, 0.28]]

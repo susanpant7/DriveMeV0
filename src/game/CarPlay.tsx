@@ -75,7 +75,8 @@ export function CarPlay() {
     g.fillStyle = '#0b1018'
     g.fillRect(0, 0, CW, CH)
     g.save(); g.translate(DOCK, 0); g.beginPath(); g.rect(0, 0, MW, CH); g.clip()
-    if (useGame.getState().mode === 'highway') drawHighwayMap(g, MW, CH)
+    const st = useGame.getState()
+    if (st.mode === 'highway' || (st.mode === 'mixed' && st.leg === 'highway')) drawHighwayMap(g, MW, CH)
     else drawNavMap(g, MW, CH, Math.min(dt, 0.1), units, false, false, 4) // zoomed in: the next junction fills the screen
     // next turn
     if (nav.text) {
