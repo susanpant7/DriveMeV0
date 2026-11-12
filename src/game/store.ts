@@ -102,7 +102,7 @@ export const useGame = create<GameState>(() => ({
   crashTips: [],
   crashDiag: null,
   pauseReason: 'user',
-  mode: load<Mode>('driveme.mode', 'city', (v) => v === 'city' || v === 'roundabout' || v === 'junction' || v === 'lanes' || v === 'highway'),
+  mode: load<Mode>('driveme.mode', 'mixed', (v) => v === 'residential' || v === 'city' || v === 'roundabout' || v === 'mixed' || v === 'highway'),
   nav: { text: '', sub: '', icon: 'S', dist: 0, arrived: 0 },
   hwType: 'merge',
   hwVersion: 0,

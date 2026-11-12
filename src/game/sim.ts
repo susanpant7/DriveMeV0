@@ -1,13 +1,13 @@
 import { crashSound, initAudio, tick } from './audio'
-import { flare, medW, pocketW, jTypeOf, setLayout, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { flare, medW, pocketW, jTypeOf, setLayout, armCtrl, speedLimit, WORLD_PERIOD, hasLeftArrow, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, B, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
-import { nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
+import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
 import { LD1, NB_EDGE_L, NB_EDGE_R, NB_X, SPAWN_Z, Z_END, Z_GORE, EXIT_C, FORK_Z, forkShift, scen, type HwType, onRoad as hwOnRoad, recoverPose, startPose } from '../highway/layout'
 import { rampHeading, rampX, forkHeading, NB_X as HW_LANES } from '../highway/layout'
 import { clearLane, initHighwayTraffic, setHighwayCount, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
-import { CAR_L, CAR_W, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
+import { CAR_L, CAR_W, whyStuck, junctionBusy, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
 export { CAR_L, CAR_W }
 export const WHEELBASE = 2.7
@@ -243,7 +243,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   autoCentre.on = false
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
-  setLayout(useGame.getState().mode === 'roundabout')
+  setLayout(layoutOf(useGame.getState().mode))
   const pose = WORLD.highway ? startPose() : startRoute(useGame.getState().mode) // where the practice route starts
   Object.assign(sim, {
     t: 0, x: pose.x, z: pose.z, h: pose.h, speed: 0, thr: 0, brk: 0, steerIn: 0, steer: 0, rpm: 900, gear: 1, tickT: 0,
@@ -262,7 +262,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
 export function applyTraffic() {
   const n = TRAFFIC_LEVELS[useGame.getState().traffic - 1]
   if (WORLD.highway) return
-  setActiveCount(useGame.getState().mode === 'roundabout' ? Math.round(n * 0.4) : n, playerObs()) // the roundabout course is a small loop: fewer cars keep it flowing
+  { const m = useGame.getState().mode; setActiveCount(m === 'roundabout' ? Math.round(n * 0.4) : m === 'residential' ? Math.round(n * 0.55) : n, playerObs()) } // the roundabout course is a small loop: fewer cars keep it flowing
 }
 resetSim()
 
@@ -900,6 +900,23 @@ function trackStop() {
     if (u <= 0 || u > half + 45 || Math.abs(lat) > HALF_ROAD + 1.5 || fx * ox + fz * oz > -0.6) continue
     let st = sim.stop
     if (!st || st.n !== nn.n || st.d !== d) st = sim.stop = { n: nn.n, d, prevU: u, passed: false, credited: false }
+    const ctl = rbSig ? 'light' : armCtrl(nn.n, d % 2)
+    if (ctl !== 'light') {
+      // ---- STOP and YIELD signs ----
+      const st2 = st as typeof st & { stoppedAt?: number }
+      if (ctl === 'stop' && !st.passed && sim.speed < 0.35 && u > LINE - 1.5 && u < LINE + 14 && st2.stoppedAt === undefined) st2.stoppedAt = sim.t
+      // committed: the nose is over the line and you are moving
+      if (!st.passed && u < LINE - 2.5 && sim.speed > 0.6) {
+        st.passed = true
+        if (ctl === 'stop' && st2.stoppedAt === undefined) say('You did not stop at the STOP sign! Come to a complete stop behind the line.', 'warn')
+        else if (ctl !== 'free' && junctionBusy(nn.n, d, null, st2.stoppedAt ?? sim.t, null, 3.2)) {
+          const all = armCtrl(nn.n, 1 - (d % 2)) === 'stop'
+          say(ctl === 'yield' ? 'YIELD: give way to traffic on the main road' : all ? 'All-way stop: the driver who stopped first goes first. Wait your turn.' : 'After stopping, wait for a safe gap in the cross traffic', 'warn')
+        } else if (ctl === 'stop') { sim.score += 20; say('Good stop', 'good') }
+      }
+      st.prevU = u
+      return
+    }
     // the left lane has its own left-turn arrow; everyone else follows the through signal
     const col = signalColor(nn.n, d % 2 === 0 ? 0 : 1, sim.t, laneInfo()?.left ? 'L' : 'T')
     if (!st.passed && st.prevU >= LINE && u < LINE) {
@@ -930,7 +947,7 @@ function trackStop() {
 
 function currentLimit() {
   if (WORLD.highway) return scen.type === 'merge' && sim.z > Z_GORE + 30 ? 40 : 31.3 // 70 mph on the highway; the on-ramp lets you build speed
-  return LIMIT
+  return speedLimit()
 }
 
 function trackSpeed(dt: number) {
@@ -968,4 +985,4 @@ function syncHud() {
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __world: WORLD, __navfn: { startRoute, navUpdate, navJunctionExit } })
+if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __why: (c: AiCar) => whyStuck(c, sim.t, playerObs()), __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __world: WORLD, __navfn: { startRoute, navUpdate, navJunctionExit } })

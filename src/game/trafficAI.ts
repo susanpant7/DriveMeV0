@@ -1,4 +1,4 @@
-import { WEDGE_LEN, B, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, SPEED_LIMIT, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
+import { LAYOUT, WEDGE_LEN, B, BOX, EDGE_IDS, LANES, L_LEFT, L_LEFT2, L_RIGHT, LANE_W, LINKS, P, PIECES, speedLimit, armCtrl, hasLeftArrow, mod, nodeIJ, rbSpecOfNode, pieceAt, signalColor, wrapD, type Piece } from './map'
 
 export const MAX_CARS = 900
 export const CAR_L = 4.4
@@ -24,6 +24,11 @@ export interface AiCar {
   ghost: number
   braking: boolean
   behindPlayer: boolean
+  /** stop / yield junctions: the approach piece this car has made its stop on, the one it has been released from, and when it stopped */
+  stopPiece: number
+  goPiece: number
+  stopAt: number
+  jWait: number // seconds spent waiting for a gap at a STOP / YIELD sign
   kind: number // body type: 0 sedan, 1 pickup, 2 van, 3 Challenger, 4 Impala, 5 Volga
   style: 0 | 1 // 0 = cruiser (keeps right, at the speed limit), 1 = fast (prefers the left lanes)
   pref: number // desired speed before the lane limit is applied (m/s)
@@ -151,7 +156,7 @@ function reqLane(c: AiCar, p: Piece) {
 
 /** Right lane: at (or just under) the speed limit. Left lanes may go faster. */
 function laneV0(c: AiCar, lane: number) {
-  if (lane >= 1) return Math.min(c.pref, SPEED_LIMIT * 0.99) // right / outer lane: at the speed limit
+  if (lane >= 1) return Math.min(c.pref, speedLimit() * 0.99) // right / outer lane: at the speed limit
   return Math.min(c.pref, 16.5) // inner lane: may go a little faster
 }
 
@@ -174,6 +179,7 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
     }
     if (cars.some((o) => o !== c && o.active && Math.hypot(wrapD(x - o.x), wrapD(z - o.z)) < 8)) continue
     c.piece = pid
+    c.stopPiece = c.goPiece = -1
     c.s = s
     c.lane = p.lane
     c.style = Math.random() < 0.7 ? 0 : 1
@@ -205,7 +211,7 @@ function spawn(c: AiCar, player: Obstacle | null, minD = 70) {
 export function initTraffic() {
   cars.length = 0
   for (let i = 0; i < MAX_CARS; i++) {
-    cars.push({ id: i, active: false, piece: 0, s: 0, speed: 0, v0: 12, lane: 0, exitArm: 0, x: 0, z: 0, h: 0, color: COLORS[0], stuck: 0, ghost: 0, braking: false, behindPlayer: false, kind: 0, style: 0, pref: 12, plan: 'S', turnSig: 0, lcSig: 0, sig: 0, lcWant: 0, lcPrep: 0, lcT: -1, lcDur: 2.8, lat0: 0, cool: 0, waitL: 0, rbWait: 0, cGap: 1e9, cLv: 0, cBP: false, np: undefined, np2: undefined, npPiece: -1 })
+    cars.push({ id: i, active: false, piece: 0, s: 0, speed: 0, v0: 12, lane: 0, exitArm: 0, x: 0, z: 0, h: 0, color: COLORS[0], stuck: 0, ghost: 0, braking: false, behindPlayer: false, stopPiece: -1, goPiece: -1, stopAt: 0, jWait: 0, kind: 0, style: 0, pref: 12, plan: 'S', turnSig: 0, lcSig: 0, sig: 0, lcWant: 0, lcPrep: 0, lcT: -1, lcDur: 2.8, lat0: 0, cool: 0, waitL: 0, rbWait: 0, cGap: 1e9, cLv: 0, cBP: false, np: undefined, np2: undefined, npPiece: -1 })
   }
 }
 initTraffic()
@@ -361,7 +367,10 @@ function startChange(c: AiCar, p: Piece, dir: -1 | 1) {
   c.lat0 = -dir * LANE_W // the new lane's centre is dir*LANE_W to the right of where the car is
   c.lcT = 0
   c.lcDur = 2.8
+  const was = c.piece
   c.piece = p.sibs![target]
+  if (c.stopPiece === was) c.stopPiece = c.piece
+  if (c.goPiece === was) c.goPiece = c.piece
   c.lane = target
   c.v0 = laneV0(c, target)
 }
@@ -425,6 +434,14 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
   // reach the crossing point before we are clear (plus a safety margin): so a driver can go if the oncoming car is far enough away.
   const dCross = Math.max(toEnd - 3.9, 0) + BOX * 0.9
   const tClear = (-c.speed + Math.sqrt(c.speed * c.speed + 2 * 2 * dCross)) / 2 + 1.2 // accelerating at about 2 m/s2
+  const lights = armCtrl(p.node, p.axis ?? 0) === 'light'
+  // a green ARROW is a protected turn: oncoming traffic has a red light
+  if (lights && hasLeftArrow(p.node, p.axis ?? 0) && signalColor(p.node, p.axis as 0 | 1, t, 'L') === 0) return false
+  const oppCtl = armCtrl(p.node, p.axis ?? 0) // the oncoming approach is on the same road, so it faces the same control
+  // the light has gone amber while this driver waits to turn: oncoming traffic is stopping, so the turn is completed now (only a car
+  // that is too close to stop still counts). This is how a permissive left turn clears at the end of the green.
+  const ownCol = lights ? signalColor(p.node, p.axis as 0 | 1, t, 'T') : 0
+  const clearing = lights && c.waitL > 1.5 && (ownCol === 1 || (ownCol === 2 && (signalColor(p.node, p.axis as 0 | 1, t - 3, 'T') === 1 || signalColor(p.node, p.axis as 0 | 1, t - 5, 'T') === 1)))
   for (let ix = -1; ix <= 1; ix++) {
     for (let iz = -1; iz <= 1; iz++) {
       for (const oi of grid[mod(gx + ix, CN) * CN + mod(gz + iz, CN)]) {
@@ -437,7 +454,9 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
           if (o.speed < 0.5 && o.cGap < 10 && left > 4) continue // stuck in a queue behind another car: it is not coming
           if (o.speed < 0.5 && c.waitL > 6) continue // it has been standing there (jammed beyond the junction) while we wait: go
           const eta = (left + BOX * 0.4) / Math.max(o.speed, 3.5) // when it reaches the crossing point
-          if (left < 140 && eta < tClear + 1.0 && signalColor(p.node, op.axis as 0 | 1, t, 'T') !== 2 && maneuver(o, op) !== 'L') return true
+          if (clearing && (left > (o.speed * o.speed) / 7 + 3 || o.speed < 2)) continue // it will stop for the amber / red
+          if (!lights && oppCtl !== 'free' && o.goPiece !== o.piece) continue // it has a STOP / YIELD sign of its own and has not set off yet
+          if (left < 140 && eta < tClear + (c.waitL > 20 ? 0.2 : 1.0) && (!lights || signalColor(p.node, op.axis as 0 | 1, t, 'T') !== 2) && maneuver(o, op) !== 'L') return true
         } else if (op.kind === 'conn' && op.node === p.node && o.speed > 0.8) {
           const ofx = -Math.sin(o.h)
           const ofz = -Math.cos(o.h)
@@ -460,7 +479,63 @@ function leftConflict(c: AiCar, p: Piece, t: number, player: Obstacle, toEnd: nu
 }
 
 let frameNo = 0
+let leftConns: Set<number> | null = null
+let leftConnsN = -1
+function isLeftConn(id: number) {
+  if (!leftConns || leftConnsN !== LAYOUT.version) { leftConns = new Set(LINKS.connL.values()); leftConnsN = LAYOUT.version }
+  return leftConns.has(id)
+}
+/** when the player last came to rest (for "who stopped first" at an all-way stop) */
+const playerStop = { since: -1 }
+/**
+ * Stop / yield junctions: may a driver waiting on approach `arm` of `node` go? Not while
+ *  - somebody is crossing the junction (from another approach),
+ *  - traffic on the priority road is close (two-way stop, yield), or
+ *  - at an all-way stop, a driver on another approach stopped first.
+ * `self` is the AI car asking (null: the player; then `stoppedAt` is when the player stopped).
+ */
+export function junctionBusy(node: number, arm: number, self: AiCar | null, stoppedAt: number, player: Obstacle | null, tGap = 4.5): boolean {
+  const [ji, jj] = nodeIJ(node)
+  const cx = ji * B, cz = jj * B
+  const myAxis = arm % 2 === 0 ? 0 : 1
+  const allway = armCtrl(node, 1 - myAxis) === 'stop' && armCtrl(node, myAxis) === 'stop'
+  for (const o of cars) {
+    if (!o.active || o === self) continue
+    const op = PIECES[o.piece]
+    if (op.node !== node) continue
+    if (op.kind === 'conn') {
+      // already crossing: wait unless it came from my own approach (it is simply ahead of me) or is all but out
+      if (o.s < op.len - 5 && (op.entry === undefined) && o.goPiece >= 0 && PIECES[o.goPiece]?.arm !== arm) return true
+      continue
+    }
+    if (op.kind !== 'edge' || op.arm === arm) continue
+    const toEnd = op.len - o.s
+    const ctl = armCtrl(node, op.axis ?? 0)
+    if (ctl === 'free') { if (o.speed > 1 && toEnd < 60 && toEnd / Math.max(o.speed, 4) < tGap) return true } // the priority road (a car standing in a queue there is not coming)
+    else if (allway && o.stopPiece === o.piece && o.goPiece !== o.piece && o.stopAt < stoppedAt) return true // they stopped first
+  }
+  if (self && player) {
+    const dx = wrapD(player.x - cx), dz = wrapD(player.z - cz)
+    if (Math.abs(dx) < BOX && Math.abs(dz) < BOX) return true // you are crossing
+    const fx = -Math.sin(player.h), fz = -Math.cos(player.h)
+    const toward = -(dx * fx + dz * fz) // metres you still have to the middle of the junction
+    const off = Math.abs(dx * -fz + dz * fx)
+    const pAxis = Math.abs(fx) > Math.abs(fz) ? 0 : 1
+    if (toward > 0 && off < 14 && pAxis !== myAxis) {
+      const pc = armCtrl(node, pAxis)
+      if (pc === 'free' && toward < 90 && (toward - BOX) / Math.max(player.speed, 4) < tGap) return true
+      // all-way stop: you stopped at your line before this driver did, so it is your turn (they will not wait for ever)
+      if (allway && toward < BOX + 12 && player.speed < 1.5 && playerStop.since >= 0 && playerStop.since < stoppedAt && stoppedAt > 0 && sinceNow - stoppedAt < 7) return true
+    }
+  }
+  return false
+}
+let sinceNow = 0
+
 export function stepTraffic(dt: number, t: number, player: Obstacle) {
+  sinceNow = t
+  if (player.speed < 0.4) { if (playerStop.since < 0) playerStop.since = t } else if (player.speed > 1.5) playerStop.since = -1
+
   placeDt = dt
   frameNo++
   // top the population up to the chosen level (a spawn attempt can fail when roads are crowded)
@@ -543,7 +618,9 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
               const op = PIECES[o.piece]
               if (op.kind === 'conn' && op.entry) continue
             }
-            if (c.ghost <= 0) consider(o.x, o.z, o.speed) // a 'ghost' ignores crossing traffic, never the queue ahead
+            // two drivers turning left from opposite directions pass in front of each other: they are not in each other's way
+            const bothLeft = p.kind === 'conn' && isLeftConn(c.piece) && isLeftConn(o.piece) && PIECES[o.piece].node === p.node && (PIECES[o.piece].arm + 2) % 4 === p.arm
+            if (c.ghost <= 0 && !bothLeft) consider(o.x, o.z, o.speed) // a 'ghost' ignores crossing traffic, never the queue ahead
             // follow along the path, not just straight ahead: this keeps cars apart in turns
             if (o.piece === c.piece && o.s > c.s) {
               const g = o.s - c.s - CAR_L
@@ -569,10 +646,26 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
     let vcap = p.vmax
     const toEnd = p.len - c.s
     if (p.kind === 'edge') {
-      if (p.toKind === 'signal') {
+      const ctl = p.toKind === 'signal' ? armCtrl(p.node, p.axis ?? 0) : 'light'
+      if (p.toKind === 'signal' && ctl !== 'light') {
+        // STOP / YIELD sign: come to a full stop at the line (stop), then go only when the junction is clear and it is this driver's turn
+        const dist = toEnd - 3.9
+        if (ctl !== 'free' && c.goPiece !== c.piece && dist > -1.5 && toEnd < 60) {
+          vcap = Math.min(vcap, 4.5 + Math.max(0, dist) * 0.3)
+          if (ctl === 'stop' && c.stopPiece !== c.piece) {
+            if (c.speed < 0.25 && dist < 3) { c.stopPiece = c.piece; c.stopAt = t }
+            if (dist < gap) { gap = Math.max(dist, 0.05); lv = 0 }
+          } else if (dist < 14 && (t - c.stopAt < 0.9 && ctl === 'stop' || junctionBusy(p.node, p.arm, c, ctl === 'stop' ? c.stopAt : t, player, c.jWait > 25 ? 1.8 : c.jWait > 10 ? 2.6 : 3.6))) {
+            if (dist < gap) { gap = Math.max(dist, 0.05); lv = 0 }
+            if (c.speed < 0.3) c.jWait += dt
+          } else if (dist < 14) { c.goPiece = c.piece; c.jWait = 0 }
+        } else if (ctl === 'free') c.goPiece = c.piece
+      } else if (p.toKind === 'signal') {
         const dist = toEnd - 3.9
         const col = signalColor(p.node, p.axis as 0 | 1, t, maneuver(c, p) === 'L' ? 'L' : 'T')
-        if (dist > -0.5 && (col === 2 || (col === 1 && dist > (c.speed * c.speed) / 7 + 1))) {
+        // a driver who has been waiting at the line to turn left on a plain green completes the turn as the light changes
+        const finishLeft = col === 2 && c.waitL > 1.5 && dist < 3 && (signalColor(p.node, p.axis as 0 | 1, t - 3, 'T') === 1 || signalColor(p.node, p.axis as 0 | 1, t - 5, 'T') === 1)
+        if (!finishLeft && dist > -0.5 && (col === 2 || (col === 1 && dist > (c.speed * c.speed) / 7 + 1))) {
           if (dist < gap) {
             gap = Math.max(dist, 0.05)
             lv = 0
@@ -664,7 +757,9 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
     c.sig = c.lcSig !== 0 ? c.lcSig : c.turnSig
 
     const v0 = Math.min(c.v0, vcap)
-    const acc = idm(c.speed, v0, gap, c.speed - lv)
+    let acc = idm(c.speed, v0, gap, c.speed - lv)
+    // you pulled into this driver's lane at about the speed of the traffic: they ease off to open the gap again, they do not stamp on the brake
+    if (c.behindPlayer && gap > 2.5 && player.speed > c.speed - 3 && player.speed > 2) acc = Math.max(acc, -1.4)
     c.braking = acc < -1
     c.speed = Math.max(0, c.speed + acc * dt)
     c.s += c.speed * dt
@@ -705,3 +800,18 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
   }
 }
 
+
+/** dev: why is this car standing still? */
+export function whyStuck(c: AiCar, t: number, player: Obstacle) {
+  const p = PIECES[c.piece]
+  const toEnd = p.len - c.s
+  const m = p.kind === 'edge' ? maneuver(c, p) : '-'
+  const ctl = p.kind === 'edge' && p.toKind === 'signal' ? armCtrl(p.node, p.axis ?? 0) : '-'
+  return {
+    m, ctl, toEnd: +toEnd.toFixed(1), gap: +c.cGap.toFixed(1), lv: +c.cLv.toFixed(1), ghost: c.ghost, waitL: +c.waitL.toFixed(0), bp: c.behindPlayer,
+    col: p.kind === 'edge' && p.toKind === 'signal' ? signalColor(p.node, p.axis as 0 | 1, t, m === 'L' ? 'L' : 'T') : -1,
+    exitBlocked: p.kind === 'edge' && p.toKind === 'signal' ? exitBlocked(c, p) : false,
+    leftConflict: p.kind === 'edge' && p.toKind === 'signal' && m === 'L' ? leftConflict(c, p, t, player, toEnd) : false,
+    busy: ctl === 'stop' || ctl === 'yield' ? junctionBusy(p.node, p.arm, c, c.stopAt, player) : false, stop: c.stopPiece === c.piece, go: c.goPiece === c.piece,
+  }
+}

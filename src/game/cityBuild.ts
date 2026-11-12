@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { SIGNAL_HEADS } from './signalHeads'
-import { flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
+import { armCtrl, speedLimit, flare, WEDGE_FULL, WEDGE_LEN, wedgeSpan, junctionOutline, medW, pocketW, jTypeOf, jHalf, jLanes, rbFillet, STUB, stubsOn, armClosed, hasLeftArrow, onAsphalt, HALF_MID, RB_ISLAND, RB_SHIFT, flareOf, rbShift, rbSpec, segHalves, B, BOX, G, HALF_ROAD, HORIZONTAL_NAMES, LANE_W, LOTS, VERTICAL_NAMES, clearance, dirv, hashN, laneOff, nodeIndex, nodeKind, CENTRE_COL } from './map'
 
 type V3 = [number, number, number]
 type V2 = [number, number]
@@ -123,10 +123,11 @@ export class MB {
 /* ------------------------------------------------------------------ */
 interface Rect { x: number; y: number; w: number; h: number }
 export const ATLAS_W = 2048
-export const ATLAS_H = 1280
+export const ATLAS_H = 1536
 const cell = (i: number): Rect => ({ x: i * 256, y: 0, w: 256, h: 256 })
 const cell2 = (i: number): Rect => ({ x: i * 256, y: 896, w: 256, h: 256 })
-export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7) }
+const cell3 = (i: number): Rect => ({ x: i * 256, y: 1280, w: 256, h: 256 })
+export const SIGN = { leftYield: cell2(5), stopHere: cell2(3), only: cell2(4), speed: cell(0), yield: cell(1), rbWarn: cell(2), sigWarn: cell(3), ped: cell(4), rbMust: cell(5), chevron: cell(6), lanes: cell(7), rbLanes: cell2(0), keepRight: cell2(1), rightOnly: cell2(2), laneEnds: cell2(6), laneEndsText: cell2(7), stop: cell3(0), allWay: cell3(1), stopAhead: cell3(2), yieldAhead: cell3(3), crossTraffic: cell3(4), stopText: cell3(5) }
 export const PLATE = (i: number): Rect => ({ x: i * 256, y: 256, w: 256, h: 128 })
 
 function arrowHead(g: CanvasRenderingContext2D, x: number, y: number, ang: number, s: number) {
@@ -151,7 +152,8 @@ export function drawSpeedSign(g: CanvasRenderingContext2D, units: 'kmh' | 'mph')
   g.fillText('SPEED', x + 128, y + 52)
   g.fillText('LIMIT', x + 128, y + 90)
   g.font = '700 118px Arial, sans-serif'
-  g.fillText(units === 'mph' ? '30' : '50', x + 128, y + 172)
+  const mph = Math.round(speedLimit() / 0.44704)
+  g.fillText(units === 'mph' ? String(mph) : mph === 25 ? '40' : '50', x + 128, y + 172)
 }
 
 export function makeAtlas(units: 'kmh' | 'mph') {
@@ -304,6 +306,38 @@ export function makeAtlas(units: 'kmh' | 'mph') {
     g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 31px Arial, sans-serif'
     ;['LEFT TURN', 'YIELD', 'ON GREEN'].forEach((t, i) => g.fillText(t, r.x + 128, r.y + 150 + i * 32, 170))
   }
+  // STOP (red octagon), its "ALL WAY" plaque, the "stop ahead" / "yield ahead" warnings and "CROSS TRAFFIC DOES NOT STOP"
+  {
+    const oct = (cx: number, cy: number, R: number) => { g.beginPath(); for (let k = 0; k < 8; k++) { const a = Math.PI / 8 + (k * Math.PI) / 4; const X = cx + R * Math.cos(a), Y = cy + R * Math.sin(a); if (k) g.lineTo(X, Y); else g.moveTo(X, Y) } g.closePath() }
+    let r = SIGN.stop
+    g.fillStyle = '#fff'; oct(r.x + 128, r.y + 128, 126); g.fill()
+    g.fillStyle = '#c8181c'; oct(r.x + 128, r.y + 128, 114); g.fill()
+    g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '800 84px Arial, sans-serif'
+    g.fillText('STOP', r.x + 128, r.y + 134, 190)
+    r = SIGN.allWay
+    g.fillStyle = '#c8181c'; roundRect(g, r.x + 8, r.y + 78, 240, 100, 12); g.fill()
+    g.strokeStyle = '#fff'; g.lineWidth = 6; roundRect(g, r.x + 16, r.y + 86, 224, 84, 8); g.stroke()
+    g.fillStyle = '#fff'; g.font = '800 58px Arial, sans-serif'; g.fillText('ALL WAY', r.x + 128, r.y + 131, 200)
+    r = SIGN.stopAhead
+    diamond(r)
+    g.fillStyle = '#c8181c'; oct(r.x + 128, r.y + 150, 40); g.fill()
+    g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 12; g.beginPath(); g.moveTo(r.x + 128, r.y + 104); g.lineTo(r.x + 128, r.y + 74); g.stroke()
+    g.beginPath(); g.moveTo(r.x + 128, r.y + 44); g.lineTo(r.x + 106, r.y + 76); g.lineTo(r.x + 150, r.y + 76); g.closePath(); g.fill()
+    r = SIGN.yieldAhead
+    diamond(r)
+    g.fillStyle = '#c8181c'; g.beginPath(); g.moveTo(r.x + 84, r.y + 120); g.lineTo(r.x + 172, r.y + 120); g.lineTo(r.x + 128, r.y + 192); g.closePath(); g.fill()
+    g.fillStyle = '#fff'; g.beginPath(); g.moveTo(r.x + 106, r.y + 133); g.lineTo(r.x + 150, r.y + 133); g.lineTo(r.x + 128, r.y + 168); g.closePath(); g.fill()
+    g.strokeStyle = '#111'; g.fillStyle = '#111'; g.lineWidth = 12; g.beginPath(); g.moveTo(r.x + 128, r.y + 108); g.lineTo(r.x + 128, r.y + 76); g.stroke()
+    g.beginPath(); g.moveTo(r.x + 128, r.y + 46); g.lineTo(r.x + 106, r.y + 78); g.lineTo(r.x + 150, r.y + 78); g.closePath(); g.fill()
+    r = SIGN.crossTraffic
+    g.fillStyle = '#f7c600'; roundRect(g, r.x + 8, r.y + 60, 240, 136, 14); g.fill()
+    g.strokeStyle = '#111'; g.lineWidth = 7; roundRect(g, r.x + 16, r.y + 68, 224, 120, 9); g.stroke()
+    g.fillStyle = '#111'; g.font = '800 32px Arial, sans-serif'
+    ;['CROSS TRAFFIC', 'DOES NOT', 'STOP'].forEach((tx, k) => g.fillText(tx, r.x + 128, r.y + 96 + k * 34, 206))
+    // "STOP" painted on the road before the line (white on transparent)
+    r = SIGN.stopText
+    g.fillStyle = '#fff'; g.font = '800 104px Arial, sans-serif'; g.fillText('STOP', r.x + 128, r.y + 128, 244)
+  }
   // "STOP HERE ON RED"
   {
     const r = SIGN.stopHere
@@ -367,7 +401,7 @@ export function facadeCanvases() {
 /* ------------------------------------------------------------------ */
 /** spacing between the three lenses of a signal head (metres), and how far in front of the lens plane the lamp is drawn */
 /** the signal heads are drawn this much bigger than life so they read from the stop line */
-const HS = 1.7
+const HS = 2.3 // big, clear signal heads
 export const HEAD_LENSY = [0.417 * HS, 0, -0.417 * HS]
 export const HEAD_LAMP = 0.04 * HS
 export const HEAD_LAMP_SCALE = 0.95 * HS
@@ -635,8 +669,9 @@ export function buildCity() {
       // stop lines + zebra crossings at both ends
       const roundEnd1 = nodeKind(i + dx, j + dz) === 'round'
       const roundEnd0 = nodeKind(i, j) === 'round'
-      if (tB) mk(ax, az, d, S1 - 2.3, S1 - 1.7, tB.centre ? -LANE_W / 2 + 0.2 : 0.4, jHalf(tB) - 0.1, WHITE)
-      if (tA) mk(ax, az, d, S0 + 1.7, S0 + 2.3, -jHalf(tA) + 0.1, tA.centre ? LANE_W / 2 - 0.2 : -0.4, WHITE)
+      const ctlB = tB ? armCtrl(nodeIndex(i + dx, j + dz), d % 2) : 'free', ctlA = tA ? armCtrl(nodeIndex(i, j), d % 2) : 'free'
+      if (tB && (ctlB === 'light' || ctlB === 'stop')) mk(ax, az, d, S1 - 2.3, S1 - 1.7, tB.centre ? -LANE_W / 2 + 0.2 : 0.4, jHalf(tB) - 0.1, WHITE)
+      if (tA && (ctlA === 'light' || ctlA === 'stop')) mk(ax, az, d, S0 + 1.7, S0 + 2.3, -jHalf(tA) + 0.1, tA.centre ? LANE_W / 2 - 0.2 : -0.4, WHITE)
       // a signalised roundabout has a stop bar before the crosswalk
       if (rbB?.signals) mk(ax, az, d, S1 - 18.4, S1 - 17.8, rbShift(18) + 0.2, HALF_MID + rbShift(18) - 0.1, WHITE)
       if (rbA?.signals) mk(ax, az, d, S0 + 17.8, S0 + 18.4, -(HALF_MID + rbShift(18) - 0.1), -(rbShift(18) + 0.2), WHITE)
@@ -711,6 +746,8 @@ export function buildCity() {
       }
       if (roundEnd1 && rbB) zebra(S1, 1, rbB)
       if (roundEnd0 && rbA) zebra(S0, -1, rbA)
+      if (ctlB === 'yield') teeth(S1, 1, 1, false)
+      if (ctlA === 'yield') teeth(S0, -1, -1, false)
       if (roundEnd1) { teeth(S1, 1, 1, fB, rbB && rbB.laneR.length === 1 ? LANE_W : 0); if (fB) island(S1, 1); else paintedIsland(S1, 1) }
       if (roundEnd0) { teeth(S0, -1, -1, fA, rbA && rbA.laneR.length === 1 ? LANE_W : 0); if (fA) island(S0, -1); else paintedIsland(S0, -1) }
       // painted lane arrows: signal approach = left / straight / right-only; roundabout approach (2 lanes) = left lane straight + left, right lane straight + right.
@@ -725,6 +762,7 @@ export function buildCity() {
           // lane-use arrows of this junction's layout (turn-only lanes also say ONLY)
           for (const back of [20, 58]) arrow(ax, az, d, uEnd - ds * back, ds, v0sign * ln.lat, ln.use)
           if (ln.use === 'L' || ln.use === 'R') roadText(ax, az, d, uEnd - ds * 38, ds, v0sign * ln.lat, 2.2, 4.6, SIGN.only)
+          if ((uEnd === S1 ? ctlB : ctlA) === 'stop') roadText(ax, az, d, uEnd - ds * 8, ds, v0sign * ln.lat, 2.6, 3.4, SIGN.stopText) // STOP painted before the line
         }
         else endKinds(round, twoLane).forEach((kind, k) => {
           if (!kind) return
@@ -1053,10 +1091,13 @@ export function buildCity() {
         post(ax2, az2, 3.0, 0.11)
         signQuad(ax2 + ox * 0.09, 2.45, az2 + oz * 0.09, 1.9, 0.95, face, PLATE(crossIdx))
       }
-      side(clr + 62, 2.6, kind === 'signal' ? 1.1 : 1.5, kind === 'signal' ? 1.1 : 1.5, kind === 'signal' ? SIGN.sigWarn : SIGN.rbWarn)
+      const ctl = kind === 'signal' ? armCtrl(n, a % 2) : 'light'
+      if (kind !== 'signal') side(clr + 62, 2.6, 1.5, 1.5, SIGN.rbWarn)
+      else if (ctl === 'light') side(clr + 62, 2.6, 1.1, 1.1, SIGN.sigWarn)
+      else if (ctl !== 'free') side(clr + 62, 2.6, 1.3, 1.3, ctl === 'stop' ? SIGN.stopAhead : SIGN.yieldAhead)
       if (kind !== 'signal') side(clr + 120, 2.6, 1.5, 1.5, SIGN.rbWarn) // an early warning as well
       side(clr + 30, 2.4, 0.85, 1.05, SIGN.speed)
-      if (kind === 'signal') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
+      if (kind === 'signal' && ctl === 'light') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
       if (kind === 'signal') {
         if (jt && jt.nL === 1 && !jt.rOnly) side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows of the 3-lane layout)
       } else if (rbSpec(i, j)!.laneR.length === 2) side(clr + 50, 2.5, 1.7, 1.7, SIGN.rbLanes) // roundabout lane-use sign (matches the painted arrows)
@@ -1067,7 +1108,21 @@ export function buildCity() {
         side(clr + 96, 2.6, 1.1, 1.1, SIGN.laneEnds)
       }
 
-      if (kind === 'signal') {
+      if (kind === 'signal' && ctl !== 'light') {
+        // STOP / YIELD sign on the right-hand verge at the line (and a second one on the left, so it is seen from every lane)
+        if (ctl !== 'free') {
+          const allWay = armCtrl(n, 1 - (a % 2)) === 'stop'
+          for (const sd of [1, -1]) {
+            const [sx, sz] = P(clr + 3.2, sd * (HWat(clr + 3.2) + 1.6))
+            post(sx, sz, 3.6, 0.1)
+            if (ctl === 'stop') {
+              signQuad(sx + ox * 0.09, 3.0, sz + oz * 0.09, 1.5, 1.5, face, SIGN.stop)
+              if (allWay) signQuad(sx + ox * 0.09, 2.0, sz + oz * 0.09, 1.0, 1.0, face, SIGN.allWay)
+              else if (sd === 1) signQuad(sx + ox * 0.09, 1.9, sz + oz * 0.09, 1.25, 1.25, face, SIGN.crossTraffic)
+            } else signQuad(sx + ox * 0.09, 2.9, sz + oz * 0.09, 1.6, 1.6, face, SIGN.yield)
+          }
+        }
+      } else if (kind === 'signal') {
         // Signals hang ACROSS the road on the FAR side of the junction, facing the waiting traffic: a tapered pole on the far
         // verge with a mast arm over the lanes and one three-section head per lane, plus a pole head at the far-left corner.
         const uf = -(clr + 1.5)
@@ -1076,7 +1131,7 @@ export function buildCity() {
         const axis = a % 2 === 0 ? 0 : 1
         const lensY = HEAD_LENSY
         const [px, pz] = P(uf, qEdge)
-        const top = 5.45
+        const top = 6.55
         tube([px, 0.35, pz], [px, top, pz], 0.25, 0.14, POLE, 14)
         // base plate with bolts, a hand-hole cover and a pedestrian push-button
         tube([px, 0, pz], [px, 0.4, pz], 0.4, 0.3, [0.4, 0.41, 0.44], 14)
@@ -1091,7 +1146,7 @@ export function buildCity() {
         tube([px, top - 1.0, pz], [m1x * 0.15 + px * 0.85, top - 0.45, m1z * 0.15 + pz * 0.85], 0.05, 0.05, POLE, 6)
         ;lanesHere.forEach(({ lat: q, use }) => {
           const [hx, hz] = P(uf, q)
-          const yc = 3.9
+          const yc = 4.75
           // hanger from the arm to the head
           const armY = top - 0.28 + ((midQ - q) / (midQ - endQ)) * 0.16
           tube([hx, armY, hz], [hx, yc + 0.66 * HS, hz], 0.04, 0.04, POLE, 6)
@@ -1101,18 +1156,18 @@ export function buildCity() {
         })
         // far-left corner pole: a second head, seen from the right-hand lanes too
         const [lx, lz] = P(uf, -qEdge)
-        tube([lx, 0.3, lz], [lx, 4.4, lz], 0.2, 0.12, POLE, 12)
+        tube([lx, 0.3, lz], [lx, 5.4, lz], 0.2, 0.12, POLE, 12)
         tube([lx, 0, lz], [lx, 0.35, lz], 0.34, 0.26, [0.4, 0.41, 0.44], 12)
-        signalHead(lx, lz, 3.1, ox, oz)
-        for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * HEAD_LAMP, y: 3.1 + lensY[l], z: lz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
+        signalHead(lx, lz, 3.7, ox, oz)
+        for (let l = 0; l < 3; l++) lamps.push({ x: lx + ox * HEAD_LAMP, y: 3.7 + lensY[l], z: lz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
         // junctions without a left arrow: "LEFT TURN YIELD ON GREEN" on the mast arm over the left lane
         if (!hasLeftArrow(n, a % 2)) {
           const [ysx, ysz] = P(uf, lanesHere[0].lat)
-          signQuad(ysx + ox * 0.16, 6.15, ysz + oz * 0.16, 0.8, 0.98, face, SIGN.leftYield)
+          signQuad(ysx + ox * 0.16, 7.3, ysz + oz * 0.16, 0.8, 0.98, face, SIGN.leftYield)
         }
         // street-name blade on the mast arm
         const [nx, nz] = P(uf, qEdge * 0.62)
-        signQuad(nx + ox * 0.15, 5.85, nz + oz * 0.15, 2.2, 1.1, face, PLATE(crossIdx))
+        signQuad(nx + ox * 0.15, 7.05, nz + oz * 0.15, 2.2, 1.1, face, PLATE(crossIdx))
       } else {
         // give way + roundabout signs at the entry, chevrons on the island
         const rsp = rbSpec(i, j)!
@@ -1127,9 +1182,9 @@ export function buildCity() {
           const sh = rbShift(18.5)
           for (const q of [HALF_MID + sh + 1.3, 0]) {
             const [hx, hz] = P(uh, q)
-            tube([hx, 0, hz], [hx, 4.3, hz], 0.2, 0.12, POLE, 10)
-            signalHead(hx, hz, 3.0, ox, oz)
-            for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: 3.0 + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
+            tube([hx, 0, hz], [hx, 5.3, hz], 0.2, 0.12, POLE, 10)
+            signalHead(hx, hz, 3.6, ox, oz)
+            for (let l = 0; l < 3; l++) lamps.push({ x: hx + ox * HEAD_LAMP, y: 3.6 + lensY[l], z: hz + oz * HEAD_LAMP, yaw, node: n, axis, l, arrow: false })
           }
         }
         if (!rsp.domed) {

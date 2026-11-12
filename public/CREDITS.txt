@@ -12,3 +12,9 @@ Car models (Sketchfab, standard licence; converted to GLB with reduced textures)
 - Traffic signal heads based on "Econolite 8-inch Dialight Arrow Signals" and "Econolite 8inch Left Turn Backplate Signals Pack" (CC-BY-4.0) - Sketchfab
 - Trucks: "Caminhão Genérico Peterbild Com Tanque", "Mercedes Actros com Semi Reboque Prancha Carrega", "Magirus 290 dump truck" (CC-BY-4.0, Sketchfab)
 - Door mirrors: "Car mirror (Modular)" by unrealengine432 (CC-BY-4.0) - https://sketchfab.com/3d-models/car-mirror-modular-df7023a272544bfb9434bb8b2f7b7c4a
+
+Player car (interior and exterior): "2019 Toyota Camry Hybrid XSE" by Ddiaz Design
+  https://sketchfab.com/ddiaz-design
+  License: CC BY-NC-SA 4.0 (http://creativecommons.org/licenses/by-nc-sa/4.0/) - NON-COMMERCIAL use only, share alike
+  Changes: re-scaled and re-oriented, merged per material, simplified (about 214k triangles), steering wheel separated,
+  textures resized. File: public/models/camry.glb

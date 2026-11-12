@@ -42,6 +42,8 @@ export const BOX = 32 // half size of a signalised junction (its four corners ar
 export const CORNER_H = 3 * LANE_W + 0.5
 export const CORNER_R = BOX - CORNER_H
 export const SPEED_LIMIT = 30 * 0.44704 // 30 mph in m/s
+/** the limit on the course being driven: 25 mph on residential streets, 30 mph in town */
+export const speedLimit = () => (LAYOUT.kind === 'res' ? 25 : 30) * 0.44704
 
 /** Direction indices: 0 = east, 1 = north, 2 = west, 3 = south (counter-clockwise on the map). */
 export const DIRS: ReadonlyArray<readonly [number, number]> = [[1, 0], [0, -1], [-1, 0], [0, 1]]
@@ -57,11 +59,17 @@ export const mod = (a: number, n: number) => ((a % n) + n) % n
 const CLOSED_ROADS = new Set(['2,2,0', '2,1,3', '2,2,3', '0,1,3', '0,2,3', '1,0,0'])
 /** is the road leaving node (i, j) in direction d (an "arm") closed? */
 /** the roundabout course: every junction is a roundabout with four exits, and there are no buildings (open country) */
-export const LAYOUT = { rb: false, version: 0 }
+/** which course the grid is laid out as:
+ *   mixed  = traffic lights, roundabouts and a few stop / yield junctions      lights = traffic lights everywhere (city)
+ *   rb     = roundabouts only (open country)                                 res    = residential streets: stop, all-way stop and yield signs */
+export type LayoutKind = 'mixed' | 'lights' | 'rb' | 'res'
+export const LAYOUT = { rb: false, kind: 'mixed' as LayoutKind, version: 0 }
+const CLOSED_LIGHTS = new Set(['1,1,0', '2,3,3'])
+const CLOSED_RES = new Set(['0,1,0', '2,2,3', '3,0,0'])
 /** the roundabout course: a mix of designs, some with only three or two exits (these roads are closed) */
 const CLOSED_RB = new Set(['0,0,0', '2,1,0', '1,2,3', '3,3,3', '2,3,0'])
 export function armClosed(i: number, j: number, d: number) {
-  const set = LAYOUT.rb ? CLOSED_RB : CLOSED_ROADS
+  const set = LAYOUT.rb ? CLOSED_RB : LAYOUT.kind === 'lights' ? CLOSED_LIGHTS : LAYOUT.kind === 'res' ? CLOSED_RES : CLOSED_ROADS
   const dd = mod(d, 4)
   const [dx, dz] = DIRS[dd]
   return dd === 0 || dd === 3 ? set.has(`${mod(i, G)},${mod(j, G)},${dd}`) : set.has(`${mod(i + dx, G)},${mod(j + dz, G)},${(dd + 2) % 4}`)
@@ -82,11 +90,15 @@ export interface JType {
 export const CENTRE_COL = 3
 const ROW_NL: Array<0 | 1 | 2> = [0, 2, 0, 1] // east-west avenues (by j): left-turn lanes on their approaches
 const COL_NL: Array<0 | 1 | 2> = [0, 1, 0, 1] // north-south avenues (by i)
+const ROW_NL_CITY: Array<0 | 1 | 2> = [1, 2, 1, 1]
+const COL_NL_CITY: Array<0 | 1 | 2> = [1, 1, 0, 1]
 /** layout of the approaches along one axis of a junction (0 = the east-west road, 1 = the north-south road) */
 export function jTypeOf(i: number, j: number, axis: number): JType | null {
   if (nodeKind(i, j) !== 'signal') return null
   const mi = mod(i, G), mj = mod(j, G)
-  const nL = axis === 1 ? COL_NL[mi] : ROW_NL[mj]
+  if (LAYOUT.kind === 'res') return { nL: 0, rOnly: false, label: '', mw: 0, centre: false } // plain residential streets
+  // the city course has no roundabouts, so most of its avenues have a median with left-turn lanes
+  const nL = LAYOUT.kind === 'lights' ? (axis === 1 ? COL_NL_CITY[mi] : ROW_NL_CITY[mj]) : axis === 1 ? COL_NL[mi] : ROW_NL[mj]
   const centre = axis === 1 && mi === CENTRE_COL
   const rOnly = !centre && nL < 2 && (mi * 3 + mj * 5 + axis * 2) % 3 === 0
   return { nL, rOnly, label: '', mw: centre ? 0.5 : nL, centre }
@@ -111,7 +123,32 @@ export const wrapD = (d: number) => mod(d + WORLD_PERIOD.v / 2, WORLD_PERIOD.v) 
 export const nodeIndex = (i: number, j: number) => mod(i, G) * G + mod(j, G)
 export const nodeIJ = (n: number): [number, number] => [Math.floor(n / G), n % G]
 export type NodeKind = 'round' | 'signal'
-export const nodeKind = (i: number, j: number): NodeKind => (LAYOUT.rb || (mod(i, G) % 2 === 0 && mod(j, G) % 2 === 0) ? 'round' : 'signal')
+export const nodeKind = (i: number, j: number): NodeKind => (LAYOUT.rb || (LAYOUT.kind === 'mixed' && mod(i, G) % 2 === 0 && mod(j, G) % 2 === 0) ? 'round' : 'signal')
+
+/** How a crossroads ('signal' kind node) is controlled: traffic lights, an all-way stop, a two-way stop or yield signs.
+ *  For the last two, `major` is the axis (0 = east-west road, 1 = north-south road) that has priority and does not stop. */
+export type CtrlType = 'light' | 'allway' | 'twoway' | 'yield'
+const CTRL_MIXED: Record<string, { type: CtrlType; major: 0 | 1 }> = {
+  '1,0': { type: 'twoway', major: 1 }, '3,2': { type: 'twoway', major: 1 }, '0,3': { type: 'yield', major: 0 }, '2,3': { type: 'allway', major: 0 },
+}
+export function nodeCtrl(i: number, j: number): { type: CtrlType; major: 0 | 1 } {
+  const mi = mod(i, G), mj = mod(j, G)
+  if (LAYOUT.kind === 'res') {
+    const t = (mi + 2 * mj) % 4
+    return t === 0 ? { type: 'allway', major: 0 } : t === 1 ? { type: 'twoway', major: 0 } : t === 2 ? { type: 'yield', major: 1 } : { type: 'twoway', major: 1 }
+  }
+  if (LAYOUT.kind === 'mixed') return CTRL_MIXED[`${mi},${mj}`] ?? { type: 'light', major: 0 }
+  return { type: 'light', major: 0 }
+}
+/** what a driver arriving at a crossroads along `axis` faces: a traffic light, a STOP sign, a YIELD sign, or nothing (the priority road) */
+export type ArmCtrl = 'light' | 'stop' | 'yield' | 'free'
+export function armCtrl(node: number, axis: number): ArmCtrl {
+  const [i, j] = nodeIJ(node)
+  const c = nodeCtrl(i, j)
+  if (c.type === 'light') return 'light'
+  if (c.type === 'allway') return 'stop'
+  return axis === c.major ? 'free' : c.type === 'twoway' ? 'stop' : 'yield'
+}
 
 /** The roundabout designs. Each of the four roundabouts in the city is a different one. */
 export type RbVariant = 'two' | 'signal' | 'single' | 'mini'
@@ -423,9 +460,10 @@ function buildAll() {
 }
 buildAll()
 /** switch between the city and the roundabout course (rebuilds the road data; returns true if anything changed) */
-export function setLayout(rb: boolean) {
-  if (LAYOUT.rb === rb) return false
-  LAYOUT.rb = rb
+export function setLayout(kind: LayoutKind) {
+  if (LAYOUT.kind === kind) return false
+  LAYOUT.kind = kind
+  LAYOUT.rb = kind === 'rb'
   LAYOUT.version++
   buildAll()
   LOTS.length = 0
@@ -503,8 +541,8 @@ export function signalColor(node: number, axis: 0 | 1, t: number, move: 'T' | 'L
   // light but they must yield to oncoming traffic. Junctions WITH an arrow: through first, then a protected left arrow.
   if (!hasLeftArrow(node, axis)) move = 'T'
   const permissive = !hasLeftArrow(node, axis)
-  const g0 = move === 'T' ? 0 : 17
-  const g1 = permissive ? 23 : move === 'T' ? 13 : 23
+  const g0 = move === 'T' ? 0 : 15.5
+  const g1 = permissive ? 21 : move === 'T' ? 11.5 : 23 // a plain green ends early: waiting left-turners clear the junction before the cross street goes
   if (a >= g0 && a < g1) return 0
   if (a >= g1 && a < g1 + 3) return 1
   return 2
@@ -552,8 +590,8 @@ function buildLots(): Lot[] {
           const z0 = bz0 + b * LOT_PITCH + 3
           const x1 = x0 + LOT_PITCH - 6
           const z1 = z0 + LOT_PITCH - 6
-          if (!LAYOUT.rb && b === 1 && ((i === CENTRE_COL && a === 0) || (i === mod(CENTRE_COL - 1, G) && a === 2))) continue // a side street and its car park are here
-          let park = LAYOUT.rb || hash(i * 3 + a, j * 3 + b) < 0.16
+          if (stubsOn() && b === 1 && ((i === CENTRE_COL && a === 0) || (i === mod(CENTRE_COL - 1, G) && a === 2))) continue // a side street and its car park are here
+          let park = LAYOUT.rb || hash(i * 3 + a, j * 3 + b) < (LAYOUT.kind === 'res' ? 0.3 : 0.16)
           for (const [ci, cj] of [[i, j], [i + 1, j], [i, j + 1], [i + 1, j + 1]]) {
             if (nodeKind(ci, cj) !== 'round') continue
             const cx = ci * B
@@ -566,7 +604,7 @@ function buildLots(): Lot[] {
           lots.push({
             x0, z0, x1, z1,
             bx0: x0 + inset, bz0: z0 + inset, bx1: x1 - inset, bz1: z1 - inset,
-            h: 10 + hash(i * 3 + a, j * 3 + b, 2) * 38,
+            h: LAYOUT.kind === 'res' ? 6 + hash(i * 3 + a, j * 3 + b, 2) * 6 : 10 + hash(i * 3 + a, j * 3 + b, 2) * 38, // low houses on residential streets
             color: PALETTE[Math.floor(hash(i * 3 + a, j * 3 + b, 3) * PALETTE.length)],
             park,
           })
@@ -707,7 +745,7 @@ const wedgeHit = (back: number, v: number, rb: RbSpec | undefined) => {
 /** Side streets off the centre-turn-lane avenue: one each side at the middle of every block, ending in a small car park. Measured from
  *  the avenue's centre line: the street runs from the road edge out to STUB.end, the car park from STUB.lot0 to STUB.lot1. */
 export const STUB = { u: B / 2, half: 4.6, end: 60, lot0: 56, lot1: 86, lotHalf: 24 }
-export const stubsOn = () => !LAYOUT.rb
+export function stubsOn() { return LAYOUT.kind === 'mixed' || LAYOUT.kind === 'lights' }
 function onStub(x: number, z: number) {
   if (!stubsOn()) return false
   const dx = Math.abs(wrapD(x - CENTRE_COL * B)), zc = Math.abs(mod(z, B) - STUB.u)

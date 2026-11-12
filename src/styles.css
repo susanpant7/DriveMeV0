@@ -288,6 +288,13 @@ canvas { touch-action: none; }
 .hud.touch .tbtn.sig { font-size: 15px; }
 
 .adjbar { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 10px 14px 10px 18px; border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--stroke); backdrop-filter: blur(10px); pointer-events: auto; max-width: 92vw; font-size: 14px; }
+.adjbar button.sel { border-color: #7dffa0; color: #eafff0; background: rgba(34,197,94,.35); }
+/* touch: a slim strip kept clear of the mirror being adjusted (top of the screen for the door mirrors, bottom for the rear-view one) */
+.hud.touch .adjbar { gap: 6px; padding: 4px 6px; border-radius: 10px; font-size: 11px; white-space: nowrap; }
+.hud.touch .adjbar span { display: none; }
+.hud.touch .adjbar button { padding: 5px 10px; font-size: 12px; min-height: 0; border-radius: 8px; }
+.hud.touch .adjbar.high { bottom: auto; top: max(6px, env(safe-area-inset-top)); }
+.hud.touch .adjbar.low { bottom: max(6px, env(safe-area-inset-bottom)); }
 .pts { display: flex; align-items: baseline; gap: 8px; padding: 6px 14px; border-radius: 12px; background: var(--glass-strong); border: 1px solid var(--stroke); backdrop-filter: blur(8px); }
 .pts small { font-size: 10px; font-weight: 800; letter-spacing: .12em; color: var(--muted); }
 .pts b { font-size: 22px; font-variant-numeric: tabular-nums; }

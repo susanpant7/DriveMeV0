@@ -3,7 +3,7 @@ import { IS_COARSE } from './device'
 import type { Look } from './store'
 
 /** Driver's eye position, relative to the car origin (car faces -z, left-hand drive). */
-export const EYE = new THREE.Vector3(-0.4, 1.24, 0)
+export const EYE = new THREE.Vector3(-0.335, 1.17, 0)
 
 export interface MirrorCfg {
   id: Exclude<Look, 'front'>
@@ -31,28 +31,29 @@ const V = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z)
 const RES_SIDE: [number, number] = IS_COARSE ? [900, 610] : [1400, 950]
 const RES_REAR: [number, number] = IS_COARSE ? [640, 195] : [800, 244]
 
-// The left mirror sits in the lower-left of the front view, just past the A-pillar; no key is needed to see it.
-// Side mirrors are aimed almost straight back so the inner edge catches your own car's
-// flank, exactly as a properly adjusted door mirror does.
-// on a phone the whole scene is small, so the mirrors are a little bigger (still a fixed size: they never grow or zoom)
-const K = IS_COARSE ? 1.3 : 1
-// on a phone the mirrors are drawn bigger and the car frame fills more of the screen, so they sit a little further out from the car
-const OUT = IS_COARSE ? 0.045 : 0 // the bigger phone mirror's mount reaches further, so it sits that much further out
+// The mirrors are where the car model (a Toyota Camry) has them: the door mirrors on the doors at the foot of the A-pillars, the
+// rear-view mirror on the windshield. Their glass is the model's own outline and real size (see carModel.ts).
+// Side mirrors are aimed almost straight back so the inner edge catches your own car's flank, as a properly set door mirror does.
+/** the model's glass: centre and the way it faces (used to lay the reflecting glass into the housing) */
+export const GLASS: Record<'left' | 'center' | 'right', { c: THREE.Vector3; n: THREE.Vector3 }> = {
+  left: { c: V(-0.883, 0.9858, -0.7259), n: V(0.3576, 0.006, 0.9339) },
+  center: { c: V(0.0156, 1.1933, -0.361), n: V(0, 0.0162, 0.9999) },
+  right: { c: V(0.9143, 0.9858, -0.7259), n: V(-0.3574, 0.0058, 0.9339) },
+}
 export const MIRRORS: MirrorCfg[] = [
-  mirror('left', V(-1.1 - OUT, 1.09, -0.8), [0.24 * K, 0.14 * K], RES_SIDE, V(-0.17, 0.02, 1), 1),
-  // hung from the windshield header at the upper right of the driver's view, so it is always visible in the front view
-  mirror('center', V(0.0, 1.485, -0.72), [0.27, 0.088], RES_REAR, V(0, 0.0, 1), 0),
-  mirror('right', V(1.085 + OUT, 1.09, -0.8), [0.24 * K, 0.14 * K], RES_SIDE, V(0.17, 0.02, 1), -1),
+  mirror('left', GLASS.left.c.clone(), [0.218, 0.129], RES_SIDE, V(-0.085, -0.012, 1), 1),
+  mirror('center', GLASS.center.c.clone(), [0.233, 0.055], RES_REAR, V(0, 0.0, 1), 0),
+  mirror('right', GLASS.right.c.clone(), [0.218, 0.129], RES_SIDE, V(0.045, -0.012, 1), -1),
 ]
 
 /** The driver's own adjustment of each mirror (radians): click a mirror, then use the arrow keys. Saved between sessions. */
 export const mirrorAdj: Record<'left' | 'center' | 'right', { yaw: number; pitch: number }> = (() => {
   const base = { left: { yaw: 0, pitch: 0 }, center: { yaw: 0, pitch: 0 }, right: { yaw: 0, pitch: 0 } }
-  try { const v = JSON.parse(localStorage.getItem('driveme.mirrors') || 'null'); if (v) return { ...base, ...v } } catch { /* ignore */ }
+  try { const v = JSON.parse(localStorage.getItem('driveme.mirrors2') || 'null'); if (v) return { ...base, ...v } } catch { /* ignore */ }
   return base
 })()
 export const adjust = { sel: null as null | 'left' | 'center' | 'right', dragging: false }
-export const saveMirrors = () => { try { localStorage.setItem('driveme.mirrors', JSON.stringify(mirrorAdj)) } catch { /* ignore */ } }
+export const saveMirrors = () => { try { localStorage.setItem('driveme.mirrors2', JSON.stringify(mirrorAdj)) } catch { /* ignore */ } }
 /** where each mirror (and the dash screen) currently is on screen, in pixels; filled in every frame by the camera rig */
 export const mirrorScreen: Record<string, { x: number; y: number; r: number; ok: boolean }> = { left: { x: 0, y: 0, r: 0, ok: false }, center: { x: 0, y: 0, r: 0, ok: false }, right: { x: 0, y: 0, r: 0, ok: false } }
 
@@ -77,8 +78,8 @@ function glance(m: MirrorCfg, turn: number, pitchK: number, lean: THREE.Vector3)
   }
 }
 
-/** A repeater of the right door mirror, set into the dash at the lower right so it never blocks the view of the road. */
-export const CARPLAY = { pos: V(0.008, 1.05, -0.62), rot: [-0.07, -0.17, 0] as [number, number, number], W: 0.27, H: 0.27 * (400 / 675) }
+/** The car's centre screen (map; a repeater of the right door mirror while indicating right). */
+export const CARPLAY = { pos: V(0.031, 0.903, -0.7455), rot: [-0.367, 0, 0] as [number, number, number], W: 0.232, H: 0.15 }
 
 /** The head direction that points straight at each mirror (yaw + = left, pitch + = up, absolute from the horizon). */
 export const MIRROR_AIM: Record<'left' | 'center' | 'right', { yaw: number; pitch: number }> = (() => {

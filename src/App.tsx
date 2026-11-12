@@ -6,6 +6,7 @@ import { installInput } from './game/input'
 import { PlayerRig } from './game/PlayerRig'
 import { City } from './game/City'
 import { setLayout } from './game/map'
+import { layoutOf } from './game/nav'
 import { Highway } from './highway/Highway'
 import { useGame } from './game/store'
 import { HORIZON, Sky, SunLight } from './game/Scenery'
@@ -21,7 +22,7 @@ const LOWFX = IS_COARSE || (typeof location !== 'undefined' && new URLSearchPara
 export default function App() {
   useEffect(() => installInput(), [])
   const mode = useGame((s) => s.mode)
-  setLayout(mode === 'roundabout') // the road data must match the chosen course before the scene is built
+  setLayout(layoutOf(mode)) // the road data must match the chosen course before the scene is built
   return (
     <>
       <GraphicsBoundary>
@@ -32,7 +33,7 @@ export default function App() {
         <SunLight />
         <Simulation />
         <Ground />
-        {mode === 'highway' ? <Highway /> : <City key={mode === 'roundabout' ? 'rb' : 'city'} />}
+        {mode === 'highway' ? <Highway /> : <City key={layoutOf(mode)} />}
         <Traffic />
         <PlayerRig />
         {!LOWFX && (

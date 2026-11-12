@@ -274,6 +274,8 @@ export function Hud() {
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
   const adjusting = useGame((s) => s.adjusting)
+  const [adjSel, setAdjSel] = useState<'left' | 'center' | 'right' | null>(null)
+  useEffect(() => { if (!adjusting) setAdjSel(null) }, [adjusting])
   const { touch, portrait } = useViewport()
 
   // phones and tablets play in landscape: pause and ask for a rotation
@@ -335,12 +337,14 @@ export function Hud() {
       )}
 
       {status === 'paused' && pauseReason === 'user' && adjusting && (
-        <div className="adjbar">
-          <span>Pick a mirror, then drag on it to move its view.</span>
-          <button className="secondary" onClick={() => adjustMirror('left')}>Left</button>
-          <button className="secondary" onClick={() => adjustMirror('center')}>Rear-view</button>
-          <button className="secondary" onClick={() => adjustMirror('right')}>Right</button>
-          <button className="primary" onClick={() => { adjustMirror(null); useGame.setState({ adjusting: false }) }}>Done</button>
+        <div className={'adjbar ' + (adjSel === 'center' ? 'low' : 'high')}>
+          <span>{adjSel ? 'Drag on the mirror to move its view.' : 'Pick a mirror, then drag on it to move its view.'}</span>
+          {(['left', 'center', 'right'] as const).map((k) => (
+            <button key={k} className={'secondary' + (adjSel === k ? ' sel' : '')} onClick={() => { adjustMirror(k); setAdjSel(k) }}>
+              {k === 'left' ? 'Left' : k === 'center' ? 'Rear-view' : 'Right'}
+            </button>
+          ))}
+          <button className="primary" onClick={() => { adjustMirror(null); setAdjSel(null); useGame.setState({ adjusting: false }) }}>Done</button>
         </div>
       )}
 

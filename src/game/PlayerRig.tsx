@@ -1,79 +1,25 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { loadCarModel, type CarModel } from './carModel'
 import { Cabin } from './Cabin'
 import { CarPlay } from './CarPlay'
-import { EYE, FRONT_PITCH, FRONT_YAW, CARPLAY, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
+import { EYE, GLASS, FRONT_PITCH, FRONT_YAW, CARPLAY, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, housingGeometries, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
 import { useGame } from './store'
 
 const UP = new THREE.Vector3(0, 1, 0)
 
-const housingMat = new THREE.MeshPhysicalMaterial({ color: '#0d0f12', roughness: 0.3, metalness: 0.1, clearcoat: 1, clearcoatRoughness: 0.08 })
-
 const selMat = new THREE.MeshBasicMaterial({ color: '#3b9dff' })
 
-/**
- * The door-mirror model (public/models/door_mirror.glb: housing, painted cap, frame and the triangular mount on the door), brought into a
- * handy frame: the glass lies in the xy plane facing +z, centred on the origin and 1 unit wide; `inner` is the x side its mount is on.
- */
-interface MirrorModel { housing: THREE.Object3D; glass: THREE.BufferGeometry; aspect: number; inner: 1 | -1 }
-let mirrorModelP: Promise<MirrorModel> | null = null
-function loadMirrorModel(): Promise<MirrorModel> {
-  if (!mirrorModelP) mirrorModelP = new Promise((resolve, reject) => {
-    new GLTFLoader().load('/models/door_mirror.glb', (g) => {
-      const root = g.scene
-      root.updateMatrixWorld(true)
-      const meshes: THREE.Mesh[] = []
-      root.traverse((o) => { if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh) })
-      const boxOf = (m: THREE.Mesh) => new THREE.Box3().setFromObject(m)
-      // the glass is the flat plate; the mount is the part furthest from it along the glass
-      const flatness = (m: THREE.Mesh) => { const s = boxOf(m).getSize(new THREE.Vector3()); return Math.min(s.x, s.y, s.z) / Math.max(s.x, s.y, s.z) }
-      const glassMesh = meshes.find((m) => m.name.includes('Part_Low_04')) ?? [...meshes].sort((a, b) => flatness(a) - flatness(b))[0]
-      const gb = boxOf(glassMesh), gs = gb.getSize(new THREE.Vector3()), gc = gb.getCenter(new THREE.Vector3())
-      const dims: Array<['x' | 'y' | 'z', number]> = [['x', gs.x], ['y', gs.y], ['z', gs.z]]
-      const nAxis = [...dims].sort((a, b) => a[1] - b[1])[0][0] // thinnest: the glass normal
-      const all = new THREE.Box3()
-      meshes.filter((m) => m !== glassMesh).forEach((m) => all.union(boxOf(m)))
-      const ac = all.getCenter(new THREE.Vector3())
-      const Z = new THREE.Vector3(); Z[nAxis] = Math.sign(gc[nAxis] - ac[nAxis]) || 1 // the glass faces away from the housing
-      const Y = new THREE.Vector3(0, 1, 0)
-      const X = new THREE.Vector3().crossVectors(Y, Z)
-      const width = Math.abs(gs.x * X.x + gs.y * X.y + gs.z * X.z), height = gs.y
-      const inv = new THREE.Matrix4().makeBasis(X, Y, Z).setPosition(gc).invert()
-      inv.premultiply(new THREE.Matrix4().makeScale(1 / width, 1 / width, 1 / width))
-      // glass outline, flattened into the xy plane
-      const glass = glassMesh.geometry.clone().applyMatrix4(glassMesh.matrixWorld).applyMatrix4(inv)
-      const gp = glass.getAttribute('position') as THREE.BufferAttribute
-      for (let i = 0; i < gp.count; i++) gp.setZ(i, 0)
-      glassMesh.removeFromParent()
-      const housing = new THREE.Group()
-      root.applyMatrix4(inv)
-      housing.add(root)
-      housing.updateMatrixWorld(true)
-      const mount = meshes.filter((m) => m !== glassMesh).map((m) => boxOf(m).getCenter(new THREE.Vector3()).x).sort((a, b) => Math.abs(b) - Math.abs(a))[0]
-      housing.traverse((o) => {
-        const me = o as THREE.Mesh
-        if (!me.isMesh) return
-        me.castShadow = false; me.receiveShadow = false
-        const m = me.material as THREE.MeshStandardMaterial
-        m.envMapIntensity = 0.8
-      })
-      resolve({ housing, glass, aspect: height / width, inner: mount >= 0 ? 1 : -1 })
-    }, undefined, reject)
-  })
-  return mirrorModelP
-}
-function useMirrorModel(on: boolean) {
-  const [m, setM] = useState<MirrorModel | null>(null)
+function useCarModel() {
+  const [m, setM] = useState<CarModel | null>(null)
   useEffect(() => {
-    if (!on) return
     let dead = false
-    loadMirrorModel().then((mm) => { if (!dead) setM(mm) }).catch(() => {})
+    loadCarModel().then((mm) => { if (!dead) setM(mm) }).catch(() => {})
     return () => { dead = true }
-  }, [on])
+  }, [])
   return m
 }
 
@@ -81,39 +27,38 @@ function useMirrorModel(on: boolean) {
 function Mirror({ cfg }: { cfg: MirrorCfg }) {
   const [w, h] = cfg.size
   const side = cfg.id !== 'center'
-  const model = useMirrorModel(side)
-  // the modelled door mirror, sized to this glass and mirrored for the other side of the car
-  const housingObj = useMemo(() => {
-    if (!side || !model) return null
-    const o = model.housing.clone(true)
-    o.scale.set(w * (cfg.inner === model.inner ? 1 : -1), h / model.aspect, w)
-    o.traverse((c) => c.layers.set(1)) // driver-only, like the rest of the cabin
-    return o
-  }, [model, side, w, h, cfg.inner])
-  const { glass, ringGeo, shellGeo } = useMemo(() => {
+  const model = useCarModel()
+  const { glass, ringGeo } = useMemo(() => {
+    // the glass has the outline of the car model's own mirror glass, laid flat in the mirror plane
     let geo: THREE.BufferGeometry
-    if (side && model) {
-      geo = model.glass.clone()
-      geo.scale(w * (cfg.inner === model.inner ? 1 : -1), h / model.aspect, 1)
+    if (model) {
+      const id = cfg.id as 'left' | 'center' | 'right'
+      const G = GLASS[id]
+      const inv = new THREE.Matrix4().compose(G.c, new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), G.n.clone().normalize()), new THREE.Vector3(1, 1, 1)).invert()
+      geo = model.glass[id].clone().applyMatrix4(inv)
+      const gp = geo.getAttribute('position') as THREE.BufferAttribute
+      for (let i = 0; i < gp.count; i++) gp.setZ(i, 0)
+      geo.deleteAttribute('normal'); geo.deleteAttribute('uv')
     } else geo = new THREE.ShapeGeometry(mirrorShape(w, h, cfg.inner), 12)
     const r = new MirrorGlass(geo, {
       w,
       h,
       res: cfg.res,
-      // the driver's mirror is nearly flat; the passenger-side one is gently convex ("objects are closer than they appear")
-      wide: !side ? 1.0 : 1.0,
-      m0: !side ? 1.0 : 1.0,
-      m1: side ? 1.0 : 1.0,
+      // the driver's mirror is flat; the passenger-side one is convex and shows a wider view ("objects are closer than they appear")
+      wide: cfg.id === 'right' ? 1.5 : 1.0,
+      m0: cfg.id === 'right' ? 1 / 1.5 : 1.0,
+      m1: cfg.id === 'right' ? 1 / 1.5 : 1.0,
       shift: [0, 0],
       inner: cfg.inner,
       alt: !side,
     })
-    if (side && model) (r.material as THREE.ShaderMaterial).side = THREE.DoubleSide
+    ;(r.material as THREE.ShaderMaterial).side = THREE.DoubleSide
+    r.layers.set(1) // driver only: mirrors do not show in each other
     r.position.copy(cfg.pos)
     r.quaternion.copy(cfg.quat)
     if (cfg.id !== 'center') r.frustumCulled = false // keep rendering even when it is out of view: the dash repeater shows it
-    return { glass: r, ...housingGeometries(w, h, cfg.inner) }
-  }, [cfg, w, h, side, model])
+    return { glass: r, ringGeo: housingGeometries(w, h, cfg.inner).ringGeo }
+  }, [cfg, w, h, model])
   useEffect(() => () => glass.dispose(), [glass])
   // the dash screen shows this mirror's picture while the matching indicator is on (left = -1, right = +1)
   const repeater = useMemo(() => {
@@ -126,9 +71,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
       vertexShader: m.vertexShader,
       fragmentShader: m.fragmentShader,
     })
-    mat.depthTest = false
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(Ws, Hs), mat)
-    mesh.renderOrder = 1002
     mesh.frustumCulled = false
     return { mesh, mat }
   }, [cfg, glass])
@@ -149,7 +92,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
     qb.setFromAxisAngle(AX, -a.pitch)
     glass.quaternion.copy(qa).multiply(qb).multiply(cfg.quat)
     if (housing.current) housing.current.quaternion.copy(glass.quaternion)
-    if (ringMesh.current) { ringMesh.current.material = adjust.sel === cfg.id ? selMat : housingMat; ringMesh.current.visible = !housingObj || adjust.sel === cfg.id }
+    if (ringMesh.current) ringMesh.current.visible = adjust.sel === cfg.id // a blue rim marks the mirror being adjusted
   })
 
   // A mirror is a fixed object: it never changes size. It only looks bigger when your head moves closer or turns to face it.
@@ -157,8 +100,7 @@ function Mirror({ cfg }: { cfg: MirrorCfg }) {
     <>
       <primitive object={glass} />
       <group ref={housing} position={cfg.pos} quaternion={cfg.quat}>
-        <mesh ref={ringMesh} geometry={ringGeo} material={housingMat} />
-        {housingObj ? <primitive object={housingObj} /> : <mesh geometry={shellGeo} material={housingMat} />}
+        <mesh ref={ringMesh} geometry={ringGeo} material={selMat} visible={false} />
       </group>
       {repeater && (
         <group ref={feedGroup} position={CARPLAY.pos} rotation={CARPLAY.rot} visible={false}>

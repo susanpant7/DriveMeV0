@@ -1,56 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { faceEuler } from './cabinConfig'
 import { drawCluster } from './gauges'
-import { extrudeProfile } from './geom'
+import { WHEEL_AXIS, WHEEL_HUB, loadCarModel, type CarModel } from './carModel'
 import { sim } from './sim'
 import { useGame } from './store'
-
-const UP = new THREE.Vector3(0, 1, 0)
-
-// --- shared materials -----------------------------------------------------
-const plastic = new THREE.MeshStandardMaterial({ color: '#2b2522', roughness: 0.6, metalness: 0.05 })
-const leather = new THREE.MeshStandardMaterial({ color: '#241c18', roughness: 0.5, metalness: 0.05 })
-const trim = new THREE.MeshStandardMaterial({ color: '#9aa1aa', roughness: 0.3, metalness: 0.9 })
-const headliner = new THREE.MeshStandardMaterial({ color: '#d6cab8', roughness: 0.95 })
-const door = new THREE.MeshStandardMaterial({ color: '#3a2f29', roughness: 0.6 })
-export const paint = new THREE.MeshPhysicalMaterial({ color: '#a3201a', roughness: 0.32, metalness: 0.5, clearcoat: 1, clearcoatRoughness: 0.1 })
-const fabric = new THREE.MeshStandardMaterial({ color: '#cbbfae', roughness: 0.96 })
-const redLeather = new THREE.MeshStandardMaterial({ color: '#b8895a', roughness: 0.5 })
-const chrome = new THREE.MeshStandardMaterial({ color: '#d8dce2', roughness: 0.12, metalness: 1 })
-const glassMat = new THREE.MeshStandardMaterial({ color: '#cfe6ff', transparent: true, opacity: 0.07, roughness: 0.02, metalness: 0, envMapIntensity: 3, depthWrite: false })
-const brushed = new THREE.MeshStandardMaterial({ color: '#b9bec6', metalness: 0.9, roughness: 0.2 })
-const ambientCyan = new THREE.MeshStandardMaterial({ color: '#00e5ff', emissive: '#00e5ff', emissiveIntensity: 0.3, roughness: 0.4 })
-const matteBlack = new THREE.MeshStandardMaterial({ color: '#0b0b0d', roughness: 0.85 })
-
-// --- static geometry ------------------------------------------------------
-// profiles are (distance forward of cabin origin, height)
-const geoDashPassenger = extrudeProfile(
-  [[0.15, 0.45], [0.15, 0.82], [0.4, 0.93], [0.7, 0.97], [0.97, 0.99], [0.97, 0.5]],
-  1.1,
-  0.015,
-)
-const geoDashPod = extrudeProfile([[0.7, 0.5], [0.7, 0.9], [0.78, 0.98], [0.97, 0.99], [0.97, 0.5]], 0.56, 0.012)
-const geoDashSide = extrudeProfile([[0.86, 0.5], [0.86, 0.97], [0.97, 0.99], [0.97, 0.5]], 0.3, 0.012)
-function Beam({ from, to, t = 0.05, material = plastic }: { from: [number, number, number]; to: [number, number, number]; t?: number; material?: THREE.Material }) {
-  const { pos, quat, len } = useMemo(() => {
-    const a = new THREE.Vector3(...from)
-    const b = new THREE.Vector3(...to)
-    const dir = b.clone().sub(a)
-    return {
-      pos: a.clone().add(b).multiplyScalar(0.5),
-      quat: new THREE.Quaternion().setFromUnitVectors(UP, dir.clone().normalize()),
-      len: dir.length(),
-    }
-  }, [from, to])
-  return (
-    <mesh position={pos} quaternion={quat} material={material}>
-      <boxGeometry args={[t, len, t]} />
-    </mesh>
-  )
-}
 
 function useCanvasTexture(w: number, h: number) {
   return useMemo(() => {
@@ -64,13 +18,10 @@ function useCanvasTexture(w: number, h: number) {
   }, [w, h])
 }
 
-/** Live instrument cluster in a slim bezel. */
+/** Live instrument cluster, on the car's own instrument panel behind the wheel. */
 function Displays() {
   const cluster = useCanvasTexture(1024, 400)
   const last = useRef(0)
-  const clusterPos = useMemo(() => new THREE.Vector3(-0.4, 0.895, -0.56), [])
-  const clusterRot = useMemo(() => faceEuler(clusterPos), [clusterPos])
-
   useFrame(() => {
     const now = performance.now()
     if (now - last.current < 50) return
@@ -87,402 +38,51 @@ function Displays() {
     })
     cluster.tex.needsUpdate = true
   }, -1)
-
   useEffect(() => () => cluster.tex.dispose(), [cluster])
-
   return (
-    <group position={clusterPos} rotation={clusterRot} scale={0.64}>
-      <mesh position={[0, 0, -0.012]} material={matteBlack}>
-        <boxGeometry args={[0.54, 0.22, 0.02]} />
-      </mesh>
-      <mesh position={[0, 0.125, 0.02]} rotation={[-0.35, 0, 0]} material={plastic}>
-        <boxGeometry args={[0.62, 0.014, 0.12]} />
+    <group position={[-0.333, 0.874, -0.836]} rotation={[-0.516, 0, 0]}>
+      <mesh position={[0, 0, -0.004]}>
+        <planeGeometry args={[0.36, 0.15]} />
+        <meshBasicMaterial color="#050608" />
       </mesh>
       <mesh>
-        <planeGeometry args={[0.56, 0.22]} />
-        <meshBasicMaterial map={cluster.tex} toneMapped={false} transparent depthWrite={false} />
+        <planeGeometry args={[0.34, 0.133]} />
+        <meshBasicMaterial map={cluster.tex} toneMapped={false} />
       </mesh>
     </group>
   )
 }
 
-/** Air vent: dark frame with louvres. Faces local +z. */
-function Vent({ w, h, pos }: { w: number; h: number; pos: [number, number, number] }) {
-  return (
-    <group position={pos}>
-      <mesh material={matteBlack}>
-        <boxGeometry args={[w + 0.02, h + 0.02, 0.012]} />
-      </mesh>
-      {Array.from({ length: 5 }, (_, i) => (
-        <mesh key={i} position={[0, h / 2 - ((i + 0.5) * h) / 5, 0.006]} rotation={[0.35, 0, 0]} material={fabric}>
-          <boxGeometry args={[w - 0.012, 0.006, 0.014]} />
-        </mesh>
-      ))}
-      <mesh material={chrome} position={[0, 0, 0.002]}>
-        <boxGeometry args={[w + 0.026, 0.004, 0.004]} />
-      </mesh>
-    </group>
-  )
-}
-
-/** Centre stack: air vents, climate dials and buttons, on the face turned toward the driver. */
-function CenterStack() {
-  return (
-    <group position={[0.38, 0.9, -0.8]}>
-      <mesh material={plastic}>
-        <boxGeometry args={[0.4, 0.2, 0.16]} />
-      </mesh>
-      <mesh position={[0, 0.101, 0]} material={chrome}>
-        <boxGeometry args={[0.4, 0.004, 0.16]} />
-      </mesh>
-      <Vent w={0.13} h={0.06} pos={[-0.1, 0.045, 0.082]} />
-      <Vent w={0.13} h={0.06} pos={[0.1, 0.045, 0.082]} />
-      <mesh position={[0, 0.005, 0.081]} material={matteBlack}>
-        <boxGeometry args={[0.1, 0.034, 0.004]} />
-      </mesh>
-      {[-0.115, 0.115].map((x) => (
-        <group key={x} position={[x, -0.055, 0.082]}>
-          <mesh rotation={[Math.PI / 2, 0, 0]} material={chrome}>
-            <cylinderGeometry args={[0.024, 0.024, 0.014, 20]} />
-          </mesh>
-          <mesh position={[0, 0, 0.008]} rotation={[Math.PI / 2, 0, 0]} material={matteBlack}>
-            <cylinderGeometry args={[0.019, 0.019, 0.006, 20]} />
-          </mesh>
-        </group>
-      ))}
-      {[-0.06, -0.03, 0, 0.03, 0.06].map((x) => (
-        <mesh key={x} position={[x, -0.055, 0.082]} material={matteBlack}>
-          <boxGeometry args={[0.022, 0.018, 0.006]} />
-        </mesh>
-      ))}
-    </group>
-  )
-}
-
-/** Windshield glass with a tinted sun band at the top, wipers and the cowl vent at the base. */
-function Windshield() {
-  const band = useMemo(() => {
-    const c = document.createElement('canvas')
-    c.width = 4
-    c.height = 128
-    const g = c.getContext('2d')!
-    const gr = g.createLinearGradient(0, 0, 0, 128)
-    gr.addColorStop(0, 'rgba(25,70,120,0.55)')
-    gr.addColorStop(1, 'rgba(25,70,120,0)')
-    g.fillStyle = gr
-    g.fillRect(0, 0, 4, 128)
-    return new THREE.CanvasTexture(c)
-  }, [])
-  const theta = Math.atan2(0.372, 0.623)
-  return (
-    <>
-      <group position={[0, 1.31, -0.786]} rotation={[theta, 0, 0]}>
-        <mesh material={glassMat} renderOrder={5}>
-          <planeGeometry args={[1.74, 0.74]} />
-        </mesh>
-        <mesh position={[0, 0.28, 0.002]} renderOrder={6}>
-          <planeGeometry args={[1.74, 0.18]} />
-          <meshBasicMaterial map={band} transparent depthWrite={false} toneMapped={false} />
-        </mesh>
-      </group>
-    </>
-  )
-}
-
-
-/** Painted side of your own car (door, window, handles, rear wheel arch), as seen in the door mirrors. */
-function sideTexture(flip: boolean) {
-  const W = 1536, H = 500
-  const c = document.createElement('canvas')
-  c.width = W
-  c.height = H
-  const g = c.getContext('2d')!
-  if (flip) { g.translate(W, 0); g.scale(-1, 1) } // u runs front -> rear; the right side is mirrored
-  const Z = (z: number) => ((z + 0.7) / 3.15) * W // metres along the car (front at -0.7) -> px
-  const Y = (y: number) => ((1.45 - y) / 1.03) * H // height in metres -> px
-  const paintTop = Y(0.95), paintBot = Y(0.42)
-  // lower body paint with a soft highlight along the shoulder line
-  const pg = g.createLinearGradient(0, paintTop, 0, paintBot)
-  pg.addColorStop(0, '#b3281f'); pg.addColorStop(0.18, '#a1221b'); pg.addColorStop(0.5, '#7d1914'); pg.addColorStop(1, '#4a0d0a')
-  g.fillStyle = pg
-  g.fillRect(0, paintTop, W, paintBot - paintTop)
-  g.fillStyle = 'rgba(255,255,255,0.16)'; g.fillRect(0, Y(0.9), W, 7)
-  // sill
-  g.fillStyle = '#0c0c0e'; g.fillRect(0, Y(0.5), W, Y(0.42) - Y(0.5))
-  // greenhouse: glass between the pillars
-  const roof = Y(1.45), belt = Y(0.95)
-  g.fillStyle = '#0b0b0d'; g.fillRect(0, roof, W, belt - roof) // frame colour behind the glass
-  const glass = (z0: number, z1: number) => {
-    const gg = g.createLinearGradient(0, roof, 0, belt)
-    gg.addColorStop(0, '#6f8fae'); gg.addColorStop(0.45, '#2c4358'); gg.addColorStop(1, '#101a24')
-    g.fillStyle = gg
-    g.beginPath(); g.moveTo(Z(z0), belt - 6); g.lineTo(Z(z0 + 0.1), roof + 14); g.lineTo(Z(z1 - 0.1), roof + 14); g.lineTo(Z(z1), belt - 6); g.closePath(); g.fill()
-    g.fillStyle = 'rgba(255,255,255,0.13)'
-    g.beginPath(); g.moveTo(Z(z0 + 0.15), belt - 6); g.lineTo(Z(z0 + 0.3), roof + 14); g.lineTo(Z(z0 + 0.45), roof + 14); g.lineTo(Z(z0 + 0.3), belt - 6); g.closePath(); g.fill()
-  }
-  glass(-0.35, 0.52) // front door window
-  glass(0.68, 1.52) // rear door window
-  glass(1.64, 2.0) // quarter window
-  // chrome belt line
-  g.fillStyle = '#c9ced6'; g.fillRect(0, belt - 5, W, 6)
-  // door shut lines
-  g.fillStyle = '#050506'
-  for (const z of [-0.62, 0.6, 1.58]) g.fillRect(Z(z) - 2, paintTop, 4, Y(0.5) - paintTop)
-  // door handles
-  const handle = (z: number) => {
-    g.fillStyle = '#d7dbe2'; g.fillRect(Z(z), Y(0.9), 70, 16)
-    g.fillStyle = '#6d727b'; g.fillRect(Z(z), Y(0.9) + 12, 70, 4)
-  }
-  handle(0.28); handle(1.18)
-  // rear wheel and arch
-  const wz = 1.42, wr = 0.4
-  g.fillStyle = '#020203'
-  g.beginPath(); g.ellipse(Z(wz), Y(0.42), (wr + 0.05) / 3.15 * W, (wr + 0.02) / 1.03 * H, 0, Math.PI, 0); g.fill()
-  g.fillStyle = '#16171a'
-  g.beginPath(); g.ellipse(Z(wz), Y(0.42), wr / 3.15 * W, wr / 1.03 * H, 0, Math.PI, 0); g.fill()
-  g.fillStyle = '#9aa1ab'
-  g.beginPath(); g.ellipse(Z(wz), Y(0.42), 0.24 / 3.15 * W, 0.24 / 1.03 * H, 0, Math.PI, 0); g.fill()
-  g.fillStyle = '#3a3e45'
-  g.beginPath(); g.ellipse(Z(wz), Y(0.42), 0.1 / 3.15 * W, 0.1 / 1.03 * H, 0, Math.PI, 0); g.fill()
-  // tail lamp and bumper at the back
-  g.fillStyle = '#d4222a'; g.beginPath(); g.moveTo(Z(2.22), Y(0.92)); g.lineTo(Z(2.45), Y(0.88)); g.lineTo(Z(2.45), Y(0.7)); g.lineTo(Z(2.22), Y(0.72)); g.closePath(); g.fill()
-  g.fillStyle = '#101012'; g.fillRect(Z(2.2), Y(0.58), Z(2.45) - Z(2.2), Y(0.42) - Y(0.58))
-  const t = new THREE.CanvasTexture(c)
-  t.colorSpace = THREE.SRGBColorSpace
-  t.anisotropy = 8
-  return t
-}
-
-const pillarGrey = new THREE.MeshStandardMaterial({ color: '#9c9388', roughness: 0.85 })
-const cardDark = new THREE.MeshStandardMaterial({ color: '#26282c', roughness: 0.6 })
-const cardMid = new THREE.MeshStandardMaterial({ color: '#4a4d52', roughness: 0.55 })
-const cardLight = new THREE.MeshStandardMaterial({ color: '#34373c', roughness: 0.55 }) // the sill trim band is dark grey like the rest of the door, not a loud brown strip
-
-/** A door card: dark upper panel with a light trim band, chrome sill and handle, armrest and map pocket. sd = -1 driver's side. */
-function DoorCard({ sd }: { sd: -1 | 1 }) {
-  const x = sd * 0.93
-  const n = -sd * 0.012 // offset toward the cabin
-  return (
-    <group>
-      <mesh position={[x, 0.7, -0.05]} material={cardDark}><boxGeometry args={[0.04, 0.62, 1.9]} /></mesh>
-      {/* light trim band along the top, like the reference */}
-      <mesh position={[x + n, 0.93, -0.05]} material={cardLight}><boxGeometry args={[0.05, 0.07, 1.9]} /></mesh>
-      <mesh position={[x + n * 2, 0.975, -0.05]} material={chrome}><boxGeometry args={[0.052, 0.012, 1.9]} /></mesh>
-      {/* padded armrest and pocket */}
-      <mesh position={[x + n * 6, 0.8, 0.15]} material={cardMid}><boxGeometry args={[0.13, 0.08, 0.85]} /></mesh>
-      <mesh position={[x + n * 3, 0.6, 0.1]} material={cardMid}><boxGeometry args={[0.07, 0.2, 0.75]} /></mesh>
-      <mesh position={[x + n * 4, 0.6, 0.1]} material={matteBlack}><boxGeometry args={[0.03, 0.14, 0.62]} /></mesh>
-      {/* handle and window switches */}
-      <mesh position={[x + n * 5, 0.86, -0.18]} material={chrome}><boxGeometry args={[0.05, 0.026, 0.2]} /></mesh>
-      <mesh position={[x + n * 4, 0.84, 0.32]} material={cardDark}><boxGeometry args={[0.05, 0.03, 0.22]} /></mesh>
-      {/* speaker grille */}
-      <mesh position={[x + n * 2, 0.5, -0.6]} material={matteBlack}><boxGeometry args={[0.03, 0.16, 0.3]} /></mesh>
-    </group>
-  )
-}
-
-function BodySide({ sd }: { sd: -1 | 1 }) {
-  const tex = useMemo(() => sideTexture(sd === 1), [sd])
-  useEffect(() => () => tex.dispose(), [tex])
-  return (
-    <mesh position={[sd * 0.965, 0.935, 0.875]} rotation={[0, (sd * Math.PI) / 2, 0]} userData={{ exterior: true }}>
-      <planeGeometry args={[3.15, 1.03]} />
-      <meshStandardMaterial map={tex} roughness={0.42} metalness={0.25} />
-    </mesh>
-  )
-}
-
-
-/** The modelled interior (dash, doors, seats, console, steering wheel) from public/models/cabin.glb. */
-interface CabinModel { shell: THREE.Object3D; wheel: THREE.Mesh; wheelPos: THREE.Vector3; q: THREE.Quaternion }
-
-function useCabinModel() {
-  const [m, setM] = useState<CabinModel | null>(null)
+function useCarModel() {
+  const [m, setM] = useState<CarModel | null>(null)
   useEffect(() => {
     let dead = false
-    fetch('/models/cabin.json')
-      .then((r) => r.json())
-      .then((meta) => {
-        new GLTFLoader().load('/models/cabin.glb', (g) => {
-          if (dead) return
-          // ambient-light strips (dash and doors) ride along with the cabin shell
-          const shell0 = g.scene.getObjectByName('cabin')
-          g.scene.children.filter((o) => o.name.startsWith('glow')).forEach((o) => { shell0?.add(o.clone()); })
-          const shell = g.scene.getObjectByName('cabin')
-          const wheel = g.scene.getObjectByName('wheel') as THREE.Mesh | undefined
-          if (!shell || !wheel) return
-          shell.removeFromParent()
-          shell.traverse((o) => {
-            o.layers.set(1) // driver-only: the cabin never shows up in the mirrors
-            const me = o as THREE.Mesh
-            if (me.isMesh) {
-              me.castShadow = false; me.receiveShadow = false
-              const mats = Array.isArray(me.material) ? me.material : [me.material]
-              mats.forEach((mm) => {
-                const m = mm as THREE.MeshStandardMaterial
-                m.envMapIntensity = 0.35
-                m.roughness = 0.75; m.metalness = 0.05 // dark soft-touch, matte
-                // a richer two-tone cabin: soft-touch dark dash, light stitched leather seats, metal-look trim
-                const p = undefined as [string, number, number] | undefined
-                if (p) { m.color.set(p[0]); m.roughness = p[1]; m.metalness = p[2] }
-              })
-            }
-          })
-          wheel.removeFromParent()
-          wheel.layers.set(1)
-          const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...(meta.normal as [number, number, number])).normalize())
-          setM({ shell, wheel, wheelPos: new THREE.Vector3(...(meta.wheel as [number, number, number])), q })
-        })
-      })
-      .catch(() => {})
+    loadCarModel().then((mm) => { if (!dead) setM(mm) }).catch(() => {})
     return () => { dead = true }
   }, [])
   return m
 }
 
+/** Your car, inside and out: the modelled Camry, with a steering wheel that turns and live instruments. */
 export function Cabin({ wheel }: { wheel: React.RefObject<THREE.Group> }) {
-  const model = useCabinModel()
-  const hasModel = !!model
-  const qInv = useMemo(() => (model ? model.q.clone().invert() : new THREE.Quaternion()), [model])
+  const model = useCarModel()
+  const q = useMemo(() => new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), WHEEL_AXIS), [])
+  const qInv = useMemo(() => q.clone().invert(), [q])
   return (
     <group>
-      {model && <primitive object={model.shell} />}
-      {model && (
-        <group position={[model.wheelPos.x, model.wheelPos.y, model.wheelPos.z]} quaternion={model.q}>
-          <group ref={wheel} name="SteeringWheel_Node">
-            <group quaternion={qInv}>
-              <primitive object={model.wheel} position={[0, 0, 0]} />
-            </group>
-          </group>
-        </group>
-      )}
-      {/* dashboard (driver side is cut low so the wheel sits in front of the binnacle) */}
-      {!hasModel && <>
-      <mesh geometry={geoDashPassenger} material={plastic} position={[0.4, 0, 0]} />
-      <mesh geometry={geoDashPod} material={plastic} position={[-0.4, 0, 0]} />
-      <mesh geometry={geoDashSide} material={plastic} position={[-0.8, 0, 0]} />
-      {/* chrome trim along the dash */}
-      <mesh position={[0, 0.992, -0.972]} material={trim}>
-        <boxGeometry args={[1.88, 0.01, 0.012]} />
-      </mesh>
-      </>}
-
-      {/* A-pillars, header, roof */}
-      <Beam from={[-0.93, 1.03, -0.96]} to={[-0.82, 1.62, -0.6]} t={0.08} material={pillarGrey} />
-      <Beam from={[0.93, 1.03, -0.96]} to={[0.84, 1.62, -0.6]} t={0.05} material={pillarGrey} />
-      <mesh position={[0, 1.61, -0.64]} material={fabric}>
-        <boxGeometry args={[1.72, 0.07, 0.1]} />
-      </mesh>
-      <Windshield />
-      {/* the rear-view mirror hangs from the middle of the windshield header */}
-      <Beam from={[0.0, 1.61, -0.66]} to={[0.0, 1.545, -0.72]} t={0.035} material={plastic} />
-      {!hasModel && <CenterStack />}
-      <mesh position={[0, 1.65, 0.4]} material={headliner}>
-        <boxGeometry args={[1.9, 0.05, 2.0]} />
-      </mesh>
-      {/* sun visors */}
-      <mesh position={[-0.4, 1.57, -0.5]} material={headliner}>
-        <boxGeometry args={[0.42, 0.04, 0.2]} />
-      </mesh>
-      <mesh position={[0.45, 1.57, -0.5]} material={headliner}>
-        <boxGeometry args={[0.42, 0.04, 0.2]} />
-      </mesh>
-      {/* doors with armrests */}
-      {!hasModel && [-1, 1].map((sd) => (
-        <group key={sd}>
-          <mesh position={[sd * 0.9, 0.7, 0.1]} material={door}>
-            <boxGeometry args={[0.08, 0.5, 2.2]} />
-          </mesh>
-          <mesh position={[sd * 0.9, 0.97, 0.05]} material={trim}>
-            <boxGeometry args={[0.085, 0.012, 2.05]} />
-          </mesh>
-          <mesh position={[sd * 0.8, 0.78, 0.45]} material={leather}>
-            <boxGeometry args={[0.18, 0.07, 0.7]} />
-          </mesh>
-          <mesh position={[sd * 0.858, 0.78, 0.36]} material={redLeather}>
-            <boxGeometry args={[0.012, 0.13, 1.25]} />
-          </mesh>
-          <mesh position={[sd * 0.848, 0.86, -0.05]} material={chrome}>
-            <boxGeometry args={[0.03, 0.026, 0.24]} />
-          </mesh>
-          <mesh position={[sd * 0.82, 0.822, 0.62]} material={matteBlack}>
-            <boxGeometry args={[0.05, 0.014, 0.16]} />
-          </mesh>
-        </group>
-      ))}
-
-      {/* centre console between seats */}
-      {!hasModel && <mesh position={[0.0, 0.62, 0.55]} material={leather}>
-        <boxGeometry args={[0.28, 0.3, 1.0]} />
-      </mesh>}
-
-      {/* steering column + wheel (tilted like a real column) */}
-      {!hasModel && <group position={[-0.4, 0.89, -0.337]} rotation={[-0.454, 0, 0]} scale={1.054}>
-        <mesh position={[0, 0, -0.1]} rotation={[Math.PI / 2, 0, 0]} material={plastic}>
-          <cylinderGeometry args={[0.032, 0.04, 0.2, 14]} />
-        </mesh>
+      {model && <primitive object={model.ext} />}
+      {model && <primitive object={model.int} />}
+      {/* the wheel turns about its own (tilted) column axis: local z of this group */}
+      <group position={WHEEL_HUB} quaternion={q}>
         <group ref={wheel} name="SteeringWheel_Node">
-          <mesh material={leather}>
-            <torusGeometry args={[0.185, 0.0235, 16, 56]} />
-          </mesh>
-          <mesh material={trim}>
-            <torusGeometry args={[0.185, 0.0035, 6, 56]} />
-          </mesh>
-          <mesh rotation={[Math.PI / 2, 0, 0]} material={leather}>
-            <cylinderGeometry args={[0.058, 0.065, 0.045, 20]} />
-          </mesh>
-          <mesh position={[0, 0, 0.024]} rotation={[Math.PI / 2, 0, 0]} material={trim}>
-            <cylinderGeometry args={[0.028, 0.028, 0.004, 20]} />
-          </mesh>
-          <mesh position={[0, 0, 0]} material={leather}>
-            <boxGeometry args={[0.37, 0.04, 0.022]} />
-          </mesh>
-          {/* centre mark at 12 o'clock so you can see the wheel turn */}
-          <mesh position={[0, 0.185, 0.0255]} material={chrome}>
-            <boxGeometry args={[0.008, 0.022, 0.004]} />
-          </mesh>
-          {/* stitching ring and spoke buttons */}
-          <mesh position={[0, 0, 0.0245]} material={trim}>
-            <torusGeometry args={[0.185, 0.0016, 6, 64]} />
-          </mesh>
-          {[-1, 1].map((sx) => (
-            <group key={sx}>
-              <mesh position={[sx * 0.105, 0, 0.0125]} material={matteBlack}>
-                <boxGeometry args={[0.075, 0.03, 0.005]} />
-              </mesh>
-              {[-0.022, 0, 0.022].map((dx) => (
-                <mesh key={dx} position={[sx * 0.105 + dx, 0, 0.0155]} material={chrome}>
-                  <boxGeometry args={[0.012, 0.012, 0.003]} />
-                </mesh>
-              ))}
+          {model && (
+            <group quaternion={qInv} position={WHEEL_HUB.clone().negate().applyQuaternion(qInv)}>
+              <primitive object={model.wheel} />
             </group>
-          ))}
-          <mesh position={[0, -0.1, 0]} material={leather}>
-            <boxGeometry args={[0.04, 0.16, 0.022]} />
-          </mesh>
+          )}
         </group>
-      </group>}
-
-      {/* floor and knee panel: nothing but cabin below the dash, so no road shows under the wheel */}
-      <mesh position={[0, 0.3, 0.2]} material={fabric}>
-        <boxGeometry args={[1.9, 0.04, 2.6]} />
-      </mesh>
-      {!hasModel && <mesh position={[0, 0.5, -0.64]} material={plastic}>
-        <boxGeometry args={[1.9, 0.4, 0.05]} />
-      </mesh>}
-      <mesh position={[0, 0.5, -0.96]} material={matteBlack}>
-        <boxGeometry args={[1.9, 0.4, 0.05]} />
-      </mesh>
+      </group>
       <Displays />
-      {/* brushed-aluminium trim along the dash, and a faint cyan ambient light line */}
-      <mesh position={[0.18, 0.955, -0.9]} rotation={[-0.06, 0, 0]} material={brushed}><boxGeometry args={[1.45, 0.008, 0.012]} /></mesh>
-      <mesh position={[0.18, 0.935, -0.895]} rotation={[-0.06, 0, 0]} material={ambientCyan}><boxGeometry args={[1.4, 0.004, 0.006]} /></mesh>
-      <DoorCard sd={-1} />
-      <DoorCard sd={1} />
-      <BodySide sd={-1} />
-      <BodySide sd={1} />
-
-
     </group>
   )
 }

@@ -1,14 +1,16 @@
 import { B, DIRS, armClosed, HORIZONTAL_NAMES, VERTICAL_NAMES, clearance, dirv, laneOff, mod, nodeKind, type NodeKind } from './map'
 
 /** Practice modes (no highway yet). */
-export type Mode = 'city' | 'roundabout' | 'junction' | 'lanes' | 'highway'
+export type Mode = 'residential' | 'city' | 'highway' | 'roundabout' | 'mixed'
 export const MODES: Array<{ id: Mode; title: string; blurb: string }> = [
-  { id: 'city', title: 'City driving', blurb: 'Follow the map across town: junctions, roundabouts and lane changes together.' },
+  { id: 'residential', title: 'Residential', blurb: 'Quiet 25 mph streets: STOP signs, all-way stops and YIELD signs. Stop fully, then go when it is your turn.' },
+  { id: 'city', title: 'City', blurb: 'Traffic lights at every junction: stop lines, left-turn arrows, turn lanes and lane changes in traffic.' },
+  { id: 'highway', title: 'Highway', blurb: 'Take the ramp, match speed and merge; change lanes, pass trucks and take the right exit.' },
   { id: 'roundabout', title: 'Roundabouts', blurb: 'A country route of roundabouts only. You are told which exit to take (1st to 4th): take the wrong one and it is game over.' },
-  { id: 'junction', title: 'Junctions & lights', blurb: 'Turn left and right at traffic lights: stop lines, arrows, mirrors and signals.' },
-  { id: 'highway', title: 'Highway merge', blurb: 'Take the ramp, signal, match speed and merge into highway traffic before the lane ends. Big trucks too.' },
-  { id: 'lanes', title: 'Lane changes', blurb: 'A long multi-lane road. Mirror, signal, then move. Overtake slow traffic.' },
+  { id: 'mixed', title: 'Mixed', blurb: 'Everything together: traffic lights, roundabouts, stop and yield signs, turn lanes and lane changes.' },
 ]
+/** the road layout each mode is driven on */
+export const layoutOf = (m: Mode) => (m === 'roundabout' ? 'rb' : m === 'residential' ? 'res' : m === 'mixed' ? 'mixed' : 'lights') as 'rb' | 'res' | 'mixed' | 'lights'
 
 /** A node (junction) on the route. Coordinates are unwrapped grid indices; directions: 0 east, 1 north, 2 west, 3 south. */
 export interface Step {
@@ -20,7 +22,7 @@ export interface Step {
 }
 
 export const nav = {
-  mode: 'city' as Mode,
+  mode: 'mixed' as Mode,
   steps: [] as Step[],
   k: 0,
   dest: { i: 0, j: 0 },
@@ -62,11 +64,7 @@ function walk(mode: Mode, i: number, j: number, d: number, count: number): Step[
     if (mode === 'roundabout') {
       // exits counted from the entry: 1st = right, 2nd = straight on, 3rd = left, 4th = back the way you came
       if (kind === 'round') out = r < 0.25 ? mod(d + 3, 4) : r < 0.55 ? d : r < 0.8 ? mod(d + 1, 4) : mod(d + 2, 4)
-    } else if (mode === 'junction') {
-      if (mod(i, 2) === 1 && mod(j, 2) === 1 && r < 0.8) out = turn()
-    } else if (mode === 'city') {
-      if (r >= 0.5) out = turn()
-    } // 'lanes': straight on
+    } else if (r >= 0.5) out = turn()
     out = openOut(i, j, d, out)
     steps.push({ i, j, din: d, out, kind })
     d = out
@@ -79,10 +77,10 @@ function walk(mode: Mode, i: number, j: number, d: number, count: number): Step[
 const turnsIn = (steps: Step[]) => steps.filter((s) => s.out !== s.din).length
 
 function makeSteps(mode: Mode, i: number, j: number, d: number) {
-  const count = mode === 'city' ? 7 : mode === 'roundabout' ? 8 : mode === 'junction' ? 9 : 8
+  const count = mode === 'roundabout' ? 8 : 7
   let steps = walk(mode, i, j, d, count)
   for (let tries = 0; tries < 30; tries++) {
-    const ok = mode === 'junction' ? turnsIn(steps) >= 3 : mode === 'roundabout' ? turnsIn(steps) >= 1 : mode === 'city' ? turnsIn(steps) >= 2 : true
+    const ok = mode === 'roundabout' ? turnsIn(steps) >= 1 : turnsIn(steps) >= 2
     if (ok) break
     steps = walk(mode, i, j, d, count)
   }
@@ -129,7 +127,6 @@ export function startRoute(mode: Mode) {
   for (let tries = 0; tries < 40; tries++) {
     dir = rnd(2) === 0 ? 0 : 2 // east or west
     if (mode === 'roundabout') { dir = rnd(4); i0 = rnd(4); j0 = rnd(4) }
-    else if (mode === 'junction') { i0 = 1 + 2 * rnd(2); j0 = 1 + 2 * rnd(2) }
     else { i0 = rnd(4); j0 = 1 + 2 * rnd(2) }
     if (!armClosed(i0, j0, mod(dir + 2, 4))) break // the road we start on must exist
   }
