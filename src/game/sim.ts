@@ -286,8 +286,20 @@ export function pauseGame() {
   useGame.setState({ status: 'paused', pauseReason: 'user' })
 }
 
+/** While the mirrors are being adjusted (paused): turn the head to a mirror and select it; null = face the road again. */
+export function adjustMirror(k: 'left' | 'center' | 'right' | null) {
+  adjust.sel = k
+  adjust.dragging = false
+  input.free = false
+  input.yaw = input.pitch = 0
+  sim.head.yaw = sim.head.pitch = 0
+  input.look = k ?? 'front'
+  sim.look = k ?? 'front'
+}
+
 export function resumeGame() {
   adjust.sel = null; adjust.dragging = false
+  input.look = 'front'; sim.look = 'front' // the head may have been turned to a mirror while adjusting it
   useGame.setState({ adjusting: false })
   if (useGame.getState().status !== 'paused') return
   if (useGame.getState().pauseReason === 'offroad') recoverToRoad()

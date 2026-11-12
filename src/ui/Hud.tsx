@@ -1,7 +1,7 @@
 import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
 import { gasTapFn, motionActive, recentreMotion, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
-import { goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
+import { adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
 import { setLookMode, setMode, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
@@ -336,8 +336,11 @@ export function Hud() {
 
       {status === 'paused' && pauseReason === 'user' && adjusting && (
         <div className="adjbar">
-          <span>Drag a mirror to move its view. For the right mirror, drag on the dash screen.</span>
-          <button className="primary" onClick={() => useGame.setState({ adjusting: false })}>Done</button>
+          <span>Pick a mirror, then drag on it to move its view.</span>
+          <button className="secondary" onClick={() => adjustMirror('left')}>Left</button>
+          <button className="secondary" onClick={() => adjustMirror('center')}>Rear-view</button>
+          <button className="secondary" onClick={() => adjustMirror('right')}>Right</button>
+          <button className="primary" onClick={() => { adjustMirror(null); useGame.setState({ adjusting: false }) }}>Done</button>
         </div>
       )}
 

@@ -194,7 +194,7 @@ export function PlayerRig() {
 
   const size = useThree((st) => st.size)
   const proj = useMemo(() => new THREE.Vector3(), [])
-  // Press a mirror (or the dash screen while it shows the right mirror) to select it, then drag to move the view in it.
+  // Press a mirror to select it, then drag to move the view in it (the Adjust bar turns your head to each mirror).
   // Arrow keys also nudge the selected mirror. Pressing anywhere else deselects.
   useEffect(() => {
     let last = { x: 0, y: 0 }
@@ -202,11 +202,12 @@ export function PlayerRig() {
       if ((e.target as HTMLElement)?.tagName !== 'CANVAS' || useGame.getState().status !== 'paused' || !useGame.getState().adjusting) return // mirrors can only be adjusted while paused
       let best: 'left' | 'center' | 'right' | null = null
       let bd = Infinity
-      for (const k of ['left', 'center', 'carplay'] as const) {
+      // the dash screen is only a copy of the right mirror's picture: each mirror is adjusted on the mirror itself
+      for (const k of ['left', 'center', 'right'] as const) {
         const m = mirrorScreen[k]
-        if (!m.ok || (k === 'carplay' && !useGame.getState().adjusting && sim.signal !== 1)) continue
+        if (!m.ok) continue
         const d = Math.hypot(e.clientX - m.x, e.clientY - m.y)
-        if (d < m.r && d < bd) { bd = d; best = k === 'carplay' ? 'right' : k }
+        if (d < m.r && d < bd) { bd = d; best = k }
       }
       if (!best) { adjust.sel = null; adjust.dragging = false; return }
       if (adjust.sel !== best) {
@@ -240,7 +241,7 @@ export function PlayerRig() {
 
   useFrame((_, dt) => {
     // where the mirrors are on screen (for clicking)
-    for (const [k, p, rad] of [['left', MIRRORS[0].pos, 0.2], ['center', MIRRORS[1].pos, 0.16], ['carplay', CARPLAY.pos, 0.3]] as Array<[string, THREE.Vector3, number]>) {
+    for (const [k, p, rad] of [['left', MIRRORS[0].pos, 0.2], ['center', MIRRORS[1].pos, 0.16], ['right', MIRRORS[2].pos, 0.2]] as Array<[string, THREE.Vector3, number]>) {
       const wp = p.clone().applyAxisAngle(UP, sim.h).add(rig.current.position)
       const dist = camera.position.distanceTo(wp)
       proj.copy(wp).project(camera)
