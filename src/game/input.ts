@@ -237,8 +237,10 @@ export async function setMotionLook(on: boolean): Promise<boolean> {
     if (!motion.base) motion.base = { yaw: heading, pitch }
     let dy = heading - motion.base.yaw
     dy = Math.atan2(Math.sin(dy), Math.cos(dy))
-    const tY = clamp(-dy * 1.6, -2.0, 2.0) // turning the phone right turns your head right (game yaw + = left); a little amplified
-    const tP = clamp((pitch - motion.base.pitch) * 1.4, -0.3, 0.95)
+    // the chosen sensitivity scales how far your head turns for a given turn of the phone (3 = the default)
+    const gain = [0.55, 0.8, 1, 1.3, 1.7][useGame.getState().motionSens - 1] ?? 1
+    const tY = clamp(-dy * 1.6 * gain, -2.0, 2.0) // turning the phone right turns your head right (game yaw + = left); a little amplified
+    const tP = clamp((pitch - motion.base.pitch) * 1.4 * gain, -0.3, 0.95)
     sy += (tY - sy) * 0.4
     sp += (tP - sp) * 0.4
     input.free = true

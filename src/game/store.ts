@@ -51,6 +51,8 @@ interface GameState {
   lookMode: 'eye' | 'motion'
   /** steering sensitivity 1 (gentle) .. 5 (quick) */
   steerSens: 1 | 2 | 3 | 4 | 5
+  /** how far the view turns for a given movement of the phone (phone-motion look): 1 (least) .. 5 (most) */
+  motionSens: 1 | 2 | 3 | 4 | 5
   pauseReason: 'user' | 'offroad'
   mode: Mode
   nav: NavHud
@@ -116,6 +118,7 @@ export const useGame = create<GameState>(() => ({
   units: load<Units>('driveme.units', 'mph', (v) => v === 'kmh' || v === 'mph'),
   lookMode: load<'eye' | 'motion'>('driveme.look', 'eye', (v) => v === 'eye' || v === 'motion'),
   steerSens: load<1 | 2 | 3 | 4 | 5>('driveme.steer', 2, (v) => [1, 2, 3, 4, 5].includes(v as number)),
+  motionSens: load<1 | 2 | 3 | 4 | 5>('driveme.motion', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))
 
@@ -126,6 +129,10 @@ export const setUnits = (u: Units) => {
 export const setLookMode = (m: 'eye' | 'motion') => {
   save('driveme.look', m)
   useGame.setState({ lookMode: m })
+}
+export const setMotionSens = (n: 1 | 2 | 3 | 4 | 5) => {
+  save('driveme.motion', n)
+  useGame.setState({ motionSens: n })
 }
 export const setSteerSens = (n: 1 | 2 | 3 | 4 | 5) => {
   save('driveme.steer', n)

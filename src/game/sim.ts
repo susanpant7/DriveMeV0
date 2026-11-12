@@ -216,7 +216,6 @@ function trackHighway(): boolean {
     if (!hw.crossed && x - halfW > NB_EDGE_R - 0.05 && z <= start && z > gore - 20) {
       hw.crossed = true
       if (sim.signal !== 1) say('ALERT: you changed lanes without signalling!', 'alert')
-      if (sim.t - sim.lastBlind.right > BLIND_CHECK_WINDOW) say('Check your right blind spot before moving over.', 'warn')
     }
     if (hw.crossed && !hw.exitTaken && z <= gore) hw.exitTaken = x > NB_EDGE_R
     if (hw.exitTaken && !hw.sigOffWarn && z < gore - 120 && sim.signal !== 0) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
@@ -756,10 +755,10 @@ function laneInfo() {
   if (tBehind?.centre && tAhead?.centre) {
     // centre-turn-lane avenue: the middle lane (half of it lies on each side of the centre line) may be used to turn left
     const h = LANE_W / 2
-    if (r < -h) return { d, r, k: -1, e: r + h, left: false }
-    if (r < h) return { d, r, k: 0, e: r, left: true }
+    if (r < -h) return { d, r, k: -1, e: r + h, left: false, nTurnL: 1, rTurn: -1 }
+    if (r < h) return { d, r, k: 0, e: r, left: true, nTurnL: 1, rTurn: -1 }
     const j = Math.floor((r - h) / LANE_W)
-    return { d, r, k: j + 1, e: r - h - LANE_W * (j + 0.5), left: false }
+    return { d, r, k: j + 1, e: r - h - LANE_W * (j + 0.5), left: false, nTurnL: 1, rTurn: -1 }
   }
   if (med > 0.01 || rPocket > 0.01) {
     const pocket = pocketW(tAhead, dAhead, med) // width of the left-turn lane(s)
@@ -773,10 +772,11 @@ function laneInfo() {
       k = j + nP
       e = j >= 2 ? r - med - 2 * LANE_W - rPocket / 2 : r - med - LANE_W * (j + 0.5)
     }
-    return { d, r, k, e, left }
+    // lane indices run left to right: the nP left-turn lanes first, then the through lanes, then the right-turn lane (if it has opened)
+    return { d, r, k, e, left, nTurnL: nP, rTurn: rPocket > 0.01 ? nP + 2 : -1 }
   }
   const k = r < 0 ? -1 : r < LANE_W || oneLane(alongZ ? 1 : 0, ci) ? 0 : r < 2 * LANE_W ? 1 : r < 3 * LANE_W ? 2 : 3
-  return { d, r, k, e: k < 0 ? r : r - laneOff(k), left: false }
+  return { d, r, k, e: k < 0 ? r : r - laneOff(k), left: false, nTurnL: 0, rTurn: -1 }
 }
 
 function trackLane() {
@@ -797,7 +797,12 @@ function trackLane() {
             sim.warnT.centre = sim.t
             say('Do not cross the double yellow line!', 'warn')
           }
-        } else if (target <= 2) startManeuver(dir, k, target)
+        } else if (target <= 2) {
+          // moving from the outermost lane into a turn lane that has opened on that side (left lane -> left-turn lane, right lane ->
+          // right-turn lane) is part of the turn: there is no traffic lane beside you there, so no blind-spot check is needed
+          const intoTurnLane = (dir < 0 && target < L.nTurnL) || (dir > 0 && target === L.rTurn)
+          startManeuver(dir, k, target, intoTurnLane)
+        }
       }
     } else if (k === -1 && sim.t - sim.warnT.wrong > 3) {
       sim.warnT.wrong = sim.t
@@ -811,13 +816,13 @@ function trackLane() {
   else if (k !== m.k0 && k !== m.target) sim.man = null
 }
 
-function startManeuver(dir: -1 | 1, k0: number, target: number) {
+function startManeuver(dir: -1 | 1, k0: number, target: number, intoTurnLane = false) {
   const side = dir < 0 ? 'left' : 'right'
   const infractions: string[] = []
   if (sim.signal !== dir) infractions.push(`No ${side} signal`)
   else if (sim.t - sim.signalSince < SIGNAL_MIN) infractions.push('Signalled too late')
   // (mirror glances are not checked: only the look over your shoulder into the blind spot)
-  if (sim.t - sim.lastBlind[side] > BLIND_CHECK_WINDOW) infractions.push(`Did not check your ${side} blind spot`)
+  if (!intoTurnLane && sim.t - sim.lastBlind[side] > BLIND_CHECK_WINDOW) infractions.push(`Did not check your ${side} blind spot`)
   sim.man = { dir, k0, target, infractions }
   infractions.forEach((m) => say(m, 'warn'))
 }

@@ -3,7 +3,7 @@ import { gasTapFn, motionActive, recentreMotion, setMotionLook, steerTap } from 
 import { MODES, type Mode } from '../game/nav'
 import { adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
-import { setLookMode, setMode, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
+import { setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
 import { useViewport } from './useViewport'
@@ -17,6 +17,7 @@ function Settings() {
   const units = useGame((s) => s.units)
   const steerSens = useGame((s) => s.steerSens)
   const lookMode = useGame((s) => s.lookMode)
+  const motionSens = useGame((s) => s.motionSens)
   const { touch } = useViewport()
   return (
     <div className="settings">
@@ -39,6 +40,19 @@ function Settings() {
           <div className="seg" role="group" aria-label="Look around">
             <button className={lookMode === 'eye' ? 'on' : ''} onClick={() => setLookMode('eye')}>Eye icon</button>
             <button className={lookMode === 'motion' ? 'on' : ''} onClick={async () => { if (await setMotionLook(true)) setLookMode('motion') }}>Phone motion</button>
+          </div>
+        </div>
+      )}
+      {touch && (
+        <div className="setting">
+          <div className="setting-head">
+            <span>Phone motion sensitivity</span>
+            <span className="muted">{lookMode === 'motion' ? ['Very low', 'Low', 'Medium', 'High', 'Very high'][motionSens - 1] : 'Used with Phone motion'}</span>
+          </div>
+          <div className="seg" role="group" aria-label="Phone motion sensitivity">
+            {([1, 2, 3, 4, 5] as const).map((n) => (
+              <button key={n} className={motionSens === n ? 'on' : ''} onClick={() => setMotionSens(n)}>{n}</button>
+            ))}
           </div>
         </div>
       )}
