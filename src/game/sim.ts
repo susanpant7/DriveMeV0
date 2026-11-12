@@ -235,6 +235,8 @@ const normAngle = (a: number) => mod(a + Math.PI, Math.PI * 2) - Math.PI
 const playerObs = () => (WORLD.highway ? { x: sim.x, z: sim.z, h: sim.h, speed: sim.speed } : { x: mod(sim.x, P), z: mod(sim.z, P), h: sim.h, speed: sim.speed })
 
 /* ---------- lifecycle ---------- */
+let brakeHold = 0 // how long the brake has been held (s)
+
 export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   const keep = keepScore ? sim.score : 0
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
@@ -381,12 +383,17 @@ export function stepSim(dt: number) {
   const thrT = input.up ? 1 : sim.cruise ? clamp((sim.cruise - sim.speed) * 0.7 + 0.12, 0, 1) : 0
   const brkT = input.down ? 1 : 0
   sim.thr += (thrT - sim.thr) * Math.min(1, dt * (thrT ? 7 : 6))
-  sim.brk += (brkT - sim.brk) * Math.min(1, dt * (brkT ? 16 : 12))
+  sim.brk += (brkT - sim.brk) * Math.min(1, dt * (brkT ? 12 : 12)) // the brakes bite a touch more progressively
   const v = sim.speed
   const aEng = sim.thr * 5.6 * Math.max(0, 1 - (v / 44) ** 2)
   const drag = v > 0.05 ? 0.25 + 0.0009 * v * v : 0 // rolling + air resistance
-  const engBrake = (1 - sim.thr) * (v > 0.2 ? 0.7 : 0) // lifting off the pedal slows the car
-  const aBrk = sim.brk * 10.5
+  const engBrake = (1 - sim.thr) * (v > 0.2 ? 0.6 : 0) // lifting off the pedal: engine braking, about 1 m/s2 in all at 30 mph (a normal petrol car)
+  // Progressive brake, like a real pedal: a tap is a gentle stop; keep holding and it presses harder,
+  // to a firm stop after about a second and an emergency stop after about two (totals include engine braking and drag)
+  brakeHold = input.down ? brakeHold + dt : 0
+  const bt = brakeHold
+  const brakeDecel = bt < 0.35 ? 2.3 : bt < 1.1 ? 2.3 + (4 - 2.3) * ((bt - 0.35) / 0.75) : bt < 1.9 ? 4 + (7.6 - 4) * ((bt - 1.1) / 0.8) : 7.6
+  const aBrk = sim.brk * brakeDecel
   const aOff = !onRoad && v > 0.05 ? 5 : 0
   sim.speed = Math.max(0, v + (aEng - drag - engBrake - aBrk - aOff) * dt)
   updateEngine(dt)
