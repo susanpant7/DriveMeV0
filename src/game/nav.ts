@@ -5,7 +5,7 @@ export type Mode = 'residential' | 'city' | 'highway' | 'roundabout' | 'mixed'
 export const MODES: Array<{ id: Mode; title: string; blurb: string }> = [
   { id: 'residential', title: 'Residential', blurb: 'Quiet 25 mph streets: STOP signs, all-way stops and YIELD signs. Stop fully, then go when it is your turn.' },
   { id: 'city', title: 'City', blurb: 'Traffic lights at every junction: stop lines, left-turn arrows, turn lanes and lane changes in traffic.' },
-  { id: 'highway', title: 'Highway', blurb: 'Take the ramp, match speed and merge; change lanes, pass trucks and take the right exit.' },
+  { id: 'highway', title: 'Highway', blurb: 'Merge, move to the lane you are asked for, follow the overhead signs at exits and splits onto other highways (I-80 West, US-101 North...); faster traffic keeps left, jams on Traffic 5.' },
   { id: 'roundabout', title: 'Roundabouts', blurb: 'A country route of roundabouts only. You are told which exit to take (1st to 4th): take the wrong one and it is game over.' },
   { id: 'mixed', title: 'Mixed', blurb: 'Everything together: traffic lights, roundabouts, stop and yield signs, turn lanes and lane changes.' },
 ]

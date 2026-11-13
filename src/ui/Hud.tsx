@@ -3,6 +3,7 @@ import { gasTapFn, recentreView, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { TRAFFIC_CITY, TRAFFIC_RES, adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
+import { HW_TOTAL } from '../highway/traffic'
 import { setMirrorLite, setGraphics, setViewOffset, setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
@@ -106,7 +107,7 @@ function Settings() {
       <div className="setting">
         <div className="setting-head">
           <span className="setlabel">Traffic<InfoTip id="Traffic" open={info === 'Traffic'} onToggle={setInfo} /></span>
-          <span className="muted" title="Cars around you at this level, by where you drive">{TRAFFIC_LABELS[traffic - 1]} · about {TRAFFIC_RES[traffic - 1]} cars in a residential area, {TRAFFIC_CITY[traffic - 1]} in the city, {[24, 46, 68, 90, 115][traffic - 1]} on the highway</span>
+          <span className="muted" title="Cars around you at this level, by where you drive">{TRAFFIC_LABELS[traffic - 1]} · about {TRAFFIC_RES[traffic - 1]} cars in a residential area, {TRAFFIC_CITY[traffic - 1]} in the city, {HW_TOTAL[traffic - 1]} on the highway{traffic === 5 ? ' (a traffic jam)' : ''}</span>
           <Key>1</Key><span className="kb-only">–</span><Key>5</Key>
         </div>
         <div className="seg" role="group" aria-label="Traffic level">
