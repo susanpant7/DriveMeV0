@@ -415,3 +415,12 @@ canvas { touch-action: none; }
 .report ul { list-style: none; margin: 0; padding: 0; max-height: 34vh; overflow: auto; display: flex; flex-direction: column; gap: 4px; }
 .report li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,.06); font-size: 13px; }
 .report li b { color: #ff8a8a; white-space: nowrap; }
+
+/* the info button beside a setting, and its details box */
+.setlabel { display: inline-flex; align-items: center; gap: 6px; }
+.infotip { width: 18px; height: 18px; min-height: 0; padding: 0; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.55); background: transparent; color: #fff; font: italic 700 11px Georgia, serif; line-height: 15px; cursor: pointer; flex: none; }
+.infotip.on, .infotip:hover { background: #3b82f6; border-color: #3b82f6; }
+.infobox { position: sticky; top: 0; z-index: 2; margin: 0 0 10px; padding: 10px 12px; border-radius: 12px; background: #1d2a44; border: 1px solid rgba(120,170,255,.45); text-align: left; box-shadow: 0 8px 22px rgba(0,0,0,.35); }
+.infobox-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.infobox-head button { background: transparent; border: 0; color: #cfe0ff; font-size: 20px; line-height: 1; padding: 0 4px; min-height: 0; cursor: pointer; }
+.infobox p { margin: 0; font-size: 13px; line-height: 1.45; color: #dce6f5; }

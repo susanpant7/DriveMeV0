@@ -12,7 +12,14 @@ const Key = ({ children }: { children: ReactNode }) => <kbd>{children}</kbd>
 
 const TRAFFIC_LABELS = ['Very light', 'Light', 'Normal', 'Busy', 'Very busy']
 
+/** the ⓘ button beside a setting's name */
+function InfoTip({ id, open, onToggle }: { id: string; open: boolean; onToggle: (v: string | null) => void }) {
+  return <button type="button" className={`infotip${open ? ' on' : ''}`} aria-label={`About ${id}`} aria-expanded={open} onClick={() => onToggle(open ? null : id)}>i</button>
+}
+const SETTING_INFO: Record<string, string> = {"Speed units": "Shows speeds and limits in miles per hour or kilometres per hour. The rules are the same either way: the limits on the signs and on the centre screen change with this. (Keyboard: U)", "Phone motion": "On: move the phone to look around, like looking through a window: turn it left or right to turn your head, tilt it up for the rear-view mirror. The eye icon still works as well and adds to it. Press the car's centre screen to make wherever the phone points 'straight ahead' again. Turning well to one side counts as a blind-spot check.", "Phone motion sensitivity": "How far your view turns for a given movement of the phone. 1 needs a big movement, 5 only a small one. 3 is the standard. Only used when Phone motion is on.", "Steering sensitivity": "How quickly the steering wheel turns while you hold left or right. Lower is gentler and easier to keep straight; higher turns sharply for tight corners. The wheel returns to straight when you let go.", "Graphics": "How much drawing work each frame does. High: best look (sharpest picture and mirrors, all screen effects, see furthest). Medium: balanced (a little softer, lighter effects, the rear-view mirror refreshes every other frame). Low: smoothest (plain picture, mirrors refresh every other frame, shorter view). Roads, signs, signals, traffic and the rules are the same at every level. The game also lowers the sharpness by itself for a moment if the frame rate drops.", "Mirror detail": "Full: the mirrors show everything, as far back as you can see ahead, at full sharpness. Light: the mirrors only draw about 200 m behind you, skip small road-wear details and are slightly softer; cars, lane markings, signs and lights are still shown. Use Light if the game stutters: it is the setting that gives the most smoothness back.", "Traffic": "How many other cars there are. The same level means different amounts in different places, as in real life: quiet residential streets, busier city roads, and the most on the highway. On the Mixed course it changes as you drive from one district to another. (Keyboard: 1 to 5)"}
+
 function Settings() {
+  const [info, setInfo] = useState<string | null>(null)
   const traffic = useGame((s) => s.traffic)
   const units = useGame((s) => s.units)
   const steerSens = useGame((s) => s.steerSens)
@@ -23,9 +30,15 @@ function Settings() {
   const { touch } = useViewport()
   return (
     <div className="settings">
+      {info && (
+        <div className="infobox" role="note">
+          <div className="infobox-head"><b>{info}</b><button type="button" aria-label="Close" onClick={() => setInfo(null)}>×</button></div>
+          <p>{SETTING_INFO[info]}</p>
+        </div>
+      )}
       <div className="setting">
         <div className="setting-head">
-          <span>Speed units</span>
+          <span className="setlabel">Speed units<InfoTip id="Speed units" open={info === 'Speed units'} onToggle={setInfo} /></span>
           <Key>U</Key>
         </div>
         <div className="seg" role="group" aria-label="Speed units">
@@ -36,7 +49,7 @@ function Settings() {
       {touch && (
         <div className="setting">
           <div className="setting-head">
-            <span>Phone motion</span>
+            <span className="setlabel">Phone motion<InfoTip id="Phone motion" open={info === 'Phone motion'} onToggle={setInfo} /></span>
             <span className="muted">{lookMode === 'motion' ? 'Move the phone to look (the eye icon works too)' : 'Off: look with the eye icon'}</span>
           </div>
           <div className="seg" role="group" aria-label="Phone motion">
@@ -48,7 +61,7 @@ function Settings() {
       {touch && (
         <div className="setting">
           <div className="setting-head">
-            <span>Phone motion sensitivity</span>
+            <span className="setlabel">Phone motion sensitivity<InfoTip id="Phone motion sensitivity" open={info === 'Phone motion sensitivity'} onToggle={setInfo} /></span>
             <span className="muted">{lookMode === 'motion' ? ['Very low', 'Low', 'Medium', 'High', 'Very high'][motionSens - 1] : 'Used with Phone motion'}</span>
           </div>
           <div className="seg" role="group" aria-label="Phone motion sensitivity">
@@ -60,7 +73,7 @@ function Settings() {
       )}
       <div className="setting">
         <div className="setting-head">
-          <span>Steering sensitivity</span>
+          <span className="setlabel">Steering sensitivity<InfoTip id="Steering sensitivity" open={info === 'Steering sensitivity'} onToggle={setInfo} /></span>
           <span className="muted">{['Very gentle', 'Gentle', 'Medium', 'Quick', 'Very quick'][steerSens - 1]}</span>
         </div>
         <div className="seg" role="group" aria-label="Steering sensitivity">
@@ -71,7 +84,7 @@ function Settings() {
       </div>
       <div className="setting">
         <div className="setting-head">
-          <span>Graphics</span>
+          <span className="setlabel">Graphics<InfoTip id="Graphics" open={info === 'Graphics'} onToggle={setInfo} /></span>
           <span className="muted">{graphics === 'high' ? 'Best look' : graphics === 'medium' ? 'Balanced' : 'Smoothest'}</span>
         </div>
         <div className="seg" role="group" aria-label="Graphics quality">
@@ -82,17 +95,17 @@ function Settings() {
       </div>
       <div className="setting">
         <div className="setting-head">
-          <span>Light mirrors</span>
-          <span className="muted">{mirrorLite ? 'Faster: no road wear, about 200 m behind' : 'Off: mirrors show everything'}</span>
+          <span className="setlabel">Mirror detail<InfoTip id="Mirror detail" open={info === 'Mirror detail'} onToggle={setInfo} /></span>
+          <span className="muted">{mirrorLite ? 'Light: smoother; about 200 m behind, no road wear' : 'Full: sharpest, shows everything'}</span>
         </div>
-        <div className="seg" role="group" aria-label="Light mirrors">
-          <button className={!mirrorLite ? 'on' : ''} onClick={() => setMirrorLite(false)}>Off</button>
-          <button className={mirrorLite ? 'on' : ''} onClick={() => setMirrorLite(true)}>On</button>
+        <div className="seg" role="group" aria-label="Mirror detail">
+          <button className={!mirrorLite ? 'on' : ''} onClick={() => setMirrorLite(false)}>Full</button>
+          <button className={mirrorLite ? 'on' : ''} onClick={() => setMirrorLite(true)}>Light</button>
         </div>
       </div>
       <div className="setting">
         <div className="setting-head">
-          <span>Traffic</span>
+          <span className="setlabel">Traffic<InfoTip id="Traffic" open={info === 'Traffic'} onToggle={setInfo} /></span>
           <span className="muted" title="Cars around you at this level, by where you drive">{TRAFFIC_LABELS[traffic - 1]} · about {TRAFFIC_RES[traffic - 1]} cars in a residential area, {TRAFFIC_CITY[traffic - 1]} in the city, {[24, 46, 68, 90, 115][traffic - 1]} on the highway</span>
           <Key>1</Key><span className="kb-only">–</span><Key>5</Key>
         </div>
@@ -245,8 +258,8 @@ function TouchHelp() {
     <ul className="controls">
       <li><span><b>Gas / Brake</b></span> Pedals at the bottom right. Hold gas to speed up, let go to slow down. The brake gets stronger the longer you hold it: tap for a gentle stop</li>
       <li><span><b>Steer</b></span> Bottom left: hold ◀ ▶ to keep turning the wheel; let go and it returns to straight. LANE (above Gas): tap to centre in your lane, hold to stay in it</li>
-      <li><span><b>Eye</b></span> Above the wheel: put a thumb on it and slide left or right to turn your head (up for the rear-view mirror). Or choose "Phone motion" in Settings and just move the phone to look around</li>
-      <li><span><b>◀ ▶</b></span> Either side of the eye: left and right indicators (tap to switch on or off)</li>
+      <li><span><b>Eye</b></span> Above the steering: put a thumb on it and slide left or right to turn your head (all the way for the blind spot, up for the rear-view mirror). With Phone motion on in Settings you can also move the phone; press the centre screen to recentre</li>
+      <li><span><b>⬅ ➡</b></span> Right of the steering: left indicator (top) and right indicator (bottom). Tap to switch on, tap again to switch off; it also goes off when you steer the other way</li>
     </ul>
   )
 }
