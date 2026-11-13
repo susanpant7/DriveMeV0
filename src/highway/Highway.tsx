@@ -252,12 +252,12 @@ const FORK_SPAN = 40 / 0.22
  */
 type Draw = (g: CanvasRenderingContext2D, W: number, H: number) => void
 interface Sign { x: number; y: number; z: number; w: number; h: number; draw: Draw; post?: 'one' | 'two' }
-const PX = 72 // texture pixels per metre
-const FONT = '"Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif'
+let PX = 128 // texture pixels per metre (lowered only if the signs of a stage would not fit the texture)
+const FONT = 'Arial, "Helvetica Neue", Roboto, sans-serif' // (a full-width face: narrow faces blur together at a distance)
 const GREEN = '#00653a'
 
 function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) { g.beginPath(); g.roundRect(x, y, w, h, r) }
-function fitText(g: CanvasRenderingContext2D, t: string, x: number, y: number, size: number, maxW: number, weight = 700) {
+function fitText(g: CanvasRenderingContext2D, t: string, x: number, y: number, size: number, maxW: number, weight = 800) {
   g.font = `${weight} ${size}px ${FONT}`
   const w = g.measureText(t).width
   if (w > maxW) g.font = `${weight} ${Math.floor((size * maxW) / w)}px ${FONT}`
@@ -320,16 +320,16 @@ function arrow(g: CanvasRenderingContext2D, x: number, y: number, S: number, dir
 /** shield, direction and city stacked in the middle of a guide sign */
 function routeBlock(g: CanvasRenderingContext2D, r: Route, cx: number, top: number, W: number, H: number) {
   g.textAlign = 'center'; g.textBaseline = 'middle'
-  const S = Math.min(H * 0.46, W * 0.3)
-  // the shield and the direction side by side, centred together
-  g.font = `700 ${S * 0.5}px ${FONT}`
-  const gap = S * 0.18
-  const tw = Math.min(g.measureText(r.dir).width, W * 0.9 - S - gap)
+  const S = Math.min(H * 0.44, W * 0.3)
+  // the shield and the direction side by side, centred together; the city below, large
+  g.font = `700 ${S * 0.62}px ${FONT}`
+  const gap = S * 0.15
+  const tw = Math.min(g.measureText(r.dir).width, W * 0.92 - S - gap)
   const x0 = cx - (S + gap + tw) / 2
-  shield(g, r, x0 + S / 2, top + S * 0.58, S)
-  g.fillStyle = '#fff'; g.textAlign = 'left'; fitText(g, r.dir, x0 + S + gap, top + S * 0.6, S * 0.5, tw)
-  g.textAlign = 'center'; fitText(g, r.city, cx, top + S * 1.42, S * 0.44, W * 0.9, 700)
-  return top + S * 1.78
+  shield(g, r, x0 + S / 2, top + S * 0.56, S)
+  g.fillStyle = '#fff'; g.textAlign = 'left'; fitText(g, r.dir, x0 + S + gap, top + S * 0.6, S * 0.62, tw)
+  g.textAlign = 'center'; fitText(g, r.city, cx, top + S * 1.5, S * 0.6, W * 0.92, 700)
+  return top + S * 1.9
 }
 /** the yellow EXIT ONLY band at the foot of a guide sign, with an arrow over each lane that must leave */
 function exitOnly(g: CanvasRenderingContext2D, W: number, H: number, lanes: number[], label = 'EXIT ONLY') {
@@ -344,7 +344,7 @@ function exitOnly(g: CanvasRenderingContext2D, W: number, H: number, lanes: numb
   } else {
     lanes.forEach((_, i) => arrow(g, (W * (i + 0.5)) / n, H - bh / 2 - b * 2, bh * 0.82, 'down', '#000'))
     // the words go between the arrows
-    if (n === 2) fitText(g, label, W / 2, H - bh / 2 - b * 2, bh * 0.6, W / 2 - bh)
+    if (n === 2) fitText(g, label, W / 2, H - bh / 2 - b * 2, bh * 0.66, W * 0.62)
     else for (let i = 0; i < n - 1; i++) fitText(g, i % 2 ? 'ONLY' : 'EXIT', (W * (i + 1)) / n, H - bh / 2 - b * 2, bh * 0.55, W / n - bh)
   }
   return H - bh - b * 2
@@ -372,7 +372,7 @@ interface Gantry { z: number; x0: number; x1: number }
 function gantries(): Gantry[] {
   const s = HW.s, out: Gantry[] = []
   const take = s.ramps.find((r) => r.take)
-  if (take) for (const z of [take.g + ACC_LEN + 800, take.g + ACC_LEN - TAPER - 30]) out.push({ z, x0: Math.min(NB_EDGE_L, paveL(z) + 1), x1: Math.max(NB_EDGE_R, paveR(z) - 1) })
+  if (take) for (const z of [take.g + ACC_LEN + 800, take.g + ACC_LEN - TAPER - 30]) out.push({ z, x0: Math.min(NB_EDGE_L - (take.side === -1 ? 5 : 0), paveL(z) + 1), x1: Math.max(NB_EDGE_R + (take.side === 1 ? 5 : 0), paveR(z) - 1) }) // (wide enough for the exit sign beside the road)
   if (s.fork) for (const z of [s.fork.z + 900, s.fork.z + 260]) out.push({ z, x0: NB_EDGE_L, x1: NB_EDGE_R })
   return out
 }
@@ -385,7 +385,7 @@ function stageSigns(): Sign[] {
   const right = (z: number) => paveR(z) + 2.6
   const left = (z: number) => paveL(z) - 2.6
   const side = (sd: 1 | -1) => (sd === 1 ? right : left)
-  const guideH = 4.2, gy = 5.4
+  const guideH = 5.0, gy = 5.4
 
   // the entrance you start on: where it leads, the ramp speed, and MERGE where it joins
   for (const r of s.ramps.filter((r) => r.player)) {
@@ -410,11 +410,11 @@ function stageSigns(): Sign[] {
       for (const [dz, dist] of [[800, '1/2 MILE'], [400, '1/4 MILE']] as const) {
         const z = r.g + ACC_LEN + dz
         if (z > Z_TOP - 20) continue
-        out.push({ x: side(r.side)(z) + r.side * 2, y: 2.0, z, w: 6.4, h: 4.0, post: 'two', draw: (g, W, H) => {
+        out.push({ x: side(r.side)(z) + r.side * 2.6, y: 2.0, z, w: 7.4, h: 4.6, post: 'two', draw: (g, W, H) => {
           const t = panel(g, W, H, { text: label, side: tabSide, yellow })
           g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'
-          fitText(g, dest, W / 2, t + (H - t) * 0.33, (H - t) * 0.3, W * 0.86)
-          fitText(g, dist, W / 2, t + (H - t) * 0.72, (H - t) * 0.24, W * 0.7)
+          fitText(g, dest, W / 2, t + (H - t) * 0.36, (H - t) * 0.36, W * 0.9)
+          fitText(g, dist, W / 2, t + (H - t) * 0.75, (H - t) * 0.26, W * 0.7)
         } })
       }
     }
@@ -441,21 +441,21 @@ function stageSigns(): Sign[] {
         return 0
       }
       // 1/2 mile: over the right (or left) lane, with the distance
-      out.push({ x: sp.x + r.side * 1.2, y: gy, z: g1.z, w: 6.2, h: guideH, draw: (g, W, H) => {
+      out.push({ x: sp.x + r.side * 1.6, y: gy, z: g1.z, w: 7.2, h: guideH + 0.8, draw: (g, W, H) => {
         const t = panel(g, W, H, { text: label, side: tabSide, yellow })
         drawDest(g, W, H, t, H * 0.78)
         g.fillStyle = '#fff'; fitText(g, '1/2 MILE', W / 2, H * 0.88, H * 0.12, W * 0.6)
       } })
       // and what the highway itself leads to, over the other lanes
       const thru = r.side === 1 ? laneSpan(0, NL - 2) : laneSpan(1, NL - 1)
-      out.push({ x: thru.x, y: gy, z: g1.z, w: 7.2, h: guideH * 0.8, draw: (g, W, H) => { panel(g, W, H); routeBlock(g, ROAD, W / 2, H * 0.06, W, H * 1.05) } })
+      out.push({ x: thru.x - r.side * 0.8, y: gy, z: g1.z, w: 8.2, h: guideH * 0.8, draw: (g, W, H) => { panel(g, W, H); routeBlock(g, ROAD, W / 2, H * 0.08, W, H * 0.98) } })
       // where the exit lane begins: EXIT ONLY over it
-      out.push({ x: auxX, y: gy, z: g2.z, w: 5.4, h: guideH + 0.6, draw: (g, W, H) => {
+      out.push({ x: auxX, y: gy, z: g2.z, w: 6.4, h: guideH + 1.4, draw: (g, W, H) => {
         const t = panel(g, W, H, { text: label, side: tabSide, yellow })
         const bot = exitOnly(g, W, H, [0])
         drawDest(g, W, H, t, bot)
       } })
-      out.push({ x: thru.x, y: gy, z: g2.z, w: 7.2, h: guideH * 0.8, draw: (g, W, H) => {
+      out.push({ x: thru.x - r.side * 0.8, y: gy, z: g2.z, w: 8.2, h: guideH * 0.85, draw: (g, W, H) => {
         panel(g, W, H)
         const n = NL - 1
         const bot = routeBlock(g, ROAD, W / 2, H * 0.04, W, H * 0.68)
@@ -472,7 +472,7 @@ function stageSigns(): Sign[] {
     for (const [gz, dist] of [[g1.z, true], [g2.z, false]] as const) {
       for (const [br, sp, lanes, side] of [[fk.left, L, lanesL, 'left'], [fk.right, Rr, lanesR, 'right']] as const) {
         const only = fk.exitOnly === side
-        out.push({ x: sp.x, y: gy, z: gz, w: sp.w, h: guideH + (only ? 0.7 : 0), draw: (g, W, H) => {
+        out.push({ x: sp.x, y: gy, z: gz, w: Math.max(sp.w, 7.2), h: guideH + (only ? 1.6 : 0), draw: (g, W, H) => {
           const t = only ? panel(g, W, H, { text: `EXIT ${30 + (s.id % 50)}`, side: side === 'right' ? 'right' : 'left', yellow: side === 'left' ? 'LEFT' : undefined }) : panel(g, W, H)
           const bot = only ? exitOnly(g, W, H, lanes as number[]) : H
           const end = routeBlock(g, br, W / 2, t + (bot - t) * 0.03, W, (bot - t) * (dist ? 0.82 : only ? 0.95 : 0.7))
@@ -517,10 +517,16 @@ function stageSigns(): Sign[] {
 
 /** pack the sign faces into one texture and make a quad for each (facing you as you drive north) */
 function signMesh(items: Sign[], maxAniso: number) {
-  // shelf packing into a 2048-wide atlas
+  // shelf packing into a 2048-wide atlas, at the highest resolution that fits in 2048 x 4096
   const AW = 2048
   let x = 0, y = 0, rowH = 0
-  const boxes = items.map((it) => {
+  let boxes: Array<{ x: number; y: number; w: number; h: number }> = []
+  for (PX = 128; PX >= 48; PX -= 16) {
+    x = 0; y = 0; rowH = 0
+    boxes = pack()
+    if (y + rowH + 4 <= 4096) break
+  }
+  function pack() { return items.map((it) => {
     let w = Math.round(it.w * PX), h = Math.round(it.h * PX)
     if (w > AW - 4) { const k = (AW - 4) / w; w = Math.floor(w * k); h = Math.floor(h * k) }
     if (x + w + 4 > AW) { x = 0; y += rowH + 4; rowH = 0 }
@@ -528,7 +534,7 @@ function signMesh(items: Sign[], maxAniso: number) {
     x += w + 4
     rowH = Math.max(rowH, h)
     return b
-  })
+  }) }
   const AH = Math.min(4096, 1 << Math.ceil(Math.log2(Math.max(64, y + rowH + 4))))
   const c = document.createElement('canvas')
   c.width = AW; c.height = AH
@@ -536,7 +542,7 @@ function signMesh(items: Sign[], maxAniso: number) {
   items.forEach((it, i) => { const b = boxes[i]; g.save(); g.translate(b.x, b.y); g.beginPath(); g.rect(0, 0, b.w, b.h); g.clip(); it.draw(g, b.w, b.h); g.restore() })
   const tex = new THREE.CanvasTexture(c)
   tex.colorSpace = THREE.SRGBColorSpace
-  tex.anisotropy = Math.min(8, maxAniso)
+  tex.anisotropy = maxAniso // (signs are seen at a steep angle from far off: full anisotropic filtering keeps the letters sharp)
   tex.generateMipmaps = true
   tex.minFilter = THREE.LinearMipmapLinearFilter
   const pos: number[] = [], uv: number[] = [], nor: number[] = [], idx: number[] = []
@@ -598,7 +604,7 @@ export function Highway() {
   const signs = useMemo(() => {
     const m = signMesh(stageSigns(), maxAniso)
     // (signs are lit like everything else, but never darker than they would be in daylight: retroreflective sheeting)
-    const face = new THREE.MeshStandardMaterial({ map: m.tex, alphaTest: 0.5, roughness: 0.6, emissive: '#ffffff', emissiveMap: m.tex, emissiveIntensity: 0.18 })
+    const face = new THREE.MeshStandardMaterial({ map: m.tex, alphaTest: 0.5, roughness: 0.6, emissive: '#ffffff', emissiveMap: m.tex, emissiveIntensity: 0.3 })
     return { ...m, face }
   }, [version, maxAniso])
   useEffect(() => () => { signs.geo.dispose(); signs.tex.dispose(); signs.face.dispose() }, [signs])

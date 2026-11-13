@@ -7,6 +7,7 @@ import { PARKED, wrapD } from './map'
 import { WORLD } from './course'
 import { extrudeProfile } from './geom'
 import { sim } from './sim'
+import { trafficPrev } from './World'
 import { MAX_CARS, cars, type AiCar } from './trafficAI'
 
 type Pt = [number, number]
@@ -220,9 +221,17 @@ export function Traffic() {
       if (ox * ox + oz * oz > 200 * 200) continue
       list.push({ id: MAX_CARS + q, x: pk.x, z: pk.z, h: Math.atan2(-pk.tx, -pk.tz), speed: 0, kind: pk.kind, color: pk.color, braking: false, sig: 0 })
     }
+    const ta = trafficPrev.a
     for (const c of list) {
-      const dx = wrapD(c.x - sim.x)
-      const dz = wrapD(c.z - sim.z)
+      // a moving car is drawn between its last two steps, just as your own car is (no judder against you at highway speed)
+      let cx = c.x, cz = c.z
+      if (c.id < MAX_CARS) {
+        const px = trafficPrev.x[c.id], pz = trafficPrev.z[c.id]
+        const jx = c.x - px, jz = c.z - pz
+        if (jx * jx + jz * jz < 36) { cx = px + jx * ta; cz = pz + jz * ta } // (not across a jump: a car placed somewhere new)
+      }
+      const dx = wrapD(cx - sim.x)
+      const dz = wrapD(cz - sim.z)
       if (dx * dx + dz * dz > 320 * 320) continue
       _p.set(sim.x + dx, 0, sim.z + dz)
       // smooth the car's motion for display: heading follows the road gently, the nose dips when it brakes, the body rolls in a turn
@@ -241,7 +250,7 @@ export function Traffic() {
       _q.setFromEuler(_e)
       _m.compose(_p, _q, _s)
       let k = c.kind < 3 || glbRef.current[c.kind] ? c.kind : 0 // a model that has not loaded yet is drawn as a sedan
-      if (k >= 3 && counts[k] >= 80) k = 0
+      if (k >= 3 && counts[k] >= 160) k = 0
       // level of detail: beyond LOD_D (and in the fog) a car is drawn as a simple low-poly body of about the same shape and size
       const far = dx * dx + dz * dz > LOD_D * LOD_D
       const md = models[Math.min(k, 2)]
@@ -357,7 +366,7 @@ export function Traffic() {
       {glb.map((g, k) => g && (
         <group key={'g' + k}>
           {g.parts.map((p, pi) => (
-            <instancedMesh key={pi} ref={(r) => { partRefs.current[k][pi] = r }} args={[p.geo, p.mat, k < 3 ? MAX_CARS : 80]} frustumCulled={false} />
+            <instancedMesh key={pi} ref={(r) => { partRefs.current[k][pi] = r }} args={[p.geo, p.mat, k < 3 ? MAX_CARS : 160]} frustumCulled={false} />
           ))}
         </group>
       ))}

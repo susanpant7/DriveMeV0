@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { updateAudio } from './audio'
 import { sim, stepSim } from './sim'
+import { MAX_CARS, cars } from './trafficAI'
 import { useGame } from './store'
 
 /** Advances the simulation before anything is drawn this frame. */
@@ -13,6 +14,8 @@ import { useGame } from './store'
  */
 const STEP = 1 / 60
 export const renderPose = { x: 0, z: 0, h: 0 }
+/** where each traffic car was before the last step, and how far between that and now to draw it (like your own car: smooth at any frame rate) */
+export const trafficPrev = { x: new Float32Array(MAX_CARS), z: new Float32Array(MAX_CARS), a: 1 }
 export function Simulation() {
   const acc = useRef(0)
   const prev = useRef({ x: 0, z: 0, h: 0 })
@@ -21,12 +24,14 @@ export function Simulation() {
     let n = 0
     while (acc.current >= STEP && n < 6) {
       prev.current.x = sim.x; prev.current.z = sim.z; prev.current.h = sim.h
+      for (let i = 0; i < cars.length; i++) { trafficPrev.x[i] = cars[i].x; trafficPrev.z[i] = cars[i].z }
       stepSim(STEP)
       acc.current -= STEP
       n++
     }
     if (n === 6) acc.current = 0 // far behind (a long hitch): drop the backlog rather than race to catch up
     const a = acc.current / STEP, p = prev.current
+    trafficPrev.a = a
     // a reset or a jump to a new place: no blending across it
     if (Math.hypot(sim.x - p.x, sim.z - p.z) > 15) { renderPose.x = sim.x; renderPose.z = sim.z; renderPose.h = sim.h }
     else {

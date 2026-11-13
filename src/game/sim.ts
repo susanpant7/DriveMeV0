@@ -282,7 +282,7 @@ function trackHighway(): boolean {
       const r = s.ramps[t.ramp]
       const side = r.side === 1 ? 'left' : 'right'
       if (rampU(r, z) > 0) banner('Follow the on-ramp', `Build up speed to join ${routeName(s.road)}`, 'S', z - r.g)
-      else banner(`Merge onto ${routeName(s.road)}`, sim.signal === -r.side ? 'Check your mirror and blind spot, then move over' : `Signal ${side}, check mirrors, match the speed of the traffic`, 'M', z - (r.g - ACC_LEN + 20))
+      else banner(`Merge onto ${routeName(s.road)}`, sim.signal === -r.side ? 'Check your blind spot, then move over' : `Signal ${side} and match the traffic's speed`, 'M', z - (r.g - ACC_LEN + 20))
       if (onHw && !hw.mergeChecked) {
         hw.mergeChecked = true
         if (sim.speed < 22) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
@@ -299,7 +299,7 @@ function trackHighway(): boolean {
       if (z < t.z1) { hw.done[ti] = true; say(`You did not move to the ${t.name} in time`, 'warn'); continue }
       const d = t.lane < pl ? -1 : 1
       const n = Math.abs(t.lane - pl)
-      banner(`Move to the ${t.name}`, inLane ? 'Hold this lane' : `${n} lane${n > 1 ? 's' : ''} to the ${sideWord(d)}: signal, check your mirror and blind spot, one lane at a time`, d < 0 ? 'L' : 'R', z - t.z1)
+      banner(`Move to the ${t.name}`, inLane ? 'Hold this lane' : n > 1 ? `${n} lanes to the ${sideWord(d)}, one at a time` : `Signal ${sideWord(d)}, check your blind spot`, d < 0 ? 'L' : 'R', z - t.z1)
       shown = true
       break
     }
@@ -313,7 +313,7 @@ function trackHighway(): boolean {
         const edge = r.side === 1 ? NL - 1 : 0
         banner(`Exit ${r.exit}: ${dest}`, r.side === -1 ? `LEFT exit: move to the left lane (${pl === edge ? 'you are in it' : `${Math.abs(pl - edge)} to go`})` : `Move to the right lane (${pl === edge ? 'you are in it' : `${Math.abs(pl - edge)} to go`})`, r.side === 1 ? 'R' : 'L', z - r.g)
       } else if (u < 50) {
-        banner(`Exit ${r.exit}: ${dest}`, (r.side === 1 ? pl === NL : pl === -1) ? 'Stay in the exit lane' : `Signal ${sd}, check your blind spot and move into the exit lane`, r.side === 1 ? 'R' : 'L', z - r.g)
+        banner(`Exit ${r.exit}: ${dest}`, (r.side === 1 ? pl === NL : pl === -1) ? 'Stay in the exit lane' : `Signal ${sd} into the exit lane`, r.side === 1 ? 'R' : 'L', z - r.g)
       } else {
         // the exit has gone by and you are still on the highway
         hw.done[ti] = true

@@ -26,6 +26,9 @@ interface Hw {
   ramp: number // the ramp being used (exiting or entering), index in the stage's ramps
   blend: number // 0 .. 1: how far across between the lane and the ramp
   merging: boolean // entering: moving across into the highway now
+  lcFrom: number // a lane change: where it started (x), and how far through it is (0 .. 1; -1 = not changing lanes)
+  lcT: number
+  acc: number // the acceleration being used now (eased)
   vlo: number
   vhi: number
   v0: number
@@ -59,6 +62,8 @@ const LANE_COUNT = [10, 11, 12, 13, 15]
 const TRUCK_P = [0, 0.03, 0.07, 0.12, 0.2]
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a)
+/** smooth start and finish (for sideways moves) */
+const ease = (t: number) => t * t * (3 - 2 * t)
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
 const half = (c: AiCar) => (c.len ?? 4.6) / 2
 const R = (h: Hw): Ramp | undefined => HW.s.ramps[h.ramp]
@@ -119,7 +124,7 @@ function speedNear(lane: number, z: number, fallback: number) {
 }
 
 function freshHw(): Hw {
-  return { mode: M.Lane, lane: 2, lat: NBX[2], target: -1, ramp: -1, blend: 0, merging: false, vlo: 30, vhi: 33, v0: 31, vgoal: 31, vt: rnd(0, 8), cool: rnd(0, 6), pace: 0.5, exitP: 1, stage: HW.s.id }
+  return { mode: M.Lane, lane: 2, lat: NBX[2], target: -1, ramp: -1, blend: 0, merging: false, lcFrom: 0, lcT: -1, acc: 0, vlo: 30, vhi: 33, v0: 31, vgoal: 31, vt: rnd(0, 8), cool: rnd(0, 6), pace: 0.5, exitP: 1, stage: HW.s.id }
 }
 
 function placeLane(i: number, lane: number, z: number, kind: number) {
@@ -331,19 +336,22 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
         h.mode = M.Exit; h.ramp = k; h.blend = 0
       }
       if (h.target >= 0) {
+        // a lane change eases out of the lane and into the next one (about 3 s, longer for a truck), never a sudden sideways step
         const tx = NBX[h.target]
-        h.lat += Math.sign(tx - h.lat) * Math.min(Math.abs(tx - h.lat), 1.5 * dt)
-        if (Math.abs(tx - h.lat) < 0.02) { h.lat = tx; h.lane = h.target; h.target = -1; setBand(h, isTruck(c)) }
+        if (h.lcT < 0) { h.lcT = 0; h.lcFrom = h.lat }
+        h.lcT = Math.min(1, h.lcT + dt / (isTruck(c) ? 4.5 : 3.2))
+        h.lat = h.lcFrom + (tx - h.lcFrom) * ease(h.lcT)
+        if (h.lcT >= 1) { h.lat = tx; h.lane = h.target; h.target = -1; h.lcT = -1; setBand(h, isTruck(c)) }
       }
       c.sig = h.target >= 0 ? (NBX[h.target] < h.lat ? -1 : 1) : 0
     } else if (h.mode === M.Exit && r) {
-      h.blend = Math.min(1, h.blend + dt * 0.35)
+      h.blend = Math.min(1, h.blend + dt * 0.3)
       c.sig = h.blend < 1 ? r.side : 0
       h.vgoal = h.v0 = Math.max(18, h.v0 - dt * 1.2) // easing off for the ramp
     } else if (h.mode === M.Enter && r) {
       const u = rampU(r, c.z)
       if (!h.merging && u < -30 && laneClear(h.lane, c.z, hf, c.speed)) h.merging = true
-      if (h.merging) h.blend = Math.min(1, h.blend + dt * 0.4)
+      if (h.merging) h.blend = Math.min(1, h.blend + dt * 0.3)
       c.sig = u < 0 && h.blend < 1 ? (r.side === 1 ? -1 : 1) : 0
       if (h.blend >= 1) { h.mode = M.Lane; h.ramp = -1; h.merging = false; c.sig = 0; setBand(h, isTruck(c)) }
     }
@@ -362,17 +370,20 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
       const sStar = 2.5 + Math.max(0, v * 1.05 + (v * (v - lv)) / (2 * Math.sqrt(1.5 * 2.6)))
       inter = (sStar / Math.max(gap, 0.4)) ** 2
     }
-    const a = Math.max(-8, 1.5 * (free - inter))
-    c.braking = a < -1.2
-    c.speed = Math.max(0, v + a * dt)
-    if (gap < 1.2) c.speed = Math.min(c.speed, lv * 0.9) // never into the back of the one ahead
+    let a = Math.max(-7, 1.5 * (free - inter))
+    if (gap < 2 && v > lv) a = Math.min(a, -Math.min(9, ((v - lv) * (v - lv)) / (2 * Math.max(0.3, gap)) + 1)) // close behind: brake firmly (but smoothly) to its speed
+    // (and the change in braking is eased over a moment: drivers press the pedal, they do not stamp on it)
+    h.acc += (a - h.acc) * Math.min(1, dt * 6)
+    c.braking = h.acc < -1.2
+    c.speed = Math.max(0, v + h.acc * dt)
+    if (gap < 0.3) c.speed = Math.min(c.speed, lv) // (touching: never through it)
 
     // --- move ---
     const x0 = c.x, z0 = c.z
     c.z -= c.speed * dt
     if (h.mode === M.Lane) c.x = laneXz(h.lane, h.lat, c.z)
-    else if (h.mode === M.Exit && r) c.x = laneXz(h.lane, h.lat, c.z) * (1 - h.blend) + rampX(r, c.z) * h.blend
-    else if (r) c.x = rampX(r, c.z) * (1 - h.blend) + NBX[h.lane] * h.blend
+    else if (h.mode === M.Exit && r) { const e = ease(h.blend); c.x = laneXz(h.lane, h.lat, c.z) * (1 - e) + rampX(r, c.z) * e }
+    else if (r) { const e = ease(h.blend); c.x = rampX(r, c.z) * (1 - e) + NBX[h.lane] * e }
     const dx = c.x - x0, dz = c.z - z0
     if (dx * dx + dz * dz > 1e-6) c.h = Math.atan2(-dx, -dz)
 
