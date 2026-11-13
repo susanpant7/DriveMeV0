@@ -7,7 +7,7 @@ const DIMS: Record<number, [number, number]> = {
   6: [8.6, 2.5], 7: [21, 2.6], 8: [20, 2.6],
 }
 const COLORS = ['#2e86de', '#f1c40f', '#ecf0f1', '#27ae60', '#8e44ad', '#e67e22', '#34495e', '#16a085', '#c0392b', '#95a5a6']
-const CAR_KINDS = [0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 3, 4, 5]
+const CAR_KINDS = [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5] // a good mix: sedans, SUVs, vans and the classics
 const TRUCK_KINDS = [6, 6, 7, 7, 8]
 
 interface Hw {
@@ -37,14 +37,14 @@ const rnd = (a: number, b: number) => a + Math.random() * (b - a)
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
 
 /** per-lane share of the cars on the road (lane 0 is the fast one) and the chance a vehicle in it is a truck */
-const TRUCK_P = [0, 0.03, 0.08, 0.18, 0.4]
+const TRUCK_P = [0, 0.03, 0.07, 0.12, 0.2] // trucks keep right, but not every vehicle in the right lane is one
 // the limit is 70 mph (31.3 m/s): nobody drives below it, the fast lanes go further over
 // Lane by lane, from the right-most (slow) lane to the left: the limit is 70 mph, the right lane runs 70-75, the next 75-80, then 80-85 ...
 const MPH = 0.44704
 /** the speed band (m/s) of a lane; `fromRight` = 0 for the right-most lane of its carriageway */
 /** the speed band of a lane, counted from the right: the right lane 70-76 mph, each lane to the left faster (the left lane about 86-96) */
 const bandOf = (fromRight: number): [number, number] => [(70 + 4 * fromRight) * MPH, (76 + 5 * fromRight) * MPH]
-const LANE_COUNT = [9, 10, 11, 12, 22] // how the vehicles are shared between the lanes (the right-hand lanes are busier)
+const LANE_COUNT = [10, 11, 12, 13, 15] // how the vehicles are shared between the lanes (the right-hand lanes are busier)
 const LANE_SUM = LANE_COUNT.reduce((a, b) => a + b, 0)
 /** vehicles in the window around you (about 1.3 km of highway) by level: heavy traffic is about 50 within sight */
 const HW_TOTAL = [24, 46, 68, 90, 115]
@@ -71,6 +71,12 @@ function setBand(i: number, truck = (cars[i].len ?? 4.6) > 8) {
   h.vgoal = mid
 }
 
+/** a lane for a new vehicle, in proportion to how busy each lane is */
+function pickLane() {
+  let r = Math.random() * LANE_SUM
+  for (let k = 0; k < LANE_COUNT.length; k++) { r -= LANE_COUNT[k]; if (r < 0) return k }
+  return LANE_COUNT.length - 1
+}
 function spacingOk(dir: 1 | -1, lane: number, z: number, len: number, skip = -1) {
   for (let i = 0; i < ncars; i++) {
     if (i === skip || !cars[i].active || hw[i].dir !== dir || hw[i].lane !== lane) continue
@@ -227,8 +233,11 @@ function respawn(i: number, player: { z: number; speed: number }) {
     const ahead = rel > 0 // it was behind (greater z) -> reappear ahead of the player; it was ahead -> reappear behind
     const z = ahead ? player.z - rnd(WINDOW * 0.55, WINDOW) : player.z + rnd(WINDOW * 0.4, WINDOW * 0.9)
     if (z < Z_FINISH + 40) continue
-    if (!spacingOk(h.dir, h.lane, z, 6, i)) continue
-    place(i, h.dir, h.lane, z, 32)
+    // a fresh vehicle on a random lane (weighted like real traffic): its kind, colour and pace are chosen anew in place()
+    const lane = h.dir === 1 ? pickLane() : h.lane
+    if (scen.type === 'lanedrop' && h.dir === 1 && lane === 4) continue
+    if (!spacingOk(h.dir, lane, z, 6, i)) continue
+    place(i, h.dir, lane, z, 32)
     c.speed = h.v0
     return
   }

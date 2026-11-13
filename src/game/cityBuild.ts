@@ -1308,8 +1308,14 @@ export function buildCity() {
         }
         // "NO TURN ON RED" on the mast arm beside the right-hand signal
         if (noTurnOnRed(n, a % 2)) {
-          const [nx2, nz2] = P(uf, lanesHere[lanesHere.length - 1].lat + 1.9)
-          signQuad(nx2 + ox * 0.15, 7.25, nz2 + oz * 0.15, 1.05, 1.3, face, SIGN.noRed)
+          // big, beside the right-hand signal at signal height...
+          const [nx2, nz2] = P(uf, lanesHere[lanesHere.length - 1].lat + 2.4)
+          signQuad(nx2 + ox * 0.15, 6.6, nz2 + oz * 0.15, 1.5, 1.85, face, SIGN.noRed)
+          // ...and again at eye level on the right-hand roadside, just before the stop line, where you wait
+          const ur = clr + 6
+          const [rx2, rz2] = P(ur, HWat(ur) + 1.6)
+          post(rx2, rz2, 3.0, 0.1)
+          signQuad(rx2 + ox * 0.09, 2.15, rz2 + oz * 0.09, 1.2, 1.48, face, SIGN.noRed)
         }
         // far-left corner pole: a second head, seen from the right-hand lanes too
         const [lx, lz] = P(uf, -qEdge)

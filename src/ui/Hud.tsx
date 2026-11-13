@@ -294,23 +294,28 @@ function RbDiagram({ diag }: { diag: RbDiag }) {
     if (p.turn === 'left') return `${start} ${a} ${120 + R},120 ${a} 120,${120 - R} ${a} ${120 - dy},111 L0,111`
     return `${start} ${a} ${120 + R},120 ${a} 120,${120 - R} ${a} ${120 - R},120 ${a} 111,${120 + dy} L111,240`
   }
-  const words = { right: '1st exit: right', straight: '2nd exit: straight on', left: '3rd exit: left', back: '4th exit: back' }
+  const open = diag.open ?? (['right', 'straight', 'left', 'back'] as const)
+  const ORD = ['1st', '2nd', '3rd', '4th']
+  const DIR = { right: 'right', straight: 'straight on', left: 'left', back: 'back the way you came' }
+  const no = (t: RbPath['turn']) => Math.max(0, open.indexOf(t)) + 1
+  const words = (t: RbPath['turn']) => `${ORD[no(t) - 1]} exit: ${DIR[t]}`
+  const has = (t: RbPath['turn']) => open.includes(t)
   const lane = (p: RbPath) => (p.lane === 'either' ? 'either lane' : `${p.lane} lane`)
   return (
     <figure className="rbdiag">
       <svg viewBox="0 0 240 240" width="200" height="200" role="img" aria-label="Roundabout diagram">
-        <rect x="102" y="150" width="36" height="90" fill="#59606b" /><rect x="102" y="0" width="36" height="90" fill="#59606b" />
-        <rect x="0" y="102" width="90" height="36" fill="#59606b" /><rect x="150" y="102" width="90" height="36" fill="#59606b" />
+        <rect x="102" y="150" width="36" height="90" fill="#59606b" />{has('straight') && <rect x="102" y="0" width="36" height="90" fill="#59606b" />}
+        {has('left') && <rect x="0" y="102" width="90" height="36" fill="#59606b" />}{has('right') && <rect x="150" y="102" width="90" height="36" fill="#59606b" />}
         <circle cx="120" cy="120" r="82" fill="#59606b" /><circle cx="120" cy="120" r="61" fill="none" stroke="#fff" strokeWidth="1.5" strokeDasharray="6 6" />
         <circle cx="120" cy="120" r="44" fill="#3f7a4b" />
         {diag.took && <path d={path(diag.took)} fill="none" stroke="#ef4444" strokeWidth="5" strokeDasharray="9 6" strokeLinecap="round" />}
         <path d={path(diag.correct)} fill="none" stroke="#22c55e" strokeWidth="5" strokeLinecap="round" />
-        {[['1', 226, 124], ['2', 124, 14], ['3', 14, 124], ['4', 100, 232]].map(([t, x, y]) => <text key={t} x={x as number} y={y as number} fontSize="16" fontWeight="700" fill="#fff" textAnchor="middle">{t}</text>)}
+        {([['right', 226, 124], ['straight', 124, 14], ['left', 14, 124], ['back', 100, 232]] as const).filter(([t]) => has(t)).map(([t, x, y]) => <text key={t} x={x} y={y} fontSize="16" fontWeight="700" fill="#fff" textAnchor="middle">{no(t)}</text>)}
         <text x="120" y="126" fontSize="12" fill="#fff" textAnchor="middle">you enter ↑</text>
       </svg>
       <figcaption>
-        <span className="ok">Correct: {words[diag.correct.turn]}, {lane(diag.correct)}</span>
-        {diag.took && <span className="bad">You: {words[diag.took.turn]}, {lane(diag.took)}</span>}
+        <span className="ok">Correct: {words(diag.correct.turn)}, {lane(diag.correct)}</span>
+        {diag.took && <span className="bad">You: {words(diag.took.turn)}, {lane(diag.took)}</span>}
       </figcaption>
     </figure>
   )

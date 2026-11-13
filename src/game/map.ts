@@ -271,13 +271,13 @@ export const RB_SPECS: Record<RbVariant, RbSpec> = {
 }
 /** the roundabout course: two-lane, signalised, single-lane and mini roundabouts, spread around the loop */
 const RB_AT_RB: Record<string, RbVariant> = {
-  '0,0': 'two', '1,0': 'single', '2,0': 'signal', '3,0': 'mini',
+  '0,0': 'two', '1,0': 'single', '2,0': 'two', '3,0': 'mini',
   '0,1': 'mini', '1,1': 'two', '2,1': 'single', '3,1': 'two',
-  '0,2': 'two', '1,2': 'signal', '2,2': 'two', '3,2': 'single',
+  '0,2': 'two', '1,2': 'two', '2,2': 'two', '3,2': 'single',
   '0,3': 'single', '1,3': 'two', '2,3': 'mini', '3,3': 'two',
 }
 // the Mixed course: one-lane roundabouts in the residential district (its streets have one lane), two-lane ones in the city
-const RB_AT: Record<string, RbVariant> = { '0,0': 'single', '2,0': 'signal', '0,2': 'single', '2,2': 'two' }
+const RB_AT: Record<string, RbVariant> = { '0,0': 'single', '2,0': 'two', '0,2': 'single', '2,2': 'two' }
 /** the Residential course: one-lane roundabouts (its streets have one lane each way), two ordinary ones and a small mini roundabout */
 const RB_AT_RES: Record<string, RbVariant> = { '0,0': 'single', '2,0': 'mini', '2,2': 'single' }
 export function rbSpec(i: number, j: number): RbSpec | undefined {

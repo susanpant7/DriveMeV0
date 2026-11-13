@@ -1,5 +1,5 @@
 import { crashSound, initAudio, tick } from './audio'
-import { noTurnOnRed, arrowPhase, streetLimit, resStyle, PARKED, jLanes, roadBend, roadPoint, laneC, resCol, rampAt, nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
+import { armClosed, noTurnOnRed, arrowPhase, streetLimit, resStyle, PARKED, jLanes, roadBend, roadPoint, laneC, resCol, rampAt, nodeX, nodeZ, nearX, nearZ, cellX, cellZ, flare, medW, pocketW, jTypeOf, setLayout, oneLane, armCtrl, speedLimit, WORLD_PERIOD, LINKS, PIECES, rbShift, ringDelta, SPEED_LIMIT, clearance, nodeIndex, BOX, HALF_ROAD, LANE_W, P, dirv, inIsland, insideBuilding, laneOff, mod, nearestNode, onAsphalt, signalColor, wrapD } from './map'
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
@@ -200,7 +200,7 @@ function trackHighway(): boolean {
     const lane = Math.floor((x - NB_EDGE_L) / 3.7)
     if (hw.lane !== -99 && lane !== hw.lane && sim.speed > 6 && sim.t - hw.alertT > 4 && lane >= 0 && lane <= 4 && hw.lane >= 0 && hw.lane <= 4) {
       const dir = lane > hw.lane ? 1 : -1
-      if (sim.signal !== dir && !autoLane.on) { hw.alertT = sim.t; say('ALERT: you changed lanes without signalling!', 'alert') }
+      if (sim.signal !== dir && !autoLane.on) { hw.alertT = sim.t; say(dir < 0 ? 'Signal left before changing lanes to the left' : 'Signal right before changing lanes to the right', 'alert') }
     }
     hw.lane = lane
   }
@@ -213,7 +213,7 @@ function trackHighway(): boolean {
     if (hw.stage === 'merge') {
       if (!hw.crossed && x - halfW < NB_EDGE_R - 0.15 && z <= Z_GORE) {
         hw.crossed = true
-        if (sim.signal !== -1) say('ALERT: you changed lanes without signalling!', 'alert')
+        if (sim.signal !== -1) say('Signal left before merging onto the highway', 'alert')
         if (sim.t - sim.lastBlind.left > BLIND_CHECK_WINDOW) say('Check your left blind spot before merging.', 'warn')
         if (sim.speed < 22) say('Too slow: match the speed of the highway traffic before you merge.', 'warn')
       }
@@ -232,7 +232,7 @@ function trackHighway(): boolean {
     else banner('Exit passed', 'Continue on the highway', 'S', 0)
     if (!hw.crossed && x - halfW > NB_EDGE_R - 0.05 && z <= start && z > gore - 20) {
       hw.crossed = true
-      if (sim.signal !== 1) say('ALERT: you changed lanes without signalling!', 'alert')
+      if (sim.signal !== 1) say('Signal right before moving into the exit lane', 'alert')
     }
     if (hw.crossed && !hw.exitTaken && z <= gore) hw.exitTaken = x > NB_EDGE_R
     if (hw.exitTaken && !hw.sigOffWarn && z < gore - 120 && sim.signal !== 0) { hw.sigOffWarn = true; say('Turn your indicator off.', 'warn') }
@@ -246,7 +246,7 @@ function trackHighway(): boolean {
     else banner('Lane ending', 'Move left now', 'M', z - LD1)
     if (!hw.crossed && x - halfW < ldEdge - 0.1 && z < 700) {
       hw.crossed = true
-      if (sim.signal !== -1) say('ALERT: you changed lanes without signalling!', 'alert')
+      if (sim.signal !== -1) say('Signal left before changing lanes to the left', 'alert')
       if (sim.t - sim.lastBlind.left > BLIND_CHECK_WINDOW) say('Check your left blind spot before moving over.', 'warn')
     }
     if (z <= LD1 + 15 && x > ldEdge) return fail('Your lane ended before you moved over.', ['Look for a gap early when you see "Right lane ends": signal, check your mirror and blind spot, then move left.'])
@@ -892,10 +892,10 @@ function trackLane() {
 function startManeuver(dir: -1 | 1, k0: number, target: number, intoTurnLane = false) {
   const side = dir < 0 ? 'left' : 'right'
   const infractions: string[] = []
-  if (sim.signal !== dir) infractions.push(`No ${side} signal`)
-  else if (sim.t - sim.signalSince < SIGNAL_MIN) infractions.push('Signalled too late')
+  if (sim.signal !== dir) infractions.push(`Signal ${side} before changing lanes to the ${side}`)
+  else if (sim.t - sim.signalSince < SIGNAL_MIN) infractions.push(`Signal ${side} earlier: at least a second before you start to move over`)
   // (mirror glances are not checked: only the look over your shoulder into the blind spot)
-  if (!intoTurnLane && sim.t - sim.lastBlind[side] > BLIND_CHECK_WINDOW) infractions.push(`Did not check your ${side} blind spot`)
+  if (!intoTurnLane && sim.t - sim.lastBlind[side] > BLIND_CHECK_WINDOW) infractions.push(`Check your ${side} blind spot before changing lanes to the ${side}`)
   sim.man = { dir, k0, target, infractions }
   infractions.forEach((m) => say(m, 'warn'))
 }
@@ -936,6 +936,18 @@ function laneTarget(): { x: number; z: number; h: number } | null {
 
 /* ---------- rules: lanes inside a two-lane roundabout ---------- */
 /** the lane the rules want for a manoeuvre: right turn = right (outer) lane, left turn or going back = left (inner) lane, straight on = either */
+type RbTurn = 'right' | 'straight' | 'left' | 'back'
+/** the roads a roundabout has, in exit order from where you entered (right, straight, left, back), skipping closed ones */
+function rbOpen(i: number, j: number, din: number): RbTurn[] {
+  const order = [mod(din + 3, 4), din, mod(din + 1, 4), mod(din + 2, 4)]
+  return (['right', 'straight', 'left', 'back'] as const).filter((_, k) => k === 3 || !armClosed(i, j, order[k]))
+}
+const ORD = ['1st', '2nd', '3rd', '4th']
+const WHERE: Record<RbTurn, string> = { right: 'on your right', straight: 'straight on', left: 'on your left', back: 'takes you back the way you came' }
+const rbExitNo = (open: RbTurn[], t: RbTurn) => Math.max(0, open.indexOf(t)) + 1
+function rbCountTip(open: RbTurn[]) {
+  return `This roundabout has ${open.length} roads. Count the exits from where you entered: ${open.map((t, k) => `${ORD[k]} ${t === 'back' ? '' : 'is '}${WHERE[t]}`).join(', ')}.`
+}
 const lanePref = (turn: 'right' | 'straight' | 'left' | 'back'): 'inner' | 'outer' | 'either' => (turn === 'right' ? 'outer' : turn === 'straight' ? 'either' : 'inner')
 function trackRbLane(): boolean {
   const nn = nearestNode(sim.x, sim.z)
@@ -958,8 +970,10 @@ function trackRbLane(): boolean {
       const turn = turnName(st.din, st.out)
       const want = lanePref(turn)
       if ((want === 'outer' && lane !== 1) || (want === 'inner' && lane !== 0)) {
-        useGame.setState({ crashDiag: { correct: { turn, lane: want }, took: { turn, lane: lane === 0 ? 'inner' : 'outer' } } })
-        crash('You were in the wrong lane for that exit.', [`You were asked: "${nav.text}". ${want === 'outer' ? 'To turn right (the 1st exit) use the right-hand (outer) lane.' : 'To take the 3rd exit, or to go back the way you came, use the left-hand (inner) lane.'}`, 'Choose your lane before you enter: the arrows on the road show it. Stay in that lane until you leave.'])
+        const open = rbOpen(st.i, st.j, st.din)
+        useGame.setState({ crashDiag: { correct: { turn, lane: want }, took: { turn, lane: lane === 0 ? 'inner' : 'outer' }, open } })
+        const n = rbExitNo(open, turn)
+        crash('You were in the wrong lane for that exit.', [`You were asked: "${nav.text}". ${want === 'outer' ? `To turn right (the ${ORD[n - 1]} exit here) use the right-hand (outer) lane.` : `To take the ${ORD[n - 1]} exit here (${turn === 'back' ? 'back the way you came' : 'on your left'}) use the left-hand (inner) lane.`}`, 'Choose your lane before you enter: the arrows on the road show it. Stay in that lane until you leave.'])
         return true
       }
     }
@@ -968,7 +982,7 @@ function trackRbLane(): boolean {
   if (lane !== sim.rbl.lane) {
     const st = nav.steps[nav.k]
     const turn = st ? turnName(st.din, st.out) : 'straight'
-    useGame.setState({ crashDiag: { correct: { turn, lane: sim.rbl.lane === 0 ? 'inner' : 'outer' }, took: { turn, lane: lane === 0 ? 'inner' : 'outer' } } })
+    useGame.setState({ crashDiag: { correct: { turn, lane: sim.rbl.lane === 0 ? 'inner' : 'outer' }, took: { turn, lane: lane === 0 ? 'inner' : 'outer' }, open: st ? rbOpen(st.i, st.j, st.din) : undefined } })
     crash('You changed lanes inside the roundabout.', ['Pick the right lane before you enter and stay in it all the way round.', 'You may only move across when you are leaving, once you are past the last exit before yours and have checked and signalled.'])
     return true
   }
@@ -1015,9 +1029,9 @@ function trackJunction() {
     if (useGame.getState().mode === 'roundabout' && jn.kind === 'round') {
       if (res === 'wrong' && stBefore) {
         const lane = sim.rbl.lane === 0 ? 'inner' : sim.rbl.lane === 1 ? 'outer' : 'either'
-        useGame.setState({ crashDiag: { correct: { turn: turnName(stBefore.din, stBefore.out), lane: lanePref(turnName(stBefore.din, stBefore.out)) }, took: { turn: turnName(stBefore.din, dOut), lane } } })
+        useGame.setState({ crashDiag: { correct: { turn: turnName(stBefore.din, stBefore.out), lane: lanePref(turnName(stBefore.din, stBefore.out)) }, took: { turn: turnName(stBefore.din, dOut), lane }, open: rbOpen(jn.i, jn.j, stBefore.din) } })
       }
-      if (res === 'wrong') return crash('You took the wrong exit.', [`The instruction was: "${asked}". Count the exits from where you entered: 1st is on your right, 2nd straight on, 3rd on your left, 4th takes you back the way you came.`])
+      if (res === 'wrong') return crash('You took the wrong exit.', [`The instruction was: "${asked}". ${rbCountTip(stBefore ? rbOpen(jn.i, jn.j, stBefore.din) : ['right', 'straight', 'left', 'back'])}`])
       if (res === 'ok') good('Correct exit')
     } else if (res === 'wrong') say('Off the route: recalculating', 'info') // (not a traffic rule: no points lost)
     const dh = normAngle(sim.h - jn.h0) // positive = turned left
@@ -1039,7 +1053,7 @@ function trackJunction() {
         sim.changes++
         const signalled = jn.sig === want
         if (signalled) { sim.clean++; good(`Signalled ${side} for the turn`) }
-        else say(`Signal ${side} before you turn`, 'warn')
+        else say(`Signal ${side} before turning ${side}`, 'warn')
         // the lane you turned from must allow the turn (the arrows on the road): no left turn from a straight-on lane
         const wrongLane = !!jn.laneUse && (dh > 0 ? !jn.laneUse.includes('L') : !jn.laneUse.includes('R'))
         if (wrongLane) say(dh > 0 ? 'Wrong lane: you turned left from a lane that does not allow left turns. Use the left-turn lane.' : 'Wrong lane: you turned right from a lane that does not allow right turns.', 'warn')
@@ -1048,7 +1062,7 @@ function trackJunction() {
     } else if (!jn.yieldFail) {
       sim.changes++
       if (jn.sig === 1 || sim.signal === 1 || sim.t - jn.rightAt < 6) { sim.clean++; good('Signalled right to leave the roundabout') }
-      else say('Signal right when you leave a roundabout', 'warn')
+      else say('Signal right before leaving a roundabout', 'warn')
     }
     // every junction or roundabout you get through without a mistake
     if (sim.errors === jn.err0) good(jn.kind === 'round' ? 'Roundabout done safely' : Math.abs(dh) < 0.6 ? 'Junction crossed safely' : 'Turn completed safely')
@@ -1084,7 +1098,7 @@ function trackStop() {
       // committed: the nose is over the line and you are moving
       if (!st.passed && u < LINE - 2.5 && sim.speed > 0.6) {
         st.passed = true
-        if (ctl === 'stop' && st2.stoppedAt === undefined) say('You did not stop at the STOP sign! Come to a complete stop behind the line.', 'warn')
+        if (ctl === 'stop' && st2.stoppedAt === undefined) say('Come to a complete stop behind the line at a STOP sign', 'warn')
         else if (ctl !== 'free' && junctionBusy(nn.n, d, null, st2.stoppedAt ?? sim.t, null, 3.2)) {
           const all = armCtrl(nn.n, 1 - (d % 2)) === 'stop'
           say(ctl === 'yield' ? 'YIELD: give way to traffic on the main road' : all ? 'All-way stop: the driver who stopped first goes first. Wait your turn.' : 'After stopping, wait for a safe gap in the cross traffic', 'warn')

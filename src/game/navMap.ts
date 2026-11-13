@@ -243,7 +243,7 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   g.save()
   roundRect(g, 0, 0, w, h, 14)
   g.clip()
-  g.fillStyle = '#0e151e'
+  g.fillStyle = '#0a0f17' // the background: very dark
   g.fillRect(0, 0, w, h)
 
   const cx = w / 2, cy = h * 0.68
@@ -262,17 +262,18 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   for (const [ox, oz] of copies) {
     g.save()
     g.translate(ox, oz)
-    g.fillStyle = '#16212e'; g.fill(pth.land)
-    g.fillStyle = '#1c2a22'; g.fill(pth.parks)
-    g.fillStyle = '#1d2a3a'; g.fill(pth.buildings)
+    g.fillStyle = '#0d141e'; g.fill(pth.land)
+    g.fillStyle = '#0f1a14'; g.fill(pth.parks)
+    g.fillStyle = '#141d2a'; g.fill(pth.buildings)
     // road casing, then road surface (so intersections look joined)
     // roads are faint (just a little lighter than the land), so the route drawn over them stands out
-    g.strokeStyle = '#0b1118'; g.lineWidth = 2 / S; g.stroke(pth.roads)
-    g.fillStyle = '#2a3442'; g.fill(pth.roads)
+    // roads: a light grey, clearly standing out from the dark background (with a darker kerb line)
+    g.strokeStyle = '#3d4655'; g.lineWidth = 2.5 / S; g.stroke(pth.roads)
+    g.fillStyle = '#8b96a6'; g.fill(pth.roads)
     g.fillStyle = '#6a5f55'; g.fill(pth.aprons)
     g.fillStyle = '#1f4a30'; g.fill(pth.islands)
-    g.fillStyle = '#7d8794'; g.fill(pth.domes)
-    g.strokeStyle = 'rgba(255,214,70,.22)'; g.lineWidth = 1 / S; g.setLineDash([6 / S, 7 / S]); g.stroke(pth.centre); g.setLineDash([])
+    g.fillStyle = '#b5bec9'; g.fill(pth.domes)
+    g.strokeStyle = 'rgba(255,214,70,.75)'; g.lineWidth = 1.2 / S; g.setLineDash([6 / S, 7 / S]); g.stroke(pth.centre); g.setLineDash([])
     g.fillStyle = '#f5c518'; g.fill(pth.signals)
     g.restore()
   }
@@ -310,8 +311,9 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
     g.beginPath()
     pts.forEach(([x, z], i) => (i ? g.lineTo(x, z) : g.moveTo(x, z)))
     // the route: a deep, saturated blue with a light casing, wide enough to follow at a glance
-    g.strokeStyle = 'rgba(205,225,255,.95)'; g.lineWidth = 17 / S; g.stroke()
-    g.strokeStyle = '#0a4fe0'; g.lineWidth = 12 / S; g.stroke()
+    // the route: a saturated blue with a white outline, distinct from the grey road under it
+    g.strokeStyle = '#ffffff'; g.lineWidth = 18 / S; g.stroke()
+    g.strokeStyle = '#0b5cff'; g.lineWidth = 12 / S; g.stroke()
     // direction chevrons
     g.fillStyle = 'rgba(255,255,255,.9)'
     let acc = 14 / S
@@ -342,7 +344,7 @@ export function drawNavMap(g: CanvasRenderingContext2D, w: number, h: number, dt
   g.clip()
   g.translate(cx, cy)
   g.fillStyle = 'rgba(70,160,255,.22)'; g.beginPath(); g.arc(0, 0, 20, 0, Math.PI * 2); g.fill()
-  g.fillStyle = '#ffffff'; g.strokeStyle = '#0b1a33'; g.lineWidth = 2.2
+  g.fillStyle = '#0b1a33'; g.strokeStyle = '#ffffff'; g.lineWidth = 2.6 // your car: dark with a white edge, clear on the light grey road
   g.beginPath(); g.moveTo(0, -15); g.lineTo(11, 12); g.lineTo(0, 6); g.lineTo(-11, 12); g.closePath(); g.fill(); g.stroke()
   g.restore()
 

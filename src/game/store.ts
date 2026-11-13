@@ -9,7 +9,8 @@ export type Signal = -1 | 0 | 1
 export type Units = 'kmh' | 'mph'
 
 export interface RbPath { turn: 'right' | 'straight' | 'left' | 'back'; lane: 'inner' | 'outer' | 'either' }
-export interface RbDiag { correct: RbPath; took?: RbPath }
+/** open: the roads this roundabout has, counted from where you entered (the entry, 'back', is always there) */
+export interface RbDiag { correct: RbPath; took?: RbPath; open?: Array<RbPath['turn']> }
 export interface Msg {
   id: number
   text: string

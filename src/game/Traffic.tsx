@@ -135,13 +135,13 @@ interface GlbCar {
   r: number
 }
 // kind index -> model file. 0-2 take the paint colour (white paint tinted per car); the rest keep their own colours.
-const GLB_FILES: Array<{ name: string; meta: 'meta' | 'meta2'; tint: boolean }> = [
+const GLB_FILES: Array<{ name: string; meta: 'meta' | 'meta2'; tint: boolean; flip?: boolean }> = [
   { name: 'sedan', meta: 'meta', tint: true },
   { name: 'pickup', meta: 'meta', tint: true },
   { name: 'van', meta: 'meta', tint: true },
   { name: 'challenger', meta: 'meta2', tint: false },
   { name: 'impala', meta: 'meta2', tint: false },
-  { name: 'volga', meta: 'meta2', tint: false },
+  { name: 'volga', meta: 'meta2', tint: false, flip: true }, // (this model was made facing backwards: turned round on loading)
   // highway trucks (kinds 6-8)
   { name: 'dump', meta: 'meta2', tint: false },
   { name: 'tanker', meta: 'meta2', tint: false },
@@ -169,10 +169,10 @@ function useCarModels() {
               if (isPaint) mat = new THREE.MeshPhysicalMaterial({ map: src.map, roughness: 0.38, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.15 })
               else { mat = src.clone(); (mat as THREE.MeshStandardMaterial).envMapIntensity = 1; (mat as THREE.MeshStandardMaterial).side = THREE.FrontSide }
               if ((mat as THREE.MeshStandardMaterial).map) (mat as THREE.MeshStandardMaterial).map!.anisotropy = 4
-              return { geo: me.geometry, mat, tint: isPaint }
+              return { geo: f.flip ? me.geometry.clone().rotateY(Math.PI) : me.geometry, mat, tint: isPaint }
             })
             const w = m.wheels as Array<{ x: number; z: number; r: number }>
-            const car: GlbCar = { parts, halfLen: m.length / 2, halfW: m.width / 2, height: m.height, wheels: w.map((q) => ({ x: q.x, z: q.z })), r: w.length ? w[0].r : 0.33 }
+            const car: GlbCar = { parts, halfLen: m.length / 2, halfW: m.width / 2, height: m.height, wheels: w.map((q) => (f.flip ? { x: -q.x, z: -q.z } : { x: q.x, z: q.z })), r: w.length ? w[0].r : 0.33 }
             setCars((prev) => { const n = prev.slice(); n[k] = car; return n })
           })
         })
