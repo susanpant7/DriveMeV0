@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { gasTapFn, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
-import { adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
+import { TRAFFIC_CITY, TRAFFIC_RES, adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
 import { setMirrorLite, setGraphics, setViewOffset, setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
@@ -93,7 +93,7 @@ function Settings() {
       <div className="setting">
         <div className="setting-head">
           <span>Traffic</span>
-          <span className="muted">{TRAFFIC_LABELS[traffic - 1]}</span>
+          <span className="muted" title="Cars around you at this level, by where you drive">{TRAFFIC_LABELS[traffic - 1]} · about {TRAFFIC_RES[traffic - 1]} cars in a residential area, {TRAFFIC_CITY[traffic - 1]} in the city, {[24, 46, 68, 90, 115][traffic - 1]} on the highway</span>
           <Key>1</Key><span className="kb-only">–</span><Key>5</Key>
         </div>
         <div className="seg" role="group" aria-label="Traffic level">
@@ -355,6 +355,8 @@ export function Hud() {
   const tips = useGame((s) => s.crashTips)
   const diag = useGame((s) => s.crashDiag)
   const finalScore = useGame((s) => s.hud.score)
+  const report = useGame((s) => s.report)
+  const reportPts = useGame((s) => s.reportPoints)
   const start = startGame
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
@@ -460,7 +462,15 @@ export function Hud() {
             <div className="badge">Game over</div>
             <h2>You crashed</h2>
             <p className="reason">{reason}</p>
-            <p className="finalpts">Points this drive: <b>{Math.round(finalScore)}</b></p>
+            <p className="finalpts">Points this drive: <b>{Math.round(finalScore)}</b> <span className="muted">(+{reportPts.gained} for rules followed, −{reportPts.lost} for mistakes)</span></p>
+            <div className="report">
+              <h3>Mistakes this drive</h3>
+              {report.length === 0 ? <p className="muted">None: every rule was followed until the end.</p> : (
+                <ul>
+                  {report.map((r) => <li key={r.text}><span>{r.text}</span>{r.count > 1 && <b>×{r.count}</b>}</li>)}
+                </ul>
+              )}
+            </div>
             {diag && <RbDiagram diag={diag} />}
             {tips.length > 0 && (
               <ul className="tips">

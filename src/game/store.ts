@@ -44,6 +44,10 @@ interface GameState {
   hud: Hud
   messages: Msg[]
   crashReason: string
+  /** the mistakes made this drive, grouped (shown when the drive ends); cleared when a new drive starts */
+  report: Array<{ text: string; count: number }>
+  /** points earned and lost this drive */
+  reportPoints: { gained: number; lost: number }
   crashTips: string[]
   /** a diagram for the game-over screen: the correct way through a roundabout, and what the player did */
   crashDiag: RbDiag | null
@@ -115,6 +119,8 @@ export const useGame = create<GameState>(() => ({
   hud: initialHud,
   messages: [],
   crashReason: '',
+  report: [],
+  reportPoints: { gained: 0, lost: 0 },
   crashTips: [],
   crashDiag: null,
   pauseReason: 'user',

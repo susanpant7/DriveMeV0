@@ -146,6 +146,7 @@ const RULE_POINTS = 2
 /** a rule followed: +2, with a short note */
 function good(text: string) {
   sim.score += RULE_POINTS
+  pointsLog.gained += RULE_POINTS
   say(`${text}  +${RULE_POINTS}`, 'good')
 }
 
@@ -334,10 +335,11 @@ resetSim()
 
 export function startGame() {
   initAudio()
+  mistakes.length = 0; pointsLog.gained = 0; pointsLog.lost = 0 // a new drive: a clean report
   nav.start = 'res' // the Mixed course starts in the residential district
   useGame.setState({ leg: 'town', fade: null })
   resetSim()
-  useGame.setState({ status: 'playing', pauseReason: 'user', adjusting: false, messages: [], crashReason: '', crashTips: [], crashDiag: null, hud: { ...initialHud } })
+  useGame.setState({ status: 'playing', pauseReason: 'user', adjusting: false, messages: [], crashReason: '', crashTips: [], crashDiag: null, report: [], reportPoints: { gained: 0, lost: 0 }, hud: { ...initialHud } })
 }
 
 export function goMenu() {
@@ -425,8 +427,11 @@ export function toggleSignal(dir: -1 | 1) {
 }
 
 /* ---------- messages ---------- */
+/** every mistake this drive (for the report when the drive ends), and the points won and lost */
+const mistakes: string[] = []
+const pointsLog = { gained: 0, lost: 0 }
 function say(text: string, kind: Msg['kind']) {
-  if (kind === 'warn' || kind === 'alert') { sim.errors++; sim.score -= RULE_POINTS; text = `${text}  −${RULE_POINTS}` } // a mistake costs 2 points
+  if (kind === 'warn' || kind === 'alert') { sim.errors++; sim.score -= RULE_POINTS; pointsLog.lost += RULE_POINTS; mistakes.push(text); text = `${text}  −${RULE_POINTS}` } // a mistake costs 2 points
   const msg: Msg = { id: ++sim.msgId, text, kind, until: sim.t + 4.5 }
   useGame.setState((s) => ({ messages: [...s.messages.filter((m) => m.until > sim.t).slice(-3), msg] }))
 }
@@ -751,7 +756,11 @@ function crashInto(c: AiCar) {
 function crash(reason: string, tips: string[]) {
   sim.crashT = 0
   crashSound()
-  useGame.setState({ status: 'crashed', crashReason: reason, crashTips: tips })
+  // the report: every mistake of this drive, the same ones counted together, most frequent first
+  const counts = new Map<string, number>()
+  for (const m of mistakes) counts.set(m, (counts.get(m) ?? 0) + 1)
+  const report = [...counts.entries()].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count)
+  useGame.setState({ status: 'crashed', crashReason: reason, crashTips: tips, report, reportPoints: { ...pointsLog } })
   syncHud()
 }
 
