@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
-import { gasTapFn, motionActive, recentreMotion, setMotionLook, steerTap } from '../game/input'
+import { gasTapFn, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
@@ -146,16 +146,18 @@ function TouchControls() {
     <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
       <div className="tleft">
         <div className="eyerow">
-          <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}><TurnArrow dir={-1} /></HoldButton>
           <EyeControl />
-          {lookMode === 'motion' && (
-            <button className="tbtn tilt recentre" aria-label="Phone motion: make where the phone points now straight ahead" onClick={async () => { if (motionActive()) recentreMotion(); else await setMotionLook(true) }}>⌖</button>
-          )}
-          <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}><TurnArrow dir={1} /></HoldButton>
         </div>
-        <div className="steerrow">
-          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}><Chev dir={-1} /></HoldButton>
-          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}><Chev dir={1} /></HoldButton>
+        <div className="steerline">
+          <div className="steerrow">
+            <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}><Chev dir={-1} /></HoldButton>
+            <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}><Chev dir={1} /></HoldButton>
+          </div>
+          {/* the indicators, beside the steering: left above, right below */}
+          <div className="sigcol">
+            <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}><TurnArrow dir={-1} /></HoldButton>
+            <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}><TurnArrow dir={1} /></HoldButton>
+          </div>
         </div>
       </div>
 

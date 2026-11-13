@@ -1216,6 +1216,13 @@ export function buildCity() {
       else if (ctl !== 'free') side(clr + 62, 2.6, 1.3, 1.3, ctl === 'stop' ? SIGN.stopAhead : SIGN.yieldAhead)
       if (kind !== 'signal') side(clr + 120, 2.6, 1.5, 1.5, SIGN.rbWarn) // an early warning as well
       side(clr + 30, 2.4, 0.85, 1.05, limitSign(streetMph(a % 2, a % 2 === 0 ? j : i)))
+      // ...and one just after the junction for traffic leaving along this road (on its right, facing it): the new road's limit
+      {
+        const uo = clr + 22
+        const [sx2, sz2] = P(uo, -(HWat(uo) + 1.8 + (flareOf(i, j) ? rbShift(uo - clr) : 0)))
+        post(sx2, sz2, 2.9)
+        signQuad(sx2 - ox * 0.08, 2.4 + 1.05 / 2 - 0.1, sz2 - oz * 0.08, 0.85, 1.05, [-ox, -oz], limitSign(streetMph(a % 2, a % 2 === 0 ? j : i)))
+      }
       if (kind === 'signal' && ctl === 'light') side(clr + 19, 2.1, 0.6, 0.75, SIGN.stopHere)
       if (kind === 'signal') {
         if (jt && jt.nL === 1 && !jt.rOnly && !jt.one) side(clr + 46, 2.5, 1.3, 1.3, SIGN.lanes) // lane-use sign (matches the painted arrows of the 3-lane layout)

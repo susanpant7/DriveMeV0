@@ -374,3 +374,24 @@ canvas { touch-action: none; }
 .hud.touch .tbtn.tilt.recentre { width: 34px; height: 34px; padding: 0; border-radius: 50%; font-size: 16px; }
 .adjbar { z-index: 6; }
 .hud.touch .adjbar.viewbar span { display: inline; }
+
+/* touch: indicators stacked beside the steering; everything a little bigger and more see-through */
+.steerline { display: flex; align-items: center; gap: 8px; pointer-events: none; }
+.sigcol { display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.hud.touch .sigcol .tbtn.sig {
+  min-width: 0; width: 42px; height: 42px; padding: 0; border-radius: 50%; font-size: 0;
+  background: rgba(14,19,28,.16); border: 1.5px solid rgba(255,255,255,.45); box-shadow: 0 3px 10px rgba(0,0,0,.2);
+}
+.hud.touch .sigcol .tbtn.sig svg { width: 20px; height: 20px; }
+.hud.touch .sigcol .tbtn.sig.on { background: rgba(34,197,94,.55); border-color: #7dffa0; color: #eafff0; }
+.hud.touch .tbtn { background: rgba(14,19,28,.16); border-color: rgba(255,255,255,.45); }
+.hud.touch .touch-controls { --pedal: clamp(44px, 12vh, 58px); }
+.hud.touch .tbtn.pedal.gas { background: rgba(34,150,80,.24); }
+.hud.touch .tbtn.pedal.brake { background: rgba(190,45,45,.24); }
+.hud.touch .tbtn.lanekeep { width: clamp(46px, 12.5vh, 54px); height: clamp(46px, 12.5vh, 54px); background: rgba(59,130,246,.18); }
+.hud.touch .steerrow { background: rgba(14,19,28,.1); }
+.hud.touch .steerrow .tbtn { background: rgba(255,255,255,.06); }
+.hud.touch .steerrow .tbtn.steer { width: clamp(56px, 16vh, 70px); height: clamp(56px, 16vh, 70px); }
+.hud.touch .steerrow .tbtn.steer svg { width: 30px; height: 30px; }
+.hud.touch .eye { width: 66px; height: 40px; background: rgba(14,19,28,.16); }
+.hud.touch .eye svg { width: 36px; height: 22px; }

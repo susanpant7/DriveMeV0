@@ -4,9 +4,10 @@ import * as THREE from 'three'
 import { loadCarModel, type CarModel } from './carModel'
 import { Cabin } from './Cabin'
 import { CarPlay } from './CarPlay'
-import { EYE, GLASS, FRONT_PITCH, FRONT_YAW, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
+import { CARPLAY, EYE, GLASS, FRONT_PITCH, FRONT_YAW, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
+import { recentreView } from './input'
 import { useGame } from './store'
 
 const UP = new THREE.Vector3(0, 1, 0)
@@ -149,7 +150,31 @@ export function PlayerRig() {
     }
   }, [])
 
+  // pressing the CarPlay screen (an invisible button over it) recentres the view
+  const cpRect = useRef({ x0: 0, x1: 0, y0: 0, y1: 0, ok: false })
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      if ((e.target as HTMLElement)?.tagName !== 'CANVAS' || useGame.getState().status !== 'playing') return
+      const r = cpRect.current
+      if (r.ok && e.clientX > r.x0 && e.clientX < r.x1 && e.clientY > r.y0 && e.clientY < r.y1) recentreView()
+    }
+    window.addEventListener('pointerdown', down)
+    return () => window.removeEventListener('pointerdown', down)
+  }, [])
+
   useFrame((_, dt) => {
+    // where the CarPlay screen is on screen
+    {
+      const r = cpRect.current
+      r.x0 = r.y0 = Infinity; r.x1 = r.y1 = -Infinity; r.ok = true
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...CARPLAY.rot))
+      for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+        const v = new THREE.Vector3((sx * CARPLAY.W) / 2, (sy * CARPLAY.H) / 2, 0).applyQuaternion(q).add(CARPLAY.pos).applyAxisAngle(UP, sim.h).add(rig.current.position).project(camera)
+        if (v.z > 1) r.ok = false
+        const px = (v.x * 0.5 + 0.5) * size.width, py = (-v.y * 0.5 + 0.5) * size.height
+        r.x0 = Math.min(r.x0, px); r.x1 = Math.max(r.x1, px); r.y0 = Math.min(r.y0, py); r.y1 = Math.max(r.y1, py)
+      }
+    }
     // where the mirrors are on screen (for clicking)
     for (const [k, p, rad] of [['left', MIRRORS[0].pos, 0.2], ['center', MIRRORS[1].pos, 0.16], ['right', MIRRORS[2].pos, 0.2]] as Array<[string, THREE.Vector3, number]>) {
       const wp = p.clone().applyAxisAngle(UP, sim.h).add(rig.current.position)

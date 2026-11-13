@@ -221,6 +221,8 @@ const motion = { on: false, base: null as null | { yaw: number; pitch: number } 
 export const motionActive = () => motion.on
 /** forget where the phone was pointing: the direction it points now is "straight ahead" */
 export function recentreMotion() { motion.base = null }
+/** recentre the view: phone motion's "straight ahead" is where the phone points now, and the head turns back to the road */
+export function recentreView() { motion.base = null; input.look = 'front'; input.recentreHead = true }
 /**
  * Like a window onto the car: point the phone left / right / up and the view follows. It uses the direction of the back camera, so it works
  * in either landscape direction. Returns false if the device has no motion sensor or permission was denied.

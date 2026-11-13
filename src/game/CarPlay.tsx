@@ -88,15 +88,20 @@ export function CarPlay() {
       g.fillStyle = '#c9d6e8'; g.font = '500 20px system-ui, sans-serif'; g.fillText(nav.sub || nav.text, 124, 94, 258)
     }
     // speed and limit
-    card(g, 16, CH - 106, 190, 90)
+    // your speed and the speed limit: a big, clear US speed-limit sign (it turns red-edged when you are over the limit)
+    card(g, 16, CH - 196, 280, 180)
     const mph = units === 'mph'
-    g.fillStyle = '#fff'; g.textAlign = 'left'; g.textBaseline = 'alphabetic'; g.font = '700 46px system-ui, sans-serif'
-    g.fillText(String(Math.round(sim.speed * (mph ? 2.237 : 3.6))), 32, CH - 44)
-    g.fillStyle = '#9fb0c6'; g.font = '600 15px system-ui, sans-serif'; g.fillText(mph ? 'MPH' : 'KM/H', 34, CH - 26)
     const lim = useGame.getState().hud.limit
-    g.fillStyle = '#fff'; rr(g, 128, CH - 96, 64, 70, 9); g.fill(); g.strokeStyle = '#111'; g.lineWidth = 2.5; rr(g, 132, CH - 92, 56, 62, 6); g.stroke()
-    g.fillStyle = '#111'; g.textAlign = 'center'; g.font = '700 10px system-ui, sans-serif'; g.fillText('LIMIT', 160, CH - 76)
-    g.font = '700 30px system-ui, sans-serif'; g.fillText(String(mph ? Math.round((lim * 2.237) / 5) * 5 : Math.round((lim * 3.6) / 10) * 10), 160, CH - 44)
+    const limShown = mph ? Math.round((lim * 2.237) / 5) * 5 : Math.round((lim * 3.6) / 10) * 10
+    const vShown = Math.round(sim.speed * (mph ? 2.237 : 3.6))
+    g.fillStyle = vShown > limShown ? '#ff8a80' : '#fff'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.font = '700 72px system-ui, sans-serif'
+    g.fillText(String(vShown), 82, CH - 72)
+    g.fillStyle = '#9fb0c6'; g.font = '700 20px system-ui, sans-serif'; g.fillText(mph ? 'MPH' : 'KM/H', 82, CH - 42)
+    const sx = 160, sy = CH - 186, sw = 122, sh = 160
+    g.fillStyle = '#fff'; rr(g, sx, sy, sw, sh, 12); g.fill()
+    g.strokeStyle = vShown > limShown ? '#e53935' : '#111'; g.lineWidth = 6; rr(g, sx + 7, sy + 7, sw - 14, sh - 14, 8); g.stroke()
+    g.fillStyle = '#111'; g.font = '800 21px system-ui, sans-serif'; g.fillText('SPEED', sx + sw / 2, sy + 40); g.fillText('LIMIT', sx + sw / 2, sy + 64)
+    g.font = '800 64px system-ui, sans-serif'; g.fillText(String(limShown), sx + sw / 2, sy + 132)
     // now playing
     card(g, MW - 316, CH - 106, 300, 90)
     const ag = g.createLinearGradient(0, CH - 94, 0, CH - 28); ag.addColorStop(0, '#ff7a59'); ag.addColorStop(1, '#c2185b')

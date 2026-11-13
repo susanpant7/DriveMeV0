@@ -39,6 +39,8 @@ export const input = {
   free: false,
   /** set by a double tap of an arrow key: -1 = move one lane left, 1 = one lane right */
   laneShift: 0 as -1 | 0 | 1,
+  /** turn the head back to the road (the view's resting direction) */
+  recentreHead: false,
   /** head keys: A (left), W (up), D (right) */
   kA: false,
   kS: false,
@@ -469,6 +471,7 @@ export function stepSim(dt: number) {
   // ---- steering (bicycle model) ----
   const sens = [0.32, 0.46, 0.62, 0.82, 1.05][useGame.getState().steerSens - 1]
   // The arrow keys / buttons turn the wheel a little and it STAYS there (like holding a real wheel); Space centres it.
+  if (input.recentreHead) { input.recentreHead = false; blindGoal = null; sim.head.yaw = 0; sim.head.pitch = 0 }
   if (input.recentre) { blindGoal = null; sim.wheel = 0; sim.head.yaw = 0; sim.head.pitch = 0; input.recentre = false; autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN }
   // while Space is HELD the car keeps itself in the middle of its lane, on straights, curves and roundabouts (steering by hand, braking or
   // slowing right down hands control back until the key is let go and pressed again)

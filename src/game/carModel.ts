@@ -16,6 +16,8 @@ export interface CarModel {
   glass: Record<'left' | 'center' | 'right', THREE.BufferGeometry>
 }
 
+/** how far the rear-view mirror is raised from where the model has it (m) */
+export const RMIR_UP = 0.075
 /** steering wheel hub and the direction its axis points (toward the driver) */
 export const WHEEL_HUB = new THREE.Vector3(-0.335, 0.855, -0.58)
 export const WHEEL_AXIS = new THREE.Vector3(0, 0.358, 0.934).normalize()
@@ -26,6 +28,9 @@ export function loadCarModel(): Promise<CarModel> {
     new GLTFLoader().load('/models/camry.glb', (g) => {
       const get = (n: string) => g.scene.getObjectByName(n)!
       const ext = get('ext'), int = get('int'), wheel = get('wheel')
+      // the rear-view mirror (housing and stalk) sits higher up the windscreen than in the model, as in most cars
+      const rmir = g.scene.getObjectByName('rmir')
+      if (rmir) { rmir.position.y += RMIR_UP; int.add(rmir) }
       const tune = (o: THREE.Object3D, exterior: boolean) => o.traverse((c) => {
         c.layers.set(1)
         if (exterior) c.layers.enable(2)
@@ -53,7 +58,7 @@ export function loadCarModel(): Promise<CarModel> {
       // the model's own instrument and centre screens are replaced by the live ones
       for (const n of ['int_DISPLAY_1', 'int_DISPLAY_2']) { const o = int.getObjectByName(n); if (o) o.visible = false }
       const geo = (n: string) => { let gg: THREE.BufferGeometry | null = null; get(n).traverse((c) => { const me = c as THREE.Mesh; if (me.isMesh) gg = me.geometry }); return gg! }
-      resolve({ ext, int, wheel, glass: { left: geo('mirL'), center: geo('mirC'), right: geo('mirR') } })
+      resolve({ ext, int, wheel, glass: { left: geo('mirL'), center: geo('mirC').clone().translate(0, RMIR_UP, 0), right: geo('mirR') } })
     }, undefined, reject)
   })
   return p

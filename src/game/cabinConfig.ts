@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { IS_COARSE } from './device'
+import { RMIR_UP } from './carModel'
 import type { Look } from './store'
 
 /** Driver's eye position, relative to the car origin (car faces -z, left-hand drive). */
@@ -38,7 +39,7 @@ const RES_REAR: [number, number] = IS_COARSE ? [640, 195] : [800, 244]
 /** the model's glass: centre and the way it faces (used to lay the reflecting glass into the housing) */
 export const GLASS: Record<'left' | 'center' | 'right', { c: THREE.Vector3; n: THREE.Vector3 }> = {
   left: { c: V(-0.883, 0.9858, -0.7259), n: V(0.3576, 0.006, 0.9339) },
-  center: { c: V(0.0156, 1.1933, -0.361), n: V(0, 0.0162, 0.9999) },
+  center: { c: V(0.0156, 1.1933 + RMIR_UP, -0.361), n: V(0, 0.0162, 0.9999) }, // (raised up the windscreen: see carModel)
   right: { c: V(0.9143, 0.9858, -0.7259), n: V(-0.3574, 0.0058, 0.9339) },
 }
 export const MIRRORS: MirrorCfg[] = [
