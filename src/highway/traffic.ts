@@ -43,7 +43,7 @@ const hw: Hw[] = []
 let ncars = 0
 let level = 1
 /** the smallest bumper-to-bumper gap when placing vehicles: the busiest levels pack the lanes tightly (level 5 is a jam) */
-const MARGIN = [28, 26, 20, 13, 3]
+const MARGIN = [40, 40, 38, 30, 3] // (a driver's own following distance at 70-90 mph: new vehicles never start bunched up)
 /** vehicles in the window around you (about 1 km of highway): level 5 is bumper to bumper */
 export const HW_TOTAL = [24, 45, 70, 120, 360]
 /** how often a vehicle joins at each entrance (seconds) */
@@ -53,12 +53,12 @@ const EXTRA = 16 // spare vehicles for the entrances
 
 const MPH = 0.44704
 /**
- * The speed band of a lane, counted from the right (the limit is 70 mph): the right lane 65-72, the next 70-80, then 75-85, 80-90, 85-95.
- * Trucks keep to the lower part of their band.
+ * The speed band of a lane, counted from the right (the limit is 70 mph and nobody cruises below it): the right lane 70-75, the next
+ * 75-80, then 80-85, 85-90 and 90-95. Trucks keep to the lower part of their band.
  */
-export const bandOf = (fromRight: number): [number, number] => (fromRight === 0 ? [65 * MPH, 72 * MPH] : [(65 + 5 * fromRight) * MPH, (75 + 5 * fromRight) * MPH])
+export const bandOf = (fromRight: number): [number, number] => [(70 + 5 * fromRight) * MPH, (75 + 5 * fromRight) * MPH]
 /** how the vehicles are shared between the lanes, and the chance a vehicle in each lane is a truck */
-const LANE_COUNT = [10, 11, 12, 13, 15]
+const LANE_COUNT = [11, 12, 12, 12, 12] // (an even share: a crowded right lane would crawl along below the limit)
 const TRUCK_P = [0, 0.03, 0.07, 0.12, 0.2]
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a)
@@ -347,7 +347,7 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
     } else if (h.mode === M.Exit && r) {
       h.blend = Math.min(1, h.blend + dt * 0.3)
       c.sig = h.blend < 1 ? r.side : 0
-      h.vgoal = h.v0 = Math.max(18, h.v0 - dt * 1.2) // easing off for the ramp
+      if (h.blend > 0.6) h.vgoal = h.v0 = Math.max(20, h.v0 - dt * 1.5) // easing off for the ramp, once out of the lane (not holding up the traffic behind)
     } else if (h.mode === M.Enter && r) {
       const u = rampU(r, c.z)
       if (!h.merging && u < -30 && laneClear(h.lane, c.z, hf, c.speed)) h.merging = true
@@ -360,17 +360,20 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
     h.vt -= dt
     if (h.mode === M.Lane && h.vt <= 0) { h.vt = rnd(4, 11); h.vgoal = rnd(h.vlo, Math.max(h.vlo + 0.3, h.vhi)) }
     // (entering: up to speed along the ramp; no gap by the end of the lane: wait there for one, as a driver must)
-    if (h.mode === M.Enter) h.vgoal = !h.merging && rampU(r!, c.z) < -ACC_LEN + TAPER + 15 ? 0 : h.blend > 0 || rampU(r!, c.z) < 0 ? h.vlo : 27
+    if (h.mode === M.Enter) h.vgoal = h.v0 = !h.merging && rampU(r!, c.z) < -ACC_LEN + TAPER + 15 ? 0 : h.vlo + 1 // (up to the traffic's speed all along the ramp, before joining it)
     h.v0 += (h.vgoal - h.v0) * (1 - Math.exp(-dt / 2.5))
     const v = c.speed
-    // (the wish is set a touch above the cruising speed: keeping a distance to the traffic ahead always holds a driver back a little)
-    const free = 1 - Math.pow(v / Math.max(1, h.v0 * 1.05), 4)
-    let inter = 0
+    // (the "improved" driver model: a driver with a comfortable gap ahead holds their own speed; only a gap shorter than they want
+    // slows them, so traffic flows at its lanes' speeds instead of everyone easing off whenever anything is ahead)
+    const A = h.mode === M.Enter ? 2.6 : 1.5 // (joining from a ramp: a firm run up to speed)
+    const aFree = A * (1 - Math.pow(v / Math.max(1, h.v0), 4))
+    let a = aFree
     if (gap < 1e8) {
-      const sStar = 2.5 + Math.max(0, v * 1.05 + (v * (v - lv)) / (2 * Math.sqrt(1.5 * 2.6)))
-      inter = (sStar / Math.max(gap, 0.4)) ** 2
+      const sStar = 2.5 + Math.max(0, v * 1.05 + (v * (v - lv)) / (2 * Math.sqrt(A * 2.6)))
+      const zz = sStar / Math.max(gap, 0.4)
+      a = zz >= 1 ? A * (1 - zz * zz) + Math.min(0, aFree) : aFree > 0 ? aFree * (1 - Math.pow(zz, (2 * A) / aFree)) : aFree
     }
-    let a = Math.max(-7, 1.5 * (free - inter))
+    a = Math.max(-7, a)
     if (gap < 2 && v > lv) a = Math.min(a, -Math.min(9, ((v - lv) * (v - lv)) / (2 * Math.max(0.3, gap)) + 1)) // close behind: brake firmly (but smoothly) to its speed
     // (and the change in braking is eased over a moment: drivers press the pedal, they do not stamp on it)
     h.acc += (a - h.acc) * Math.min(1, dt * 6)

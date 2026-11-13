@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { useGame } from '../game/store'
 import {
   ACC_LEN, HW, LANE, MEDIAN_X, NB_EDGE_L, NB_EDGE_R, NB_SHOULDER_L, NB_X, NL, RAMP_K, SB_EDGE_IN, SB_EDGE_OUT, SHOULDER_R, TAPER, Z_FINISH, Z_TOP,
-  auxAt, auxEdge, dropLane, edgeL, edgeR, forkShift, paveL, paveR, rampU, rampX, rampZ0, rampZ1, routeId, splitX, strips, type Ramp, type Route,
+  auxAt, auxEdge, dropLane, edgeL, edgeR, forkShift, paveL, paveR, rampU, rampX, rampZ0, rampZ1, splitX, strips, type Ramp, type Route,
 } from './layout'
 
 type V3 = [number, number, number]
@@ -94,13 +94,6 @@ function line(buf: Buf, z0: number, z1: number, xAt: (z: number) => number, w: n
   }
 }
 const inRamp = (r: Ramp, z: number) => z <= rampZ0(r) && z >= rampZ1(r)
-
-/** where the overpasses go: clear of every ramp */
-function overpassZs() {
-  const out: number[] = []
-  for (const oz of [1700, 900, -300, -1200, -2100, -3000]) if (!HW.s.ramps.some((r) => oz < rampZ0(r) + 60 && oz > rampZ1(r) - 60) && !(HW.s.fork && Math.abs(oz - HW.s.fork.z + 100) < 260)) out.push(oz)
-  return out.slice(0, 3)
-}
 
 export function buildHighway() {
   const s = HW.s
@@ -222,18 +215,6 @@ export function buildHighway() {
     rail(a, b, (z) => rampX(r, z) + r.side * ((LANE / 2 + 2.4) * RAMP_K + 0.4))
   }
   rail(Z_TOP, Z_FINISH, () => SB_EDGE_OUT + so - SHOULDER_R - 0.4)
-  // cross-road overpasses: a deck on pillars over the whole highway, with parapets and a road on top
-  for (const oz of overpassZs()) {
-    const x0 = SB_EDGE_OUT + so - 16, x1 = paveR(oz) + 30, w = x1 - x0, cx = (x0 + x1) / 2
-    solid.box(cx, 5.6, oz, w, 1.1, 16, [0.58, 0.58, 0.6])
-    solid.box(cx, 6.7, oz - 7.6, w, 0.9, 0.4, [0.62, 0.62, 0.64])
-    solid.box(cx, 6.7, oz + 7.6, w, 0.9, 0.4, [0.62, 0.62, 0.64])
-    asphalt.flat([x0, oz + 7.2], [x1, oz + 7.2], [x1, oz - 7.2], [x0, oz - 7.2], 6.7, ASPH)
-    marks.flat([x0, oz + 0.1], [x1, oz + 0.1], [x1, oz - 0.1], [x0, oz - 0.1], 6.72, YELLOW)
-    const pillars = [SB_EDGE_OUT + so - SHOULDER_R - 3, paveL(oz) - 2.2, paveR(oz) + 2.5]
-    if (so !== 0) pillars.push(SB_EDGE_IN + so + 3)
-    for (const px of pillars) solid.box(px, 0, oz, 1.1, 5.6, 3, [0.6, 0.6, 0.62])
-  }
   // sign gantries (the structure; the faces are drawn with the signs)
   for (const g of gantries()) {
     const xl = g.x0 - 1.4, xr = g.x1 + 1.4
@@ -246,9 +227,8 @@ const FORK_SPAN = 40 / 0.22
 
 /* ================================ signs ================================ */
 /**
- * Real-looking US highway signs, drawn for each stage: overhead guide signs on gantries (with the exit tab, route shields, the direction,
- * the city, the distance, and yellow EXIT ONLY panels with an arrow over each lane), the exit sign in the gore, warning signs for merging
- * traffic and lanes that end, and the speed limit.
+ * Sign boards made to be read at highway speed: a few large words each (the highway, an arrow, which lanes), not the fine print of a
+ * real guide sign. Overhead boards on gantries say which lanes lead where; boards beside the road give early warning.
  */
 type Draw = (g: CanvasRenderingContext2D, W: number, H: number) => void
 interface Sign { x: number; y: number; z: number; w: number; h: number; draw: Draw; post?: 'one' | 'two' }
@@ -257,123 +237,58 @@ const FONT = 'Arial, "Helvetica Neue", Roboto, sans-serif' // (a full-width face
 const GREEN = '#00653a'
 
 function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) { g.beginPath(); g.roundRect(x, y, w, h, r) }
-function fitText(g: CanvasRenderingContext2D, t: string, x: number, y: number, size: number, maxW: number, weight = 800) {
-  g.font = `${weight} ${size}px ${FONT}`
-  const w = g.measureText(t).width
-  if (w > maxW) g.font = `${weight} ${Math.floor((size * maxW) / w)}px ${FONT}`
-  g.fillText(t, x, y)
-}
-/** a route shield: Interstate (red and blue), US route (white, black outline) or state route (white on green) */
-function shield(g: CanvasRenderingContext2D, r: Route, cx: number, cy: number, S: number) {
-  g.save(); g.translate(cx, cy)
-  g.textAlign = 'center'; g.textBaseline = 'middle'
-  if (r.shield === 'I') {
-    const path = () => { g.beginPath(); g.moveTo(-S * 0.5, -S * 0.42); g.quadraticCurveTo(0, -S * 0.56, S * 0.5, -S * 0.42); g.bezierCurveTo(S * 0.55, S * 0.05, S * 0.35, S * 0.38, 0, S * 0.52); g.bezierCurveTo(-S * 0.35, S * 0.38, -S * 0.55, S * 0.05, -S * 0.5, -S * 0.42); g.closePath() }
-    g.fillStyle = '#fff'; path(); g.fill()
-    g.save(); g.scale(0.88, 0.88); path(); g.clip()
-    g.fillStyle = '#003f87'; g.fillRect(-S, -S, 2 * S, 2 * S)
-    g.fillStyle = '#c8102e'; g.fillRect(-S, -S, 2 * S, S * 0.75)
-    g.fillStyle = '#fff'; g.font = `700 ${S * 0.13}px ${FONT}`; g.fillText('INTERSTATE', 0, -S * 0.33)
-    g.restore()
-    g.fillStyle = '#fff'; fitText(g, r.num, 0, S * 0.12, S * 0.46, S * 0.75)
-  } else if (r.shield === 'US') {
-    g.fillStyle = '#000'; roundRect(g, -S * 0.5, -S * 0.5, S, S, S * 0.06); g.fill()
-    const path = () => { g.beginPath(); g.moveTo(-S * 0.42, -S * 0.42); g.lineTo(S * 0.42, -S * 0.42); g.bezierCurveTo(S * 0.46, -S * 0.1, S * 0.38, S * 0.3, 0, S * 0.44); g.bezierCurveTo(-S * 0.38, S * 0.3, -S * 0.46, -S * 0.1, -S * 0.42, -S * 0.42); g.closePath() }
-    g.fillStyle = '#fff'; path(); g.fill()
-    g.fillStyle = '#000'; fitText(g, r.num, 0, -S * 0.02, S * 0.42, S * 0.7)
-  } else {
-    g.fillStyle = '#fff'; roundRect(g, -S * 0.45, -S * 0.45, S * 0.9, S * 0.9, S * 0.2); g.fill()
-    g.fillStyle = GREEN; roundRect(g, -S * 0.38, -S * 0.38, S * 0.76, S * 0.76, S * 0.15); g.fill()
-    g.fillStyle = '#fff'; fitText(g, r.num, 0, S * 0.02, S * 0.4, S * 0.62)
-  }
-  g.restore()
-}
-/** a green guide panel with a white border; an optional exit tab on top (left or right) */
-function panel(g: CanvasRenderingContext2D, W: number, H: number, tab?: { text: string; side: 'left' | 'right'; yellow?: string }) {
-  const tabH = tab ? H * 0.2 : 0
-  const b = Math.max(6, W * 0.012)
-  if (tab) {
-    const tw = W * 0.42, tx = tab.side === 'right' ? W - tw : 0
-    g.fillStyle = GREEN; roundRect(g, tx, 0, tw, tabH + b * 2, b * 2); g.fill()
-    g.strokeStyle = '#fff'; g.lineWidth = b * 0.7; roundRect(g, tx + b * 0.8, b * 0.8, tw - b * 1.6, tabH + b * 2, b * 1.5); g.stroke()
-    g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'; fitText(g, tab.text, tx + tw / 2, tabH * 0.58, tabH * 0.72, tw * 0.85)
-    if (tab.yellow) { // LEFT EXIT: a yellow plate beside the tab
-      const yw = W * 0.3, yx = tab.side === 'left' ? tw + b : W - tw - yw - b
-      g.fillStyle = '#f7c600'; roundRect(g, yx, b, yw, tabH, b); g.fill()
-      g.fillStyle = '#000'; fitText(g, tab.yellow, yx + yw / 2, tabH * 0.58, tabH * 0.65, yw * 0.85)
-    }
-  }
-  g.fillStyle = GREEN; roundRect(g, 0, tabH, W, H - tabH, b * 2); g.fill()
-  g.strokeStyle = '#fff'; g.lineWidth = b * 0.7; roundRect(g, b * 0.8, tabH + b * 0.8, W - b * 1.6, H - tabH - b * 1.6, b * 1.5); g.stroke()
-  return tabH
-}
-/** a white arrow pointing down (over a lane), up (straight on) or up and to one side (an exit) */
+/** a white arrow pointing up (straight on), up and to one side (leaving), or down (over a lane) */
 function arrow(g: CanvasRenderingContext2D, x: number, y: number, S: number, dir: 'down' | 'up' | 'upR' | 'upL', col = '#fff') {
   g.save(); g.translate(x, y)
   g.rotate(dir === 'down' ? Math.PI : dir === 'upR' ? Math.PI / 4 : dir === 'upL' ? -Math.PI / 4 : 0)
   g.fillStyle = col
   g.beginPath()
-  g.moveTo(0, -S * 0.5); g.lineTo(S * 0.32, -S * 0.12); g.lineTo(S * 0.1, -S * 0.12); g.lineTo(S * 0.1, S * 0.5); g.lineTo(-S * 0.1, S * 0.5); g.lineTo(-S * 0.1, -S * 0.12); g.lineTo(-S * 0.32, -S * 0.12)
+  g.moveTo(0, -S * 0.5); g.lineTo(S * 0.36, -S * 0.08); g.lineTo(S * 0.13, -S * 0.08); g.lineTo(S * 0.13, S * 0.5); g.lineTo(-S * 0.13, S * 0.5); g.lineTo(-S * 0.13, -S * 0.08); g.lineTo(-S * 0.36, -S * 0.08)
   g.closePath(); g.fill()
   g.restore()
 }
-/** shield, direction and city stacked in the middle of a guide sign */
-function routeBlock(g: CanvasRenderingContext2D, r: Route, cx: number, top: number, W: number, H: number) {
-  g.textAlign = 'center'; g.textBaseline = 'middle'
-  const S = Math.min(H * 0.44, W * 0.3)
-  // the shield and the direction side by side, centred together; the city below, large
-  g.font = `700 ${S * 0.62}px ${FONT}`
-  const gap = S * 0.15
-  const tw = Math.min(g.measureText(r.dir).width, W * 0.92 - S - gap)
-  const x0 = cx - (S + gap + tw) / 2
-  shield(g, r, x0 + S / 2, top + S * 0.56, S)
-  g.fillStyle = '#fff'; g.textAlign = 'left'; fitText(g, r.dir, x0 + S + gap, top + S * 0.6, S * 0.62, tw)
-  g.textAlign = 'center'; fitText(g, r.city, cx, top + S * 1.5, S * 0.6, W * 0.92, 700)
-  return top + S * 1.9
-}
-/** the yellow EXIT ONLY band at the foot of a guide sign, with an arrow over each lane that must leave */
-function exitOnly(g: CanvasRenderingContext2D, W: number, H: number, lanes: number[], label = 'EXIT ONLY') {
-  const bh = H * 0.24
-  const b = Math.max(6, W * 0.012)
-  g.fillStyle = '#f7c600'; roundRect(g, b * 2, H - bh - b * 2, W - b * 4, bh, b); g.fill()
-  g.fillStyle = '#000'; g.textAlign = 'center'; g.textBaseline = 'middle'
-  const n = lanes.length
-  if (n === 1) {
-    arrow(g, W * 0.18, H - bh / 2 - b * 2, bh * 0.82, 'down', '#000')
-    fitText(g, label, W * 0.55, H - bh / 2 - b * 2, bh * 0.62, W * 0.55)
-  } else {
-    lanes.forEach((_, i) => arrow(g, (W * (i + 0.5)) / n, H - bh / 2 - b * 2, bh * 0.82, 'down', '#000'))
-    // the words go between the arrows
-    if (n === 2) fitText(g, label, W / 2, H - bh / 2 - b * 2, bh * 0.66, W * 0.62)
-    else for (let i = 0; i < n - 1; i++) fitText(g, i % 2 ? 'ONLY' : 'EXIT', (W * (i + 1)) / n, H - bh / 2 - b * 2, bh * 0.55, W / n - bh)
-  }
-  return H - bh - b * 2
-}
-function diamond(text: string[]): Draw {
+interface Line { t: string; size: number; arrow?: 'up' | 'upR' | 'upL' | 'down'; band?: boolean }
+/** a board of a few lines of big text; each line may have an arrow, and a line may sit on a yellow band (EXIT ONLY, which lanes) */
+function board(lines: Line[], color: 'green' | 'yellow' | 'white' = 'green'): Draw {
   return (g, W, H) => {
-    g.fillStyle = '#f7c600'; g.strokeStyle = '#111'; g.lineWidth = W * 0.035
-    g.beginPath(); g.moveTo(W / 2, 2); g.lineTo(W - 2, H / 2); g.lineTo(W / 2, H - 2); g.lineTo(2, H / 2); g.closePath(); g.fill()
-    g.beginPath(); g.moveTo(W / 2, W * 0.06); g.lineTo(W - W * 0.06, H / 2); g.lineTo(W / 2, H - W * 0.06); g.lineTo(W * 0.06, H / 2); g.closePath(); g.stroke()
-    g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'
-    text.forEach((t, i) => fitText(g, t, W / 2, H / 2 + (i - (text.length - 1) / 2) * H * 0.15, H * 0.13, W * 0.56))
+    const b = Math.max(6, Math.min(W, H) * 0.03)
+    const bg = color === 'green' ? GREEN : color === 'yellow' ? '#f7c600' : '#fff'
+    const fg = color === 'green' ? '#fff' : '#111'
+    g.fillStyle = bg; roundRect(g, 0, 0, W, H, b * 2.5); g.fill()
+    g.strokeStyle = fg; g.lineWidth = b * 0.8; roundRect(g, b, b, W - 2 * b, H - 2 * b, b * 1.8); g.stroke()
+    const tot = lines.reduce((a, l) => a + l.size, 0)
+    const inner = H - 4 * b
+    let y = 2 * b
+    g.textBaseline = 'middle'
+    for (const l of lines) {
+      const lh = (inner * l.size) / tot
+      const cy = y + lh / 2
+      let fs = lh * 0.8
+      g.font = `800 ${fs}px ${FONT}`
+      const aw = l.arrow ? fs * 0.95 : 0, gap = l.arrow ? fs * 0.3 : 0
+      let tw = g.measureText(l.t).width
+      const maxW = W - 6 * b
+      if (tw + aw + gap > maxW) { const k = maxW / (tw + aw + gap); fs *= k; tw *= k; g.font = `800 ${fs}px ${FONT}` }
+      const total = tw + (l.arrow ? fs * 1.25 : 0)
+      let x0 = (W - total) / 2
+      if (l.band) { g.fillStyle = '#f7c600'; roundRect(g, 2.4 * b, y + lh * 0.06, W - 4.8 * b, lh * 0.88, b * 1.5); g.fill() }
+      const col = l.band ? '#111' : fg
+      if (l.arrow === 'upL') { arrow(g, x0 + fs * 0.47, cy, fs * 0.95, 'upL', col); x0 += fs * 1.25 }
+      g.fillStyle = col; g.textAlign = 'left'; g.fillText(l.t, x0, cy + fs * 0.04)
+      if (l.arrow && l.arrow !== 'upL') arrow(g, x0 + tw + fs * 0.3 + fs * 0.47, cy, fs * 0.95, l.arrow, col)
+      y += lh
+    }
   }
 }
-const whiteSign = (lines: Array<[string, number]>): Draw => (g, W, H) => {
-  g.fillStyle = '#fff'; roundRect(g, 0, 0, W, H, W * 0.05); g.fill()
-  g.strokeStyle = '#111'; g.lineWidth = W * 0.025; roundRect(g, W * 0.03, W * 0.03, W - W * 0.06, H - W * 0.06, W * 0.04); g.stroke()
-  g.fillStyle = '#111'; g.textAlign = 'center'; g.textBaseline = 'middle'
-  let y = H * 0.08
-  const tot = lines.reduce((a, [, s]) => a + s, 0)
-  for (const [t, sz] of lines) { const hh = (H * 0.84 * sz) / tot; fitText(g, t, W / 2, y + hh / 2, hh * 0.78, W * 0.86); y += hh }
-}
+const nm = (r: Route) => r.name.toUpperCase()
 
 interface Gantry { z: number; x0: number; x1: number }
-/** the two places a decision is signed overhead: 1/2 mile before, and where the lanes part */
+/** the places a decision is signed overhead (every gantry carries boards) */
 function gantries(): Gantry[] {
   const s = HW.s, out: Gantry[] = []
   const take = s.ramps.find((r) => r.take)
-  if (take) for (const z of [take.g + ACC_LEN + 800, take.g + ACC_LEN - TAPER - 30]) out.push({ z, x0: Math.min(NB_EDGE_L - (take.side === -1 ? 5 : 0), paveL(z) + 1), x1: Math.max(NB_EDGE_R + (take.side === 1 ? 5 : 0), paveR(z) - 1) }) // (wide enough for the exit sign beside the road)
-  if (s.fork) for (const z of [s.fork.z + 900, s.fork.z + 260]) out.push({ z, x0: NB_EDGE_L, x1: NB_EDGE_R })
+  if (take) for (const z of [take.g + ACC_LEN + 800, take.g + ACC_LEN - TAPER - 30]) out.push({ z, x0: Math.min(NB_EDGE_L, paveL(z) + 1), x1: Math.max(NB_EDGE_R + 6, paveR(z) - 1) })
+  if (s.fork) for (const z of [s.fork.z + 1100, s.fork.z + 450]) out.push({ z, x0: NB_EDGE_L - 1, x1: NB_EDGE_R + 1 })
   return out
 }
 const laneSpan = (a: number, b: number) => ({ x: (NB_X[a] + NB_X[b]) / 2, w: (b - a + 1) * LANE - 0.5 })
@@ -381,136 +296,68 @@ const laneSpan = (a: number, b: number) => ({ x: (NB_X[a] + NB_X[b]) / 2, w: (b 
 function stageSigns(): Sign[] {
   const s = HW.s
   const out: Sign[] = []
-  const ROAD = s.road
-  const right = (z: number) => paveR(z) + 2.6
-  const left = (z: number) => paveL(z) - 2.6
-  const side = (sd: 1 | -1) => (sd === 1 ? right : left)
-  const guideH = 5.0, gy = 5.4
+  const ROAD = nm(s.road)
+  const right = (z: number) => paveR(z) + 3.2
+  const left = (z: number) => paveL(z) - 3.2
+  const gy = 5.4
 
-  // the entrance you start on: where it leads, the ramp speed, and MERGE where it joins
+  // the entrance you start on: where it leads, and MERGE where it joins
   for (const r of s.ramps.filter((r) => r.player)) {
     const z0 = r.g + r.len
-    const rx = (z: number) => rampX(r, z) + r.side * ((LANE / 2 + 2.4) * RAMP_K + 1.6)
-    out.push({ x: rx(z0 - 90), y: 1.8, z: z0 - 90, w: 3.6, h: 3.0, post: 'two', draw: (g, W, H) => { panel(g, W, H); routeBlock(g, ROAD, W / 2, H * 0.08, W, H) } })
-    out.push({ x: rx(r.g + 160), y: 1.6, z: r.g + 160, w: 2.1, h: 2.1, post: 'one', draw: diamond(['MERGE']) })
+    const rx = (z: number) => rampX(r, z) + (LANE / 2 + 2.4) * RAMP_K + 2.6
+    out.push({ x: rx(z0 - 90), y: 1.8, z: z0 - 90, w: 5.2, h: 2.6, post: 'two', draw: board([{ t: `TO ${ROAD}`, size: 1, arrow: 'up' }]) })
+    out.push({ x: rx(r.g + 300), y: 1.8, z: r.g + 300, w: 4.6, h: 2.2, post: 'two', draw: board([{ t: `${ROAD} AHEAD`, size: 1 }]) })
+    out.push({ x: rx(r.g + 150), y: 1.6, z: r.g + 150, w: 3.4, h: 1.7, post: 'two', draw: board([{ t: 'MERGE', size: 1 }], 'yellow') })
   }
-  // other entrances: a warning for traffic on the highway
+  // other entrances (always on the right): traffic joins
   for (const r of s.ramps.filter((r) => r.kind === 'on' && !r.player)) {
-    out.push({ x: side(r.side)(r.g + 380), y: 1.6, z: r.g + 380, w: 2.1, h: 2.1, post: 'one', draw: diamond(['MERGING', 'TRAFFIC']) })
-    out.push({ x: rampX(r, r.g + 200) + r.side * 6, y: 1.6, z: r.g + 200, w: 2.1, h: 2.1, post: 'one', draw: diamond(['MERGE']) })
+    out.push({ x: right(r.g + 380), y: 1.6, z: r.g + 380, w: 4.2, h: 2.8, post: 'two', draw: board([{ t: 'TRAFFIC', size: 1 }, { t: 'JOINING', size: 1 }], 'yellow') })
+    out.push({ x: rampX(r, r.g + 200) + 6, y: 1.6, z: r.g + 200, w: 3.4, h: 1.7, post: 'two', draw: board([{ t: 'MERGE', size: 1 }], 'yellow') })
   }
-  // exits
-  for (const r of s.ramps.filter((r) => r.kind === 'off')) {
-    const label = `EXIT ${r.exit}`
-    const tabSide = r.side === 1 ? 'right' : 'left'
-    const yellow = r.side === -1 ? 'LEFT' : undefined
-    const dest = r.to ? routeId(r.to) + ' ' + r.to.dir : r.name ?? ''
-    if (!r.take) {
-      // a local exit: a big sign beside the road 1/2 mile and 1/4 mile before
-      for (const [dz, dist] of [[800, '1/2 MILE'], [400, '1/4 MILE']] as const) {
-        const z = r.g + ACC_LEN + dz
-        if (z > Z_TOP - 20) continue
-        out.push({ x: side(r.side)(z) + r.side * 2.6, y: 2.0, z, w: 7.4, h: 4.6, post: 'two', draw: (g, W, H) => {
-          const t = panel(g, W, H, { text: label, side: tabSide, yellow })
-          g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'
-          fitText(g, dest, W / 2, t + (H - t) * 0.36, (H - t) * 0.36, W * 0.9)
-          fitText(g, dist, W / 2, t + (H - t) * 0.75, (H - t) * 0.26, W * 0.7)
-        } })
-      }
-    }
-    // the exit sign in the gore, where the ramp leaves
-    const zg = r.g - 200
-    const gx = ((r.side === 1 ? edgeR(zg) + SHOULDER_R : edgeL(zg) - NB_SHOULDER_L) + rampX(r, zg) - r.side * (LANE / 2 + 1.2) * RAMP_K) / 2
-    out.push({ x: gx, y: 1.6, z: zg, w: 2.6, h: 1.8, post: 'two', draw: (g, W, H) => {
-      panel(g, W, H)
-      g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'
-      fitText(g, 'EXIT', W * 0.5, H * 0.3, H * 0.3, W * 0.6)
-      fitText(g, String(r.exit), W * 0.5, H * 0.66, H * 0.34, W * 0.6)
-      arrow(g, r.side === 1 ? W * 0.84 : W * 0.16, H * 0.5, H * 0.5, r.side === 1 ? 'upR' : 'upL')
-    } })
-    // the exit you are to take: overhead signs (1/2 mile before, and over the exit lane where it begins)
-    if (r.take) {
-      const [g1, g2] = gantries()
-      const edgeLane = r.side === 1 ? NL - 1 : 0
-      const sp = laneSpan(edgeLane, edgeLane)
-      const auxX = r.side === 1 ? NB_X[NL - 1] + LANE : NB_X[0] - LANE
-      const drawDest = (g: CanvasRenderingContext2D, W: number, _H: number, top: number, bottom: number) => {
-        if (r.to) return routeBlock(g, r.to, W / 2, top + (bottom - top) * 0.04, W, (bottom - top) * 1.05)
-        g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'
-        fitText(g, dest, W / 2, top + (bottom - top) * 0.4, (bottom - top) * 0.32, W * 0.86)
-        return 0
-      }
-      // 1/2 mile: over the right (or left) lane, with the distance
-      out.push({ x: sp.x + r.side * 1.6, y: gy, z: g1.z, w: 7.2, h: guideH + 0.8, draw: (g, W, H) => {
-        const t = panel(g, W, H, { text: label, side: tabSide, yellow })
-        drawDest(g, W, H, t, H * 0.78)
-        g.fillStyle = '#fff'; fitText(g, '1/2 MILE', W / 2, H * 0.88, H * 0.12, W * 0.6)
-      } })
-      // and what the highway itself leads to, over the other lanes
-      const thru = r.side === 1 ? laneSpan(0, NL - 2) : laneSpan(1, NL - 1)
-      out.push({ x: thru.x - r.side * 0.8, y: gy, z: g1.z, w: 8.2, h: guideH * 0.8, draw: (g, W, H) => { panel(g, W, H); routeBlock(g, ROAD, W / 2, H * 0.08, W, H * 0.98) } })
-      // where the exit lane begins: EXIT ONLY over it
-      out.push({ x: auxX, y: gy, z: g2.z, w: 6.4, h: guideH + 1.4, draw: (g, W, H) => {
-        const t = panel(g, W, H, { text: label, side: tabSide, yellow })
-        const bot = exitOnly(g, W, H, [0])
-        drawDest(g, W, H, t, bot)
-      } })
-      out.push({ x: thru.x - r.side * 0.8, y: gy, z: g2.z, w: 8.2, h: guideH * 0.85, draw: (g, W, H) => {
-        panel(g, W, H)
-        const n = NL - 1
-        const bot = routeBlock(g, ROAD, W / 2, H * 0.04, W, H * 0.68)
-        for (let i = 0; i < n; i++) arrow(g, (W * (i + 0.5)) / n, (bot + H) / 2 - H * 0.02, H * 0.24, 'down')
-      } })
-    }
+  // the exit to the next highway (always on the right)
+  const take = s.ramps.find((r) => r.take)
+  if (take) {
+    const TO = nm(take.to!)
+    const [g1, g2] = gantries()
+    const early = take.g + ACC_LEN + 1500
+    if (early < Z_TOP - 40) out.push({ x: right(early) + 1, y: 2.0, z: early, w: 8, h: 4.2, post: 'two', draw: board([{ t: `EXIT TO ${TO}`, size: 1 }, { t: '1 MILE', size: 0.8 }]) })
+    const others = laneSpan(0, NL - 2)
+    // half a mile: over the right lane (and out over the shoulder), and the highway itself over the other lanes
+    out.push({ x: NB_X[NL - 1] + 2.2, y: gy, z: g1.z, w: 9.2, h: 5.8, draw: board([{ t: TO, size: 1.5, arrow: 'upR' }, { t: 'EXIT · RIGHT LANE', size: 1.1, band: true }]) })
+    out.push({ x: others.x - 1.2, y: gy + 1.2, z: g1.z, w: 7.6, h: 3.4, draw: board([{ t: ROAD, size: 1, arrow: 'up' }]) })
+    // where the exit lane begins: over it
+    out.push({ x: NB_X[NL - 1] + LANE + 0.6, y: gy, z: g2.z, w: 8.4, h: 5.8, draw: board([{ t: TO, size: 1.5, arrow: 'upR' }, { t: 'EXIT ONLY', size: 1.1, band: true }]) })
+    out.push({ x: others.x - 0.6, y: gy + 1.2, z: g2.z, w: 7.6, h: 3.4, draw: board([{ t: ROAD, size: 1, arrow: 'up' }]) })
+    // and where the ramp leaves
+    const zg = take.g - 200
+    const gx = (edgeR(zg) + SHOULDER_R + rampX(take, zg) - (LANE / 2 + 1.2) * RAMP_K) / 2
+    out.push({ x: gx, y: 1.6, z: zg, w: 3.6, h: 1.9, post: 'two', draw: board([{ t: 'EXIT', size: 1, arrow: 'upR' }]) })
   }
-  // the split: overhead signs for both branches; the branch that leaves the highway is EXIT ONLY
+  // the lanes that split off to the next highway: the left-most 2 or the right-most 2
   if (s.fork) {
-    const fk = s.fork
-    const [g1, g2] = gantries().slice(-2)
-    const L = laneSpan(0, fk.split - 1), Rr = laneSpan(fk.split, NL - 1)
-    const lanesL = Array.from({ length: fk.split }, (_, i) => i), lanesR = Array.from({ length: NL - fk.split }, (_, i) => fk.split + i)
-    for (const [gz, dist] of [[g1.z, true], [g2.z, false]] as const) {
-      for (const [br, sp, lanes, side] of [[fk.left, L, lanesL, 'left'], [fk.right, Rr, lanesR, 'right']] as const) {
-        const only = fk.exitOnly === side
-        out.push({ x: sp.x, y: gy, z: gz, w: Math.max(sp.w, 7.2), h: guideH + (only ? 1.6 : 0), draw: (g, W, H) => {
-          const t = only ? panel(g, W, H, { text: `EXIT ${30 + (s.id % 50)}`, side: side === 'right' ? 'right' : 'left', yellow: side === 'left' ? 'LEFT' : undefined }) : panel(g, W, H)
-          const bot = only ? exitOnly(g, W, H, lanes as number[]) : H
-          const end = routeBlock(g, br, W / 2, t + (bot - t) * 0.03, W, (bot - t) * (dist ? 0.82 : only ? 0.95 : 0.7))
-          g.fillStyle = '#fff'; g.textAlign = 'center'; g.textBaseline = 'middle'
-          if (dist) fitText(g, '1/2 MILE', W / 2, (end + bot) / 2, (bot - end) * 0.55, W * 0.6)
-          else if (!only) (lanes as number[]).forEach((_, i) => arrow(g, (W * (i + 0.5)) / lanes.length, (end + bot) / 2, Math.max(H * 0.16, (bot - end) * 0.8), 'down'))
-        } })
-      }
+    const f = s.fork
+    const leftSide = f.want === 'left'
+    const TO = nm(leftSide ? f.left : f.right)
+    const SIDE = leftSide ? 'LEFT 2 LANES' : 'RIGHT 2 LANES'
+    const mine = leftSide ? laneSpan(0, 1) : laneSpan(NL - 2, NL - 1)
+    const rest = leftSide ? laneSpan(2, NL - 1) : laneSpan(0, NL - 3)
+    const early = f.z + 1700
+    if (early < Z_TOP - 40) out.push({ x: leftSide ? left(early) - 1 : right(early) + 1, y: 2.0, z: early, w: 8, h: 4.8, post: 'two', draw: board([{ t: TO, size: 1.3 }, { t: SIDE, size: 0.8 }, { t: '1 MILE', size: 0.7 }]) })
+    for (const gz of gantries().slice(-2).map((g) => g.z)) {
+      out.push({ x: mine.x + (leftSide ? -0.4 : 0.4), y: gy, z: gz, w: 9.2, h: 5.8, draw: board([{ t: TO, size: 1.5, arrow: leftSide ? 'upL' : 'upR' }, { t: SIDE, size: 1.1, band: true }]) })
+      out.push({ x: rest.x, y: gy + 1.2, z: gz, w: 7.6, h: 3.4, draw: board([{ t: ROAD, size: 1, arrow: 'up' }]) })
     }
   }
-  // a lane that ends
-  if (s.drop) {
-    const d = s.drop
-    const word = d.side === 1 ? 'RIGHT' : 'LEFT'
-    const other = d.side === 1 ? 'LEFT' : 'RIGHT'
-    const at = side(d.side)
-    out.push({ x: at(d.z0 + 700), y: 1.6, z: d.z0 + 700, w: 2.2, h: 2.2, post: 'one', draw: diamond([word, 'LANE', 'ENDS']) })
-    out.push({ x: at(d.z0 + 400), y: 1.6, z: d.z0 + 400, w: 2.4, h: 2.8, post: 'two', draw: whiteSign([[`${word} LANE`, 1], ['ENDS', 1], [`MERGE ${other}`, 1]]) })
-    out.push({ x: at(d.z0 + 150), y: 1.6, z: d.z0 + 150, w: 2.2, h: 2.2, post: 'one', draw: diamond(['LANE', 'ENDS', `MERGE ${other}`]) })
-  }
-  // speed limits, KEEP RIGHT, and a shield to tell you which highway you are on
+  // speed limits, KEEP RIGHT, and which highway you are on
+  const clearRight = (z: number) => !s.ramps.some((r) => z < rampZ0(r) + 40 && z > rampZ1(r) - 40)
   for (let z = 900; z > Z_FINISH + 200; z -= 1100) {
-    if (s.ramps.some((r) => r.side === 1 && z < rampZ0(r) + 40 && z > rampZ1(r) - 40)) continue
-    out.push({ x: right(z), y: 1.6, z, w: 1.4, h: 1.75, post: 'one', draw: whiteSign([['SPEED', 1], ['LIMIT', 1], ['70', 2.3]]) })
+    if (!clearRight(z)) continue
+    out.push({ x: right(z), y: 1.6, z, w: 1.8, h: 2.3, post: 'one', draw: board([{ t: 'SPEED', size: 0.7 }, { t: 'LIMIT', size: 0.7 }, { t: '70', size: 1.6 }], 'white') })
   }
-  {
-    const z = 300
-    if (!s.ramps.some((r) => r.side === 1 && z < rampZ0(r) + 40 && z > rampZ1(r) - 40)) out.push({ x: right(z), y: 1.6, z, w: 1.5, h: 1.9, post: 'one', draw: whiteSign([['SLOWER', 1], ['TRAFFIC', 1], ['KEEP', 1], ['RIGHT', 1]]) })
-  }
+  if (clearRight(300)) out.push({ x: right(300), y: 1.6, z: 300, w: 3.2, h: 2.4, post: 'two', draw: board([{ t: 'KEEP RIGHT', size: 1 }, { t: 'EXCEPT TO PASS', size: 0.8 }], 'white') })
   for (const z of [s.start.z - 350, -1100]) {
-    if (s.ramps.some((r) => r.side === 1 && z < rampZ0(r) + 40 && z > rampZ1(r) - 40)) continue
-    if (z > Z_TOP - 50 || z < Z_FINISH + 100) continue
-    out.push({ x: right(z), y: 1.6, z, w: 1.3, h: 1.6, post: 'one', draw: (g, W, H) => {
-      g.fillStyle = '#fff'; g.fillRect(0, 0, W, H * 0.3)
-      g.fillStyle = '#000'; g.textAlign = 'center'; g.textBaseline = 'middle'; fitText(g, ROAD.dir, W / 2, H * 0.16, H * 0.2, W * 0.9)
-      g.fillStyle = '#fff'; g.fillRect(0, H * 0.3, W, H * 0.7)
-      shield(g, ROAD, W / 2, H * 0.65, Math.min(W, H * 0.68))
-    } })
+    if (!clearRight(z) || z > Z_TOP - 50 || z < Z_FINISH + 100) continue
+    out.push({ x: right(z), y: 1.8, z, w: 3.2, h: 2.0, post: 'two', draw: board([{ t: ROAD, size: 1 }]) })
   }
   return out
 }

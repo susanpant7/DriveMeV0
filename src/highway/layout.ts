@@ -47,7 +47,8 @@ export const AUX_X = (side: 1 | -1) => (side === 1 ? NB_X[NL - 1] + LANE : NB_X[
 /* ------------------------------------------------------------------ */
 /* What a stage is made of                                             */
 /* ------------------------------------------------------------------ */
-export interface Route { shield: 'I' | 'US' | 'SR'; num: string; dir: 'NORTH' | 'SOUTH' | 'EAST' | 'WEST'; city: string }
+/** a highway, by its number in the practice (H1, H2, ...), or the city (the Mixed course's way off the highway) */
+export interface Route { name: string; n: number }
 export interface Ramp {
   kind: 'on' | 'off'
   side: 1 | -1
@@ -86,11 +87,12 @@ export interface Stage {
   start: { x: number; z: number; h: number }
   /** Mixed course: the last exit leads back into the city */
   mixed: boolean
+  /** how the stage ends: lanes that split off to the next highway, or an exit; and where that leads */
+  final: 'fork' | 'exit'
+  to: Route
 }
 
-const cap = (s: string) => s[0] + s.slice(1).toLowerCase()
-export const routeId = (r: Route) => `${r.shield === 'SR' ? 'SR' : r.shield}-${r.num}`
-export const routeName = (r: Route) => `${routeId(r)} ${cap(r.dir)}`
+export const routeName = (r: Route) => r.name
 
 export const HW = { s: null as unknown as Stage }
 
@@ -106,8 +108,22 @@ const curve = (u: number) => {
   // a gentle easing curve where the ramp straightens into the extra lane, then the straight diagonal: no kink where they meet
   return u < RAMP_EASE ? (t * u * u) / (2 * RAMP_EASE) : t * (u - RAMP_EASE / 2)
 }
+/**
+ * The long ramps (the one you start on, the exit you take) run straight for their last stretch, parallel to the highway: the end of an
+ * exit ramp and the start of the next highway's entrance ramp then line up, and you drive from one onto the other without stopping.
+ */
+const END_ST = 120, END_E = 150
+function rampCurve(r: Ramp, u: number) {
+  if (r.len < START_LEN || u <= 0) return curve(u)
+  const A = r.len - END_ST - END_E
+  if (u <= A) return curve(u)
+  const t = Math.tan(RAMP_ANGLE)
+  const slope = A < RAMP_EASE ? (t * A) / RAMP_EASE : t
+  const v = Math.min(u - A, END_E)
+  return curve(A) + slope * (v - (v * v) / (2 * END_E)) // the heading eases back to straight, then stays straight
+}
 /** x of the centre of the ramp's lane at z (the extra lane beside the highway, then the ramp curving away) */
-export const rampX = (r: Ramp, z: number) => AUX_X(r.side) + r.side * curve(rampU(r, z))
+export const rampX = (r: Ramp, z: number) => AUX_X(r.side) + r.side * rampCurve(r, rampU(r, z))
 export const rampHeading = (r: Ramp, z: number) => Math.atan2(rampX(r, z + 0.5) - rampX(r, z - 0.5), 1)
 /** the stretch of z a ramp occupies (upstream end first) */
 export const rampZ0 = (r: Ramp) => (r.kind === 'on' ? r.g + r.len : r.g + ACC_LEN)
@@ -233,91 +249,53 @@ export function recoverPose(x: number, z: number) {
 /* ------------------------------------------------------------------ */
 /* Building stages                                                     */
 /* ------------------------------------------------------------------ */
-const ROADS: Array<[Route['shield'], string, Route['dir'], string, Route['dir'], string]> = [
-  ['I', '80', 'WEST', 'San Francisco', 'EAST', 'Reno'],
-  ['I', '5', 'NORTH', 'Redding', 'SOUTH', 'Los Angeles'],
-  ['US', '101', 'NORTH', 'Eureka', 'SOUTH', 'San Jose'],
-  ['US', '50', 'EAST', 'Lake Tahoe', 'WEST', 'Sacramento'],
-  ['I', '280', 'NORTH', 'Daly City', 'SOUTH', 'Cupertino'],
-  ['SR', '99', 'SOUTH', 'Fresno', 'NORTH', 'Chico'],
-  ['I', '580', 'EAST', 'Stockton', 'WEST', 'Oakland'],
-  ['I', '10', 'EAST', 'Phoenix', 'WEST', 'Santa Monica'],
-]
-const STREETS = ['Elm St', 'Riverside Dr', 'Airport Blvd', 'Main St', 'Lake Rd', 'Oak Ave', 'Mill Rd', 'Harbor Blvd', 'College Ave', 'Pine St', 'Canyon Rd', 'Market St']
+export const hwRoute = (n: number): Route => ({ name: `H${n}`, n })
+export const CITY: Route = { name: 'City Centre', n: 0 }
+export const MIXED_ROAD = hwRoute(1)
+export const LANE_NAMES = ['left lane', 'second lane from the left', 'centre lane', 'second lane from the right', 'right lane']
 const rnd = (n: number) => Math.floor(Math.random() * n)
 const pick = <T,>(a: T[]) => a[rnd(a.length)]
-/** a highway other than these */
-export function pickRoute(...not: Array<Route | undefined>): Route {
-  for (;;) {
-    const r = pick(ROADS)
-    if (not.some((n) => n && n.num === r[1])) continue
-    return rnd(2) ? { shield: r[0], num: r[1], dir: r[2], city: r[3] } : { shield: r[0], num: r[1], dir: r[4], city: r[5] }
-  }
-}
-export const MIXED_ROAD: Route = { shield: 'I', num: '5', dir: 'NORTH', city: 'Redding' }
-export const LANE_NAMES = ['left lane', 'second lane from the left', 'centre lane', 'second lane from the right', 'right lane']
 
 let stageId = 0
 /**
- * A new stage of `road`. entry: 'main' = already on the highway; 'rampR' / 'rampL' = on an entrance ramp that joins from the right / left.
- * Along it: something every kilometre or so (an entrance, an exit to pass, a lane to move to), ending with a decision (a split, an exit to
- * take, a lane that ends).
+ * A new stage of `road`.
+ * entry 'ramp': you join it from an entrance on the right (merge); 'main': you are already on it.
+ * final 'fork': it ends where its left-most or right-most two lanes split off to the next highway (`to`); 'exit': it ends at an exit on
+ * the right that leads to the next highway's entrance. Along the way: entrances (traffic joining, always from the right) and "move to a
+ * lane" tasks that lead towards the lanes you will need.
  */
-export function makeStage(road: Route, entry: 'main' | 'rampR' | 'rampL', mixed = false): Stage {
-  const s: Stage = { id: ++stageId, road, ramps: [], fork: null, drop: null, tasks: [], sbOff: 0, zEnd: 0, start: { x: NB_X[2], z: SPAWN_Z, h: 0 }, mixed }
-  let exitNo = 10 + rnd(70)
+export function makeStage(road: Route, entry: 'ramp' | 'main', final: 'fork' | 'exit', to: Route, mixed = false): Stage {
+  const s: Stage = { id: ++stageId, road, ramps: [], fork: null, drop: null, tasks: [], sbOff: 0, zEnd: 0, start: { x: NB_X[2], z: SPAWN_Z, h: 0 }, mixed, final, to }
   const slots = entry === 'main' ? [450, -550, -1550] : [-650, -1650]
-  if (entry !== 'main') {
-    const side = entry === 'rampR' ? 1 : -1
-    const r: Ramp = { kind: 'on', side, g: START_G, len: START_LEN, player: true }
-    s.ramps.push(r)
+  if (entry === 'ramp') {
+    s.ramps.push({ kind: 'on', side: 1, g: START_G, len: START_LEN, player: true })
     s.tasks.push({ k: 'merge', ramp: 0 })
-    if (side === -1) s.sbOff = -90
   }
   const finalG = slots.pop()!
-  // the decision at the end of the stage
-  const final = mixed ? 'exitR' : (['fork', 'fork', 'fork', 'exitR', 'exitR', 'exitR', 'exitL', 'dropR', 'dropL'] as const)[rnd(9)]
-  // a split: worked out first, so a "move to a lane" task along the way already leads towards the branch you want
-  const split = rnd(2) ? 2 : 3
-  const forkWant: 'left' | 'right' = rnd(2) ? 'left' : 'right'
-  // things along the way
+  const forkSide: 'left' | 'right' = rnd(2) ? 'left' : 'right'
+  // the lanes a "move to a lane" task may ask for: on the side you will need at the end
+  const ok = final === 'exit' || forkSide === 'right' ? [2, 3, 4] : [0, 1, 2]
   for (const G of slots) {
-    const what = (mixed ? ['on', 'off'] : ['on', 'off', 'lane', 'lane'])[rnd(mixed ? 2 : 4)]
-    if (what === 'on') s.ramps.push({ kind: 'on', side: 1, g: G, len: 320 })
-    else if (what === 'off') s.ramps.push({ kind: 'off', side: 1, g: G, len: 420, exit: String(exitNo++), name: pick(STREETS) })
+    if (rnd(3) === 0) s.ramps.push({ kind: 'on', side: 1, g: G, len: 320 }) // an entrance: traffic joins from the right
     else {
-      // (not right across the road just before an exit or a lane that ends on the other side)
-      const ok = final === 'exitR' || final === 'dropL' ? [2, 3, 4] : final === 'exitL' || final === 'dropR' ? [0, 1, 2]
-        : forkWant === 'left' ? Array.from({ length: split }, (_, i) => i) : Array.from({ length: NL - split }, (_, i) => split + i)
       const last = [...s.tasks].reverse().find((t) => t.k === 'lane') as { lane: number } | undefined
-      const lane = pick(ok.length > 1 && last ? ok.filter((k) => k !== last.lane) : ok) // (never the same lane twice in a row)
+      const lane = pick(last ? ok.filter((k) => k !== last.lane) : ok) // (never the same lane twice in a row)
       s.tasks.push({ k: 'lane', z0: G + 450, z1: G - 250, lane, name: LANE_NAMES[lane] })
     }
   }
   if (final === 'fork') {
-    const other = pickRoute(road)
-    const cont = rnd(5) < 3 ? road : pickRoute(road, other)
-    const [left, right] = rnd(2) ? [cont, other] : [other, cont]
-    // EXIT ONLY marks the branch that leaves this highway (the one that is not its continuation; if neither is, the smaller one)
-    const exitOnly: 'left' | 'right' = left === road ? 'right' : right === road ? 'left' : split === 2 ? 'left' : 'right'
-    s.fork = { z: finalG, split, left, right, want: forkWant, exitOnly }
+    // the left-most 2 lanes or the right-most 2 lanes become the next highway; the others carry on as this one
+    const split = forkSide === 'left' ? 2 : 3
+    const [left, right] = forkSide === 'left' ? [to, road] : [road, to]
+    s.fork = { z: finalG, split, left, right, want: forkSide, exitOnly: forkSide }
     s.tasks.push({ k: 'fork' })
     s.zEnd = finalG - 650
-  } else if (final === 'exitR' || final === 'exitL') {
-    const side = final === 'exitR' ? 1 : -1
-    const r: Ramp = mixed
-      ? { kind: 'off', side, g: finalG, len: START_LEN, exit: '12', name: 'City Centre', take: true }
-      : { kind: 'off', side, g: finalG, len: START_LEN, exit: `${exitNo}${'AB'[rnd(2)]}`, to: pickRoute(road), take: true }
-    s.ramps.push(r)
+  } else {
+    s.ramps.push({ kind: 'off', side: 1, g: finalG, len: START_LEN, exit: '', to, take: true })
     s.tasks.push({ k: 'exit', ramp: s.ramps.length - 1 })
     s.zEnd = finalG - 650
-    if (side === -1) s.sbOff = -90
-  } else if (final === 'dropR' || final === 'dropL') {
-    s.drop = { side: final === 'dropR' ? 1 : -1, z0: finalG, z1: finalG - 200 }
-    s.tasks.push({ k: 'drop' })
-    s.zEnd = finalG - 700
-  } else s.zEnd = finalG - 300
-  if (entry !== 'main') {
+  }
+  if (entry === 'ramp') {
     const r = s.ramps[0]
     const z = r.g + r.len
     const prev = HW.s
@@ -327,5 +305,7 @@ export function makeStage(road: Route, entry: 'main' | 'rampR' | 'rampL', mixed 
   }
   return s
 }
-HW.s = makeStage(pickRoute(), 'rampR')
-if (typeof window !== 'undefined') Object.assign(window, { __hwL: { rampX, rampU, forkShift, laneAt, nearestLane, splitX, dropLane, AUX_X, NB_X, ACC_LEN } })
+/** the first stage of a practice: onto H1 from its entrance, then the lanes that split off to H2 */
+export const firstStage = () => makeStage(hwRoute(1), 'ramp', 'fork', hwRoute(2))
+HW.s = firstStage()
+if (typeof window !== 'undefined') Object.assign(window, { __hwL: { makeStage, hwRoute, rampX, rampU, forkShift, laneAt, nearestLane, splitX, dropLane, AUX_X, NB_X, ACC_LEN } })

@@ -3,7 +3,7 @@ import { armClosed, noTurnOnRed, arrowPhase, streetLimit, resStyle, PARKED, jLan
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
-import { HW, MIXED_ROAD, NL, SPAWN_Z, FORK_MAX, FORK_SLOPE, ACC_LEN, dropLane, forkShift, laneAt, makeStage, nearestLane, pickRoute, rampNear, rampU, routeName, splitX, unshiftX, onRoad as hwOnRoad, recoverPose, startPose, type Route, type Stage } from '../highway/layout'
+import { HW, CITY, MIXED_ROAD, NL, firstStage, hwRoute, SPAWN_Z, FORK_MAX, FORK_SLOPE, ACC_LEN, dropLane, forkShift, laneAt, makeStage, nearestLane, rampHeading, rampNear, rampX, type Ramp, rampU, routeName, splitX, unshiftX, onRoad as hwOnRoad, recoverPose, startPose, type Route, type Stage } from '../highway/layout'
 import { initHighwayTraffic, resetJoins, setHighwayCount, shiftHighwayTraffic, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, setTrafficTarget, whyStuck, junctionBusy, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
@@ -158,7 +158,7 @@ let fadeId = 0
 /** Mixed course: from the end of the town's on-ramp onto the highway (the highway's own on-ramp, merge first) */
 function enterHighway() {
   useGame.setState({ leg: 'highway', fade: { id: ++fadeId, text: routeName(MIXED_ROAD), sub: 'Build up speed on the ramp, then merge' } })
-  resetSim(true, makeStage(MIXED_ROAD, 'rampR', true))
+  resetSim(true, makeStage(MIXED_ROAD, 'ramp', 'exit', CITY, true))
 }
 /** Mixed course: off the highway exit and back into the city (the route then leads through the residential district again) */
 function leaveHighway() {
@@ -191,7 +191,11 @@ function continueHighway(road: Route) {
   const dz = SPAWN_Z - z
   shiftHighwayTraffic(dz, (x, cz) => !f || (x > sx + sh(cz) / 2) === meRight)
   const baseX = unshiftX(sim.x, z)
-  HW.s = makeStage(road, 'main', mixedHw())
+  // what comes next: after taking the lanes to the next highway, an exit off it (to the one after); if you stayed on this highway
+  // (missed the split, or the exit), the same thing again further on
+  const s = HW.s
+  const took = road !== s.road
+  HW.s = took ? makeStage(road, 'main', 'exit', s.mixed ? CITY : hwRoute(road.n + 1), s.mixed) : makeStage(road, 'main', s.final, s.to, s.mixed)
   resetJoins()
   sim.z = SPAWN_Z
   sim.x = Math.max(-1, Math.min(15.5, baseX))
@@ -201,13 +205,33 @@ function continueHighway(road: Route) {
   hw.lane = laneAt(sim.x, sim.z)
   hw.alertT = sim.t // (no lane-change alerts in the moment the stage changes over)
   useGame.setState((st) => ({ hwType: routeName(road), hwVersion: st.hwVersion + 1 }))
-  say(`You are on ${routeName(road)}`, 'info')
+  say(took ? `You are on ${routeName(road)}. Next: the exit to ${routeName(HW.s.to)}` : `Still on ${routeName(road)}: try again for ${routeName(HW.s.to)}`, 'info')
+}
+/**
+ * From the end of the exit ramp straight onto the next highway's entrance ramp, without stopping: both run straight there, so you carry
+ * on at the same speed, in the same place in your lane; the new highway is built around you and its traffic starts up.
+ */
+function rampHandover(r: Ramp, to: Route) {
+  const off = sim.x - rampX(r, sim.z)
+  const dh = sim.h - rampHeading(r, sim.z)
+  HW.s = makeStage(to, 'ramp', 'fork', hwRoute(to.n + 1), mixedHw())
+  const nr = HW.s.ramps[0]
+  const z = nr.g + nr.len - 15
+  sim.z = z
+  sim.x = rampX(nr, z) + off
+  sim.h = rampHeading(nr, z) + dh
+  resetHwState()
+  hw.lane = laneAt(sim.x, sim.z)
+  hw.alertT = sim.t
+  initHighwayTraffic(sim.z, sim.x)
+  resetJoins()
+  useGame.setState((st) => ({ hwType: routeName(to), hwVersion: st.hwVersion + 1 }))
+  say(`Onto the ramp for ${routeName(to)}: build up speed and merge`, 'info')
 }
 /** Off an exit onto another highway: its on-ramp (a short fade while you get there) */
 function goToHighway(road: Route, how: string) {
-  const entry = Math.random() < 0.25 ? 'rampL' : 'rampR'
-  useGame.setState({ fade: { id: ++fadeId, text: routeName(road), sub: how + (entry === 'rampL' ? ' · this entrance joins on the LEFT' : '') } })
-  resetSim(true, makeStage(road, entry, mixedHw()))
+  useGame.setState({ fade: { id: ++fadeId, text: routeName(road), sub: how } })
+  resetSim(true, makeStage(road, 'ramp', 'fork', hwRoute(road.n + 1), mixedHw()))
 }
 
 /** Returns true when the run ended (game over). */
@@ -254,7 +278,7 @@ function trackHighway(): boolean {
       if (r.kind === 'off' && rampU(r, z) > 50 && ((r.side === 1 && pl === NL) || (r.side === -1 && pl === -1))) {
         hw.offRamp = k
         const t = s.tasks.findIndex((t) => t.k === 'exit' && t.ramp === k)
-        if (t >= 0) { hw.done[t] = true; good(`Took exit ${r.exit}`) }
+        if (t >= 0) { hw.done[t] = true; good(`Took the exit to ${routeName(r.to!)}`) }
         else say(`That was not your exit: you have left ${routeName(s.road)}`, 'warn')
         break
       }
@@ -264,9 +288,9 @@ function trackHighway(): boolean {
     const r = s.ramps[hw.offRamp]
     banner(r.take ? 'Follow the exit ramp' : 'Off the highway', r.take ? `Slow down for the ramp${r.to ? ` · to ${routeName(r.to)}` : ''}` : `Back onto ${routeName(s.road)} at the next entrance`, 'S', z - (r.g - r.len))
     if (sim.signal !== 0 && rampU(r, z) > 250 && !hw.sigWarned) { hw.sigWarned = true; say('Turn your indicator off.', 'warn') }
-    if (rampU(r, z) > r.len - 260) {
-      if (r.take && s.mixed) { leaveHighway(); return false }
-      if (r.take && r.to) { goToHighway(r.to, 'Merge onto the highway'); return false }
+    if (r.take && s.mixed && rampU(r, z) > r.len - 260) { leaveHighway(); return false }
+    if (r.take && r.to && rampU(r, z) > r.len - 60) { rampHandover(r, r.to); return false }
+    if (!r.take && rampU(r, z) > r.len - 260) {
       goToHighway(s.road, `Back onto ${routeName(s.road)}`)
       return false
     }
@@ -305,19 +329,19 @@ function trackHighway(): boolean {
     }
     if (t.k === 'exit') {
       const r = s.ramps[t.ramp]
-      const dest = r.to ? routeName(r.to) : r.name ?? ''
+      const dest = r.to ? routeName(r.to) : ''
       const sd = r.side === 1 ? 'right' : 'left'
       if (z > r.g + ACC_LEN + 1300) continue // too far off to mention yet
       const u = rampU(r, z)
       if (u < -ACC_LEN) {
         const edge = r.side === 1 ? NL - 1 : 0
-        banner(`Exit ${r.exit}: ${dest}`, r.side === -1 ? `LEFT exit: move to the left lane (${pl === edge ? 'you are in it' : `${Math.abs(pl - edge)} to go`})` : `Move to the right lane (${pl === edge ? 'you are in it' : `${Math.abs(pl - edge)} to go`})`, r.side === 1 ? 'R' : 'L', z - r.g)
+        banner(`Exit to ${dest}`, r.side === -1 ? `LEFT exit: move to the left lane (${pl === edge ? 'you are in it' : `${Math.abs(pl - edge)} to go`})` : `Move to the right lane (${pl === edge ? 'you are in it' : `${Math.abs(pl - edge)} to go`})`, r.side === 1 ? 'R' : 'L', z - r.g)
       } else if (u < 50) {
-        banner(`Exit ${r.exit}: ${dest}`, (r.side === 1 ? pl === NL : pl === -1) ? 'Stay in the exit lane' : `Signal ${sd} into the exit lane`, r.side === 1 ? 'R' : 'L', z - r.g)
+        banner(`Exit to ${dest}`, (r.side === 1 ? pl === NL : pl === -1) ? 'Stay in the exit lane' : `Signal ${sd} into the exit lane`, r.side === 1 ? 'R' : 'L', z - r.g)
       } else {
         // the exit has gone by and you are still on the highway
         hw.done[ti] = true
-        say(s.mixed ? 'You missed the exit. Take the next one: get into the right lane early.' : `You missed exit ${r.exit}. Get into the ${sd} lane early for an exit.`, 'warn')
+        say(s.mixed ? 'You missed the exit. Take the next one: get into the right lane early.' : `You missed the exit to ${dest}. Get into the ${sd} lane early for an exit.`, 'warn')
         continue
       }
       shown = true
@@ -326,11 +350,10 @@ function trackHighway(): boolean {
     if (t.k === 'fork') {
       const f = s.fork!
       const want = f.want === 'left' ? f.left : f.right
-      const lanesL = f.split, lanesR = NL - f.split
       if (z > f.z + 1300) continue
       if (z > f.z) {
         const ok = f.want === 'left' ? pl < f.split : pl >= f.split && onHw
-        banner(`Keep ${f.want} for ${routeName(want)}`, ok ? `You are in the ${f.want} ${f.want === 'left' ? lanesL : lanesR} lanes: stay in them` : `The ${f.want} ${f.want === 'left' ? lanesL : lanesR} lanes go to ${routeName(want)}${(f.exitOnly === f.want) ? ' (EXIT ONLY)' : ''}`, f.want === 'left' ? 'L' : 'R', z - f.z)
+        banner(`${routeName(want)}: keep ${f.want}`, ok ? `You are in the ${f.want} 2 lanes: stay in them` : `Move to the ${f.want}-most 2 lanes`, f.want === 'left' ? 'L' : 'R', z - f.z)
         shown = true
         break
       }
@@ -394,7 +417,7 @@ export function resetSim(keepScore = false, stage?: Stage) {
   handSteerT = -99
   overFor = 0; overWarnT = -99; redCross = null
   if (WORLD.highway) {
-    HW.s = stage ?? makeStage(pickRoute(), Math.random() < 0.2 ? 'rampL' : 'rampR')
+    HW.s = stage ?? firstStage()
     resetHwState()
     useGame.setState((st) => ({ hwType: routeName(HW.s.road), hwVersion: st.hwVersion + 1 }))
   }
