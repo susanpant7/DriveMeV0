@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { useGame } from '../game/store'
 import {
   ACC_LEN, FORK_LEN, HW, LANE, MEDIAN_X, NB_EDGE_L, NB_EDGE_R, NB_SHOULDER_L, NB_X, NL, RAMP_K, SB_EDGE_IN, SB_EDGE_OUT, SHOULDER_R, TAPER, Z_FINISH, Z_TOP,
-  auxAt, auxEdge, dropLane, edgeL, edgeR, forkShift, paveL, paveR, rampU, rampX, rampZ0, rampZ1, splitX, strips, type Ramp, type Route,
+  auxAt, auxEdge, C, hC, laneW, edgeL, edgeR, forkShift, paveL, paveR, rampU, rampX, rampZ0, rampZ1, splitX, strips, type Ramp, type Route,
 } from './layout'
 
 type V3 = [number, number, number]
@@ -21,7 +21,7 @@ class Buf {
   tri(a: V3, b: V3, c: V3, n: V3, color: V3) {
     const k = Math.max(0, Math.min(NCH - 1, chunkOf((a[2] + b[2] + c[2]) / 3)))
     ;[a, b, c].forEach((p) => {
-      this.pos[k].push(p[0], p[1], p[2])
+      this.pos[k].push(p[0] + C(p[2]), p[1], p[2]) // (laid out straight; bent here to follow the highway's curves)
       this.nor[k].push(n[0], n[1], n[2])
       this.uv[k].push(p[0] / 4, p[2] / 4)
       this.col[k].push(color[0], color[1], color[2])
@@ -128,8 +128,6 @@ export function buildHighway() {
   for (let k = 1; k < NL; k++) {
     const x = NB_EDGE_L + k * LANE
     const shiftK = (z: number) => (f && k > f.split ? forkShift(z) : 0)
-    const dropHere = (k === 1 && dropLane() === 0) || (k === NL - 1 && dropLane() === NL - 1)
-    const zEndDash = dropHere && s.drop ? s.drop.z0 : Z_FINISH // (where the lane starts to taper the edge line takes over)
     if (f && k === f.split) {
       line(marks, Z_TOP, f.z + 300, () => x, 0.15, WHITE, [3, 9])
       line(marks, f.z + 300, f.z, () => x, 0.3, WHITE, [3, 3]) // wide dotted: the lanes are about to part
@@ -137,23 +135,20 @@ export function buildHighway() {
       line(marks, f.z, Z_FINISH, (z) => x + forkShift(z) + 0.3, 0.18, YELLOW, undefined, 12)
       for (let z = f.z - 60; z > f.z - 260; z -= 8) marks.flat([x - 0.3, z], [x + 0.3 + forkShift(z - 3), z - 3], [x + 0.5 + forkShift(z - 3), z - 3], [x - 0.1, z], 0.02, WHITE)
     } else {
-      // where the lane beside a dropping lane is nearly gone the line becomes the new edge (drawn above), so the dashes stop there
-      line(marks, Z_TOP, zEndDash, (z) => x + shiftK(z), 0.15, WHITE, [3, 9])
+      // dashes only where the lane to its right is there at full width (where a lane ends or opens, the edge line does the job)
+      for (let z = Z_TOP; z > Z_FINISH; z -= 12) {
+        if (laneW(k, z) < 1 || laneW(k, z - 3) < 1) continue
+        marks.flat([x + shiftK(z) - 0.075, z], [x + shiftK(z) + 0.075, z], [x + shiftK(z - 3) + 0.075, z - 3], [x + shiftK(z - 3) - 0.075, z - 3], 0.02, WHITE)
+      }
     }
   }
   // the lane that ends: chevrons across it where it tapers away
-  if (s.drop) {
-    const d = s.drop
-    for (let z = d.z0 - 20; z > d.z1 + 10; z -= 1.8) {
-      if (d.side === 1) marks.flat([edgeR(z) - 0.2, z], [edgeR(z) - 0.75, z], [edgeR(z - 0.9) - 0.75, z - 0.9], [edgeR(z - 0.9) - 0.2, z - 0.9], 0.02, WHITE)
-      else marks.flat([edgeL(z) + 0.2, z], [edgeL(z) + 0.75, z], [edgeL(z - 0.9) + 0.75, z - 0.9], [edgeL(z - 0.9) + 0.2, z - 0.9], 0.02, YELLOW)
-    }
-    // lane-reduction arrows painted in the ending lane
-    const lx = d.side === 1 ? NB_X[NL - 1] : NB_X[0]
-    for (const z of [d.z0 + 160, d.z0 + 40]) {
-      const sgn = -d.side
-      marks.flat([lx - 0.15, z], [lx + 0.15, z], [lx + 0.15 + sgn * 0.9, z - 5], [lx - 0.15 + sgn * 0.9, z - 5], 0.02, WHITE)
-      marks.flat([lx + sgn * 0.4, z - 4.2], [lx + sgn * 1.6, z - 5.2], [lx + sgn * 0.9, z - 6.8], [lx + sgn * 0.9, z - 6.8], 0.02, WHITE)
+  for (const d of s.drops) {
+    // lane-reduction arrows painted in the ending lane (the right lane), pointing left into the lane that carries on
+    const lx = NB_X[d.lane]
+    for (const z of [d.z0 + 200, d.z0 + 70]) {
+      marks.flat([lx - 0.15, z], [lx + 0.15, z], [lx + 0.15 - 0.9, z - 5], [lx - 0.15 - 0.9, z - 5], 0.02, WHITE)
+      marks.flat([lx - 0.4, z - 4.2], [lx - 1.6, z - 5.2], [lx - 0.9, z - 6.8], [lx - 0.9, z - 6.8], 0.02, WHITE)
     }
   }
   // ramps: their own edges (yellow on the left, white on the right), and the gore where they meet the highway
@@ -347,6 +342,13 @@ function stageSigns(): Sign[] {
       out.push({ x: rest.x, y: gy + 1.2, z: gz, w: 7.6, h: 3.4, draw: board([{ t: ROAD, size: 1, arrow: 'up' }]) })
     }
   }
+  // lanes that end (always the right lane: merge left), and lanes added on the right again
+  for (const d of s.drops) {
+    out.push({ x: right(d.z0 + 650), y: 1.8, z: d.z0 + 650, w: 4.6, h: 3.0, post: 'two', draw: board([{ t: 'RIGHT LANE', size: 1 }, { t: 'ENDS AHEAD', size: 1 }], 'yellow') })
+    out.push({ x: right(d.z0 + 300), y: 1.8, z: d.z0 + 300, w: 4.6, h: 3.0, post: 'two', draw: board([{ t: 'RIGHT LANE ENDS', size: 1 }, { t: 'MERGE LEFT', size: 1, arrow: 'upL' }], 'white') })
+    out.push({ x: right(d.z0 + 60), y: 1.6, z: d.z0 + 60, w: 3.6, h: 2.0, post: 'two', draw: board([{ t: 'MERGE LEFT', size: 1, arrow: 'upL' }], 'yellow') })
+  }
+  for (const a of s.adds) out.push({ x: right(a.z0 + 80), y: 1.8, z: a.z0 + 80, w: 3.8, h: 2.2, post: 'two', draw: board([{ t: 'LANE ADDED', size: 1 }], 'yellow') })
   // speed limits, KEEP RIGHT, and which highway you are on
   const clearRight = (z: number) => !s.ramps.some((r) => z < rampZ0(r) + 40 && z > rampZ1(r) - 40)
   for (let z = 900; z > Z_FINISH + 200; z -= 1100) {
@@ -393,23 +395,33 @@ function signMesh(items: Sign[], maxAniso: number) {
   tex.minFilter = THREE.LinearMipmapLinearFilter
   const pos: number[] = [], uv: number[] = [], nor: number[] = [], idx: number[] = []
   const posts: Array<[number, number, number]> = [] // x, z, height
+  // each sign stands where the highway's bend puts it, turned square to the road there (facing the traffic coming towards it)
+  const frame = (it: Sign) => {
+    const h = hC(it.z), cx = it.x + C(it.z)
+    return { cx, rx: Math.cos(h), rz: -Math.sin(h), nx: Math.sin(h), nz: Math.cos(h) } // right along the sign, and its normal
+  }
   items.forEach((it, i) => {
     const b = boxes[i]
     const u0 = b.x / AW, u1 = (b.x + b.w) / AW, v0 = 1 - (b.y + b.h) / AH, v1 = 1 - b.y / AH
-    const x0 = it.x - it.w / 2, x1 = it.x + it.w / 2, y0 = it.y, y1 = it.y + it.h
-    pos.push(x0, y0, it.z, x1, y0, it.z, x1, y1, it.z, x0, y1, it.z)
+    const { cx, rx, rz, nx, nz } = frame(it)
+    const hw = it.w / 2, y0 = it.y, y1 = it.y + it.h
+    const ax = cx - rx * hw, az = it.z - rz * hw, bx = cx + rx * hw, bz = it.z + rz * hw
+    pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az)
     uv.push(u0, v0, u1, v0, u1, v1, u0, v1)
-    for (let k = 0; k < 4; k++) nor.push(0, 0, 1)
+    for (let k = 0; k < 4; k++) nor.push(nx, 0, nz)
     idx.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3)
-    if (it.post === 'one') posts.push([it.x, it.z, it.y + it.h * 0.9])
-    else if (it.post === 'two') { posts.push([x0 + it.w * 0.2, it.z, it.y + it.h * 0.9]); posts.push([x1 - it.w * 0.2, it.z, it.y + it.h * 0.9]) }
+    if (it.post === 'one') posts.push([cx, it.z, it.y + it.h * 0.9])
+    else if (it.post === 'two') { posts.push([cx - rx * hw * 0.6, it.z - rz * hw * 0.6, it.y + it.h * 0.9]); posts.push([cx + rx * hw * 0.6, it.z + rz * hw * 0.6, it.y + it.h * 0.9]) }
   })
   // a grey back on every sign
   const n0 = items.length * 4
   items.forEach((it, i) => {
-    const x0 = it.x - it.w / 2, x1 = it.x + it.w / 2, y0 = it.y, y1 = it.y + it.h, z = it.z - 0.03
-    pos.push(x1, y0, z, x0, y0, z, x0, y1, z, x1, y1, z)
-    for (let k = 0; k < 4; k++) { uv.push(1, 0); nor.push(0, 0, -1) }
+    const { cx, rx, rz, nx, nz } = frame(it)
+    const hw = it.w / 2, y0 = it.y, y1 = it.y + it.h
+    const ox = -nx * 0.03, oz = -nz * 0.03
+    const ax = cx - rx * hw + ox, az = it.z - rz * hw + oz, bx = cx + rx * hw + ox, bz = it.z + rz * hw + oz
+    pos.push(bx, y0, bz, ax, y0, az, ax, y1, az, bx, y1, bz)
+    for (let k = 0; k < 4; k++) { uv.push(1, 0); nor.push(-nx, 0, -nz) }
     const o = n0 + i * 4
     idx.push(o, o + 1, o + 2, o, o + 2, o + 3)
   })
@@ -482,7 +494,7 @@ export function Highway() {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3()
     trees.forEach(([x, z, k], i) => {
       q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), i * 1.7)
-      m.compose(p.set(x, 0, z), q, sc.set(k, k, k))
+      m.compose(p.set(x + C(z), 0, z), q, sc.set(k, k, k))
       m1.setMatrixAt(i, m)
       m2.setMatrixAt(i, m)
     })

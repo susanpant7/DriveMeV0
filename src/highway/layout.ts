@@ -1,6 +1,11 @@
 /**
- * The highway course. Everything lies along the z axis: traffic runs north (-z, heading 0), the same way the player faces. x grows to the
- * player's right.
+ * The highway course. Everything is laid out along the z axis, as if the highway were straight: traffic runs north (-z, heading 0), the
+ * same way the player faces, and x grows to the player's right ("road coordinates"). The highway itself then bends gently: in the world
+ * every point is moved sideways by C(z) (long, gentle curves with straight stretches between them). Drawing, the traffic and your car
+ * work in the world; the lanes, ramps and rules are worked out in road coordinates (toRoadX).
+ *
+ * A highway is five lanes wide where it has entrances, exits and splits, and narrows in between (the right lane ends, then the next):
+ * four lanes, three, sometimes two, widening again before the next exit.
  *
  * The course is an endless chain of STAGES. A stage is a stretch of one named highway (say I-80 West) with several things along it:
  * entrances (on-ramps with traffic joining), exits (off-ramps, on the right or sometimes the left), a place where the highway splits into
@@ -23,7 +28,7 @@ export const SB_EDGE_OUT = -20.25
 export const MEDIAN_X = -5.5
 
 export const Z_TOP = 2200 // the carriageways exist from here...
-export const Z_FINISH = -3600 // ...to here
+export const Z_FINISH = -5600 // ...to here
 /** where the player is put at the start of a stage that does not begin on a ramp */
 export const SPAWN_Z = 1250
 /** a ramp is a straight road meeting the highway at 8 degrees, eased into it by a long gentle curve */
@@ -73,15 +78,18 @@ export type Task =
   | { k: 'lane'; z0: number; z1: number; lane: number; name: string }
   | { k: 'exit'; ramp: number }
   | { k: 'fork' }
-  | { k: 'drop' }
+  | { k: 'drop'; i: number }
 export interface Stage {
   id: number
   road: Route
   ramps: Ramp[]
   /** the highway splits: lanes 0 .. split-1 go left, the rest go right */
   fork: null | { z: number; split: number; left: Route; right: Route; want: 'left' | 'right'; exitOnly: 'left' | 'right' }
-  /** a lane ends (side 1: the right lane, -1: the left lane): full width until z0, gone by z1 */
-  drop: null | { side: 1 | -1; z0: number; z1: number }
+  /** the right lane ends (lane `lane` tapers away between z0 and z1), and where a lane is added on the right again */
+  drops: LaneEv[]
+  adds: LaneEv[]
+  /** the highway's gentle bends: each one moves it A metres sideways over len metres starting at z0 (a long S: curve, then straight) */
+  bends: Bend[]
   tasks: Task[]
   /** how far the other carriageway is moved away (a wide grass median, when there is a ramp on the left) */
   sbOff: number
@@ -95,6 +103,8 @@ export interface Stage {
   to: Route
 }
 
+export interface LaneEv { z0: number; z1: number; lane: number }
+export interface Bend { z0: number; len: number; A: number }
 export const routeName = (r: Route) => r.name
 
 export const HW = { s: null as unknown as Stage }
@@ -160,15 +170,39 @@ export function forkHeading(z: number) {
   return f && z < f.z ? -Math.atan(forkSlope(f.z - z)) : 0
 }
 export const laneShift = (k: number, z: number) => (HW.s.fork && k >= HW.s.fork.split ? forkShift(z) : 0)
-/** how much of the ending lane is left at z, 1 .. 0 */
-export function dropT(z: number) {
-  const d = HW.s.drop
-  return d ? clamp01((z - d.z1) / (d.z0 - d.z1)) : 1
+/** how many lanes the highway has at z (a fraction while one tapers away or opens up): 2 .. 5 */
+export function lanesAt(z: number) {
+  let n = NL
+  for (const d of HW.s.drops) n -= clamp01((d.z0 - z) / (d.z0 - d.z1))
+  for (const a of HW.s.adds) n += clamp01((a.z0 - z) / (a.z0 - a.z1))
+  return n
 }
-export const dropLane = () => (HW.s.drop ? (HW.s.drop.side === 1 ? NL - 1 : 0) : -9)
-/** the highway's own edge lines (not counting an extra lane) */
-export const edgeR = (z: number) => NB_EDGE_R - (HW.s.drop?.side === 1 ? LANE * (1 - dropT(z)) : 0) + forkShift(z)
-export const edgeL = (z: number) => NB_EDGE_L + (HW.s.drop?.side === -1 ? LANE * (1 - dropT(z)) : 0)
+/** how much of lane k is there at z: 1 = full width, 0 = none */
+export const laneW = (k: number, z: number) => clamp01(lanesAt(z) - k)
+/** lane k is there, full width, from z on for at least `ahead` metres */
+export const laneOpen = (k: number, z: number, ahead = 0) => laneW(k, z) >= 1 && lanesAt(z - ahead) >= k + 1 - 1e-6
+/** the highway's own edge lines (not counting an extra lane): the right one follows the lanes that end and are added */
+export const edgeR = (z: number) => NB_EDGE_L + LANE * lanesAt(z) + forkShift(z)
+export const edgeL = (_z: number) => NB_EDGE_L
+
+/* ---- the bends: world x = road x + C(z) ---- */
+const ss = (t: number) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t))
+const ssd = (t: number) => (t <= 0 || t >= 1 ? 0 : 6 * t * (1 - t))
+/** how far the highway has moved sideways at z (m) */
+export function C(z: number) {
+  let c = 0
+  for (const b of HW.s.bends) c += b.A * ss((b.z0 - z) / b.len)
+  return c
+}
+/** the highway's heading at z (rad, the same sense as a car's heading: positive = turned left of north) */
+export function hC(z: number) {
+  let d = 0 // dC/d(distance travelled north)
+  for (const b of HW.s.bends) d += (b.A / b.len) * ssd((b.z0 - z) / b.len)
+  return -Math.atan(d)
+}
+/** world x -> road x, and back */
+export const toRoadX = (x: number, z: number) => x - C(z)
+export const toWorldX = (x: number, z: number) => x + C(z)
 /** edges of the highway's pavement (lanes, any extra lane, shoulders) */
 export function paveR(z: number) {
   const r = auxAt(1, z)
@@ -206,6 +240,8 @@ export function onRoad(x: number, z: number): boolean {
   for (const s of strips()) if (z <= s.z0 && z >= s.z1 - 1 && x >= s.l(z) && x <= s.r(z)) return true
   return false
 }
+/** the same, for a point in the world */
+export const onRoadW = (x: number, z: number) => onRoad(toRoadX(x, z), z)
 
 /** take the sideways shift of a split out of x, so lanes can be told apart by x alone */
 export function unshiftX(x: number, z: number) {
@@ -216,16 +252,17 @@ export function unshiftX(x: number, z: number) {
 }
 /** which lane a point is in: 0 .. 4 on the highway, 5 = the extra lane / ramp on the right, -1 = on the left */
 export function laneAt(x: number, z: number): number {
-  if (x > edgeR(z)) return rampNear(1, z) ? NL : NL - 1
+  const last = Math.max(0, Math.ceil(lanesAt(z) - 1e-6) - 1)
+  if (x > edgeR(z)) return rampNear(1, z) ? NL : last
   if (x < edgeL(z)) return rampNear(-1, z) ? -1 : 0
-  return Math.max(0, Math.min(NL - 1, Math.floor((unshiftX(x, z) - NB_EDGE_L) / LANE)))
+  return Math.max(0, Math.min(last, Math.floor((unshiftX(x, z) - NB_EDGE_L) / LANE)))
 }
 /** the lane nearest to a point (highway lanes that exist there, extra lanes and ramps): its centre, heading and index */
 export function nearestLane(x: number, z: number): { x: number; h: number; k: number } {
   const s = HW.s
   let best = { x: NB_X[2], h: 0, k: 2 }, bd = 1e9
   for (let k = 0; k < NL; k++) {
-    if (k === dropLane() && dropT(z) < 0.5) continue
+    if (laneW(k, z) < 0.5) continue // (a lane that is ending, or not open yet)
     const cx = NB_X[k] + laneShift(k, z)
     const d = Math.abs(x - cx)
     if (d < bd) { bd = d; best = { x: cx, h: s.fork && k >= s.fork.split ? forkHeading(z) : 0, k } }
@@ -240,13 +277,13 @@ export function nearestLane(x: number, z: number): { x: number; h: number; k: nu
   return best
 }
 
-/** the pose the player starts the stage in */
-export const startPose = () => HW.s.start
-/** Where to put the player back after leaving the road: the nearest lane, at rest, facing along it. */
+/** the pose the player starts the stage in (world) */
+export const startPose = () => ({ x: toWorldX(HW.s.start.x, HW.s.start.z), z: HW.s.start.z, h: HW.s.start.h + hC(HW.s.start.z) })
+/** Where to put the player back after leaving the road (world in and out): the nearest lane, at rest, facing along it. */
 export function recoverPose(x: number, z: number) {
   const zz = Math.max(Z_FINISH + 100, Math.min(Z_TOP - 100, z))
-  const n = nearestLane(x, zz)
-  return { x: n.x, z: zz, h: n.h }
+  const n = nearestLane(toRoadX(x, zz), zz)
+  return { x: toWorldX(n.x, zz), z: zz, h: n.h + hC(zz) }
 }
 
 /* ------------------------------------------------------------------ */
@@ -260,32 +297,49 @@ const rnd = (n: number) => Math.floor(Math.random() * n)
 const pick = <T,>(a: T[]) => a[rnd(a.length)]
 
 let stageId = 0
+const DROP_TAPER = 220, ADD_TAPER = 180
 /**
  * A new stage of `road`.
  * entry 'ramp': you join it from an entrance on the right (merge); 'main': you are already on it.
  * final 'fork': it ends where its left-most or right-most two lanes split off to the next highway (`to`); 'exit': it ends at an exit on
- * the right that leads to the next highway's entrance. Along the way: entrances (traffic joining, always from the right) and "move to a
- * lane" tasks that lead towards the lanes you will need.
+ * the right that leads to the next highway's entrance.
+ * In between, the highway narrows: the right lane ends, then the next (down to three lanes, sometimes two), and later lanes are added
+ * on the right again, so it is five lanes wide for the exit or split at the end. "Move to a lane" tasks come along the way, and the
+ * highway bends gently here and there.
  */
 export function makeStage(road: Route, entry: 'ramp' | 'main', final: 'fork' | 'exit', to: Route, mixed = false): Stage {
-  const s: Stage = { id: ++stageId, road, ramps: [], fork: null, drop: null, tasks: [], sbOff: 0, zEnd: 0, start: { x: NB_X[2], z: SPAWN_Z, h: 0 }, mixed, final, to }
-  const slots = entry === 'main' ? [450, -550, -1550] : [-650, -1650]
-  if (entry === 'ramp') {
+  const s: Stage = { id: ++stageId, road, ramps: [], fork: null, drops: [], adds: [], bends: [], tasks: [], sbOff: 0, zEnd: 0, start: { x: NB_X[2], z: SPAWN_Z, h: 0 }, mixed, final, to }
+  const ramp = entry === 'ramp'
+  if (ramp) {
     s.ramps.push({ kind: 'on', side: 1, g: START_G, len: START_LEN, player: true })
     s.tasks.push({ k: 'merge', ramp: 0 })
-  }
-  const finalG = slots.pop()!
+  } else s.ramps.push({ kind: 'on', side: 1, g: 760, len: 320 }) // traffic joining near the start
+  // the lanes: five, then the right lane ends, and the next... then they are added back
+  let z = ramp ? -150 : 250
+  let n = NL
+  const least = rnd(3) === 0 ? 2 : 3
+  while (n > least) { s.drops.push({ z0: z, z1: z - DROP_TAPER, lane: n - 1 }); s.tasks.push({ k: 'drop', i: s.drops.length - 1 }); n--; z -= 650 }
+  const lowFrom = s.drops[s.drops.length - 1].z1, lowTo = z
+  while (n < NL) { s.adds.push({ z0: z, z1: z - ADD_TAPER, lane: n }); n++; z -= 350 }
+  const zFull = z // five lanes again from here
+  const finalG = zFull - 1250
+  // "move to a lane": on the narrow stretch (only lanes that are there all the way), and once more as the lanes are added back
+  const prev = HW.s
+  HW.s = s
   const forkSide: 'left' | 'right' = rnd(2) ? 'left' : 'right'
-  // the lanes a "move to a lane" task may ask for: on the side you will need at the end
-  const ok = final === 'exit' || forkSide === 'right' ? [2, 3, 4] : [0, 1, 2]
-  for (const G of slots) {
-    if (rnd(3) === 0) s.ramps.push({ kind: 'on', side: 1, g: G, len: 320 }) // an entrance: traffic joins from the right
-    else {
-      const last = [...s.tasks].reverse().find((t) => t.k === 'lane') as { lane: number } | undefined
-      const lane = pick(last ? ok.filter((k) => k !== last.lane) : ok) // (never the same lane twice in a row)
-      s.tasks.push({ k: 'lane', z0: G + 450, z1: G - 250, lane, name: LANE_NAMES[lane] })
-    }
+  const pickLane = (z0: number, z1: number, want: number[]) => {
+    let open = NL
+    for (let zz = z0; zz >= z1; zz -= 20) open = Math.min(open, Math.floor(lanesAt(zz) + 1e-6))
+    const ok = want.filter((k) => k < open)
+    const last = [...s.tasks].reverse().find((t) => t.k === 'lane') as { lane: number } | undefined
+    const c = last ? ok.filter((k) => k !== last.lane) : ok
+    return c.length ? pick(c) : -1
   }
+  const addTask = (z0: number, z1: number, want: number[]) => { const k = pickLane(z0, z1, want); if (k >= 0) s.tasks.push({ k: 'lane', z0, z1, lane: k, name: LANE_NAMES[k] }) }
+  addTask(lowFrom - 30, Math.max(lowTo + 60, lowFrom - 600), [0, 1, 2])
+  addTask(zFull + 850, zFull + 250, final === 'exit' || forkSide === 'right' ? [2, 3, 4] : [0, 1, 2]) // (before the signs for the exit or split begin)
+  // the end: the split or the exit (and, sometimes, traffic joining shortly before it)
+  if (rnd(2)) s.ramps.push({ kind: 'on', side: 1, g: zFull - 150, len: 320 })
   if (final === 'fork') {
     // the left-most 2 lanes or the right-most 2 lanes become the next highway; the others carry on as this one
     const split = forkSide === 'left' ? 2 : 3
@@ -298,17 +352,28 @@ export function makeStage(road: Route, entry: 'ramp' | 'main', final: 'fork' | '
     s.tasks.push({ k: 'exit', ramp: s.ramps.length - 1 })
     s.zEnd = finalG - 650
   }
-  if (entry === 'ramp') {
-    const r = s.ramps[0]
-    const z = r.g + r.len
-    const prev = HW.s
-    HW.s = s // (the ramp's shape is read off the current stage)
-    s.start = { x: rampX(r, z), z, h: rampHeading(r, z) }
-    HW.s = prev
+  // the order the tasks come in, along the road
+  const tz = (t: Task) => (t.k === 'merge' ? 9999 : t.k === 'lane' ? t.z0 : t.k === 'drop' ? s.drops[t.i].z0 + 900 : t.k === 'exit' ? s.ramps[t.ramp].g + 2000 : (s.fork?.z ?? 0) + 1300)
+  s.tasks.sort((a, b) => tz(b) - tz(a))
+  // gentle bends between the start and the final approach (straight where you join, and for the exit or split at the end)
+  {
+    let bz = 150
+    while (bz - 900 > zFull + 250) {
+      const len = 900 + rnd(500)
+      if (bz - len < zFull + 250) break
+      if (rnd(4)) s.bends.push({ z0: bz, len, A: (30 + rnd(45)) * (rnd(2) ? 1 : -1) })
+      bz -= len + 150 + rnd(350)
+    }
   }
+  if (ramp) {
+    const r = s.ramps[0]
+    const zs = r.g + r.len
+    s.start = { x: rampX(r, zs), z: zs, h: rampHeading(r, zs) }
+  }
+  HW.s = prev
   return s
 }
 /** the first stage of a practice: onto H1 from its entrance, then the lanes that split off to H2 */
 export const firstStage = () => makeStage(hwRoute(1), 'ramp', 'fork', hwRoute(2))
 HW.s = firstStage()
-if (typeof window !== 'undefined') Object.assign(window, { __hwL: { makeStage, hwRoute, rampX, rampU, forkShift, laneAt, nearestLane, splitX, dropLane, AUX_X, NB_X, ACC_LEN } })
+if (typeof window !== 'undefined') Object.assign(window, { __hwL: { makeStage, hwRoute, rampX, rampU, forkShift, laneAt, nearestLane, splitX, lanesAt, laneOpen, C, hC, AUX_X, NB_X, ACC_LEN } })

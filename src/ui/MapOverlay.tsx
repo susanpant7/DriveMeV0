@@ -15,7 +15,7 @@ export function MapOverlay() {
   // the instruction changes a few times a second at most: read it 8 times a second
   useEffect(() => {
     const id = window.setInterval(() => {
-      const next = { text: nav.text, sub: nav.sub, icon: nav.icon, dist: nav.text ? fmtDist(nav.dist, units) : '' }
+      const next = { text: nav.text, sub: nav.sub, icon: nav.icon, dist: nav.text && nav.dist > 1 ? fmtDist(nav.dist, units) : '' } // (no distance when there is nothing ahead to count down to)
       setB((cur) => (cur.text === next.text && cur.sub === next.sub && cur.icon === next.icon && cur.dist === next.dist ? cur : next))
     }, 125)
     return () => window.clearInterval(id)

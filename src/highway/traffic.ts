@@ -1,5 +1,5 @@
 import { cars, type AiCar } from '../game/trafficAI'
-import { HW, NB_X as NBX, NL, Z_FINISH, Z_TOP, ACC_LEN, TAPER, dropLane, dropT, forkHeading, laneAt, laneShift, rampHeading, rampU, rampX, rampZ0, rampZ1, type Ramp } from './layout'
+import { HW, NB_X as NBX, NL, Z_FINISH, Z_TOP, ACC_LEN, TAPER, C, hC, lanesAt, laneOpen, laneW, forkHeading, laneAt, laneShift, rampHeading, rampU, rampX, rampZ0, rampZ1, type Ramp } from './layout'
 
 /**
  * Highway traffic. Every vehicle drives in one of the five lanes at its own pace inside that lane's speed band (the further left the lane,
@@ -82,8 +82,8 @@ function describe(c: AiCar, h: Hw, lane: number, kind = newKind(lane)) {
   h.exitP = Math.random()
 }
 /** a driver's speed range for the lane they are in now (their pace sets where in the lane's band they cruise) */
-function setBand(h: Hw, truck: boolean) {
-  const [a, b] = bandOf(NL - 1 - h.lane)
+function setBand(h: Hw, truck: boolean, z: number) {
+  const [a, b] = bandOf(Math.max(0, Math.round(lanesAt(z)) - 1 - h.lane)) // (counted from the right-most lane there is here)
   const mid = a + h.pace * (b - a)
   h.vlo = Math.max(a, mid - 2 * MPH)
   h.vhi = truck ? Math.min(mid + 1.5 * MPH, a + 0.5 * (b - a)) : Math.min(b, mid + 2 * MPH)
@@ -91,15 +91,17 @@ function setBand(h: Hw, truck: boolean) {
 }
 const isTruck = (c: AiCar) => (c.len ?? 4.6) > 8
 
+/** a place for a new vehicle: busy in proportion to the number of lanes there (a narrow stretch is not more crowded per lane) */
+const placeOk = (z: number) => Math.random() < lanesAt(z) / NL
 function pickLane(z: number) {
   const sum = LANE_COUNT.reduce((a, b) => a + b, 0)
   for (let t = 0; t < 8; t++) {
     let r = Math.random() * sum, k = 0
     for (; k < NL - 1; k++) { r -= LANE_COUNT[k]; if (r < 0) break }
-    if (k === dropLane() && z < (HW.s.drop?.z0 ?? 0) + 150) continue // not in a lane that is about to end
+    if (!laneOpen(k, z, 400)) continue // only a lane that is there, and stays there for a while
     return k
   }
-  return 2
+  return 0
 }
 /** x of a vehicle on the highway, with the split's shift */
 const laneXz = (lane: number, lat: number, z: number) => lat + laneShift(lane, z)
@@ -133,7 +135,7 @@ function placeLane(i: number, lane: number, z: number, kind: number) {
   describe(c, h, lane, kind)
   h.lane = lane
   h.lat = NBX[lane]
-  setBand(h, isTruck(c))
+  setBand(h, isTruck(c), z)
   h.v0 = h.vgoal
   c.active = true
   c.z = z
@@ -147,17 +149,18 @@ function placeLane(i: number, lane: number, z: number, kind: number) {
 let joinT: number[] = []
 let player = { x: 0, z: 0, speed: 0 }
 
-export function initHighwayTraffic(playerZ: number, playerX = NBX[2]) {
+export function initHighwayTraffic(playerZ: number, playerXWorld = NBX[2]) {
   for (const c of cars) c.active = false
   hw.length = 0
   while (hw.length < cars.length) hw.push(freshHw())
+  const playerX = playerXWorld - C(playerZ)
   player = { x: playerX, z: playerZ, speed: 0 }
   const total = Math.min(cars.length - EXTRA, HW_TOTAL[level - 1])
   ncars = Math.min(cars.length, total + EXTRA)
   let placed = 0
   for (let n = 0; n < total * 8 && placed < total; n++) {
     const z = playerZ + rnd(-WINDOW, WINDOW * 0.55)
-    if (z > Z_TOP - 30 || z < Z_FINISH + 40) continue
+    if (z > Z_TOP - 30 || z < Z_FINISH + 40 || !placeOk(z)) continue
     const lane = pickLane(z)
     if (Math.abs(z - playerZ) < 45 && Math.abs(NBX[lane] - playerX) < 5) continue // not on top of you
     const kind = newKind(lane)
@@ -172,13 +175,15 @@ export function initHighwayTraffic(playerZ: number, playerX = NBX[2]) {
     if (g < 1e8) cars[i].speed = Math.min(cars[i].speed, Math.max(0, (g - 4) / 1.4))
   }
   joinT = HW.s.ramps.map(() => rnd(0, JOIN_EVERY[level - 1]))
+  warpAll()
 }
 
 export function setHighwayCount(l: number) {
   level = l
 }
 
-/** Move every vehicle along by dz (the course has started over at the next stage), dropping those that do not fit the new stage. */
+/** Move every vehicle along by dz (the course has started over at the next stage), dropping those that do not fit the new stage.
+ *  (Road coordinates: call unwarpAll first, and warpAll once the new stage is in place.) */
 export function shiftHighwayTraffic(dz: number, keep: (x: number, z: number) => boolean) {
   for (let i = 0; i < ncars; i++) {
     const c = cars[i]
@@ -247,10 +252,19 @@ function laneClear(lane: number, z: number, hf: number, speed: number) {
   }
   return true
 }
+/** a tight but safe gap (a zip merge where a lane ends): nobody right alongside, nothing just ahead */
+function zipClear(lane: number, z: number, hf: number) {
+  for (let j = 0; j < ncars; j++) {
+    if (!cars[j].active || hw[j].mode !== M.Lane || (hw[j].lane !== lane && hw[j].target !== lane)) continue
+    const d = cars[j].z - z
+    if (d < 9 + hf && d > -(9 + hf)) return false
+  }
+  return !(laneAt(player.x, player.z) === lane && Math.abs(player.z - z) < 12)
+}
 /** a lane change is allowed: the lane exists here, and after a split the branches do not mix */
 function laneOk(from: number, to: number, z: number) {
   if (to < 0 || to >= NL) return false
-  if (to === dropLane() && dropT(z) < 1) return false
+  if (!laneOpen(to, z, 250)) return false // (not into a lane that is ending, or not open yet)
   const f = HW.s.fork
   if (f && z < f.z + 40 && (from < f.split) !== (to < f.split)) return false
   return true
@@ -272,7 +286,7 @@ function spawnOnRamp(k: number) {
   describe(c, h, lane)
   h.lane = lane
   h.lat = NBX[lane]
-  setBand(h, isTruck(c))
+  setBand(h, isTruck(c), z)
   h.v0 = h.vgoal
   h.mode = M.Enter
   h.ramp = k
@@ -286,7 +300,20 @@ function spawnOnRamp(k: number) {
   c.braking = false
 }
 
-export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: number; speed: number }) {
+/** the traffic works in road coordinates (as if the highway were straight); in between steps the vehicles are in the world */
+export function unwarpAll() {
+  for (let i = 0; i < ncars; i++) { const c = cars[i]; if (c.active) { c.x -= C(c.z); c.h -= hC(c.z) } }
+}
+export function warpAll() {
+  for (let i = 0; i < ncars; i++) { const c = cars[i]; if (c.active) { c.x += C(c.z); c.h += hC(c.z) } }
+}
+
+export function stepHighwayTraffic(dt: number, t: number, p: { x: number; z: number; speed: number }) {
+  unwarpAll()
+  stepRoad(dt, t, { x: p.x - C(p.z), z: p.z, speed: p.speed })
+  warpAll()
+}
+function stepRoad(dt: number, _t: number, p: { x: number; z: number; speed: number }) {
   player = p
   const s = HW.s
   // vehicles join at the entrances
@@ -312,10 +339,14 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
         if (laneOk(h.lane, to, c.z) && laneClear(to, c.z, hf, c.speed)) h.target = to
       }
       // --- a lane that ends: move out of it in good time ---
-      if (h.lane === dropLane() && h.target < 0 && s.drop && c.z < s.drop.z0 + 350) {
-        const to = s.drop.side === 1 ? NL - 2 : 1
+      if (h.target < 0 && h.lane > 0 && !laneOpen(h.lane, c.z, 900)) {
+        // its lane ends ahead: move over in good time. Running out of room: out of your sight the driver takes another way (leaves the
+        // highway); near you they take a tighter gap (a zip merge). Nobody stops.
+        const to = h.lane - 1
+        const late = !laneOpen(h.lane, c.z, 150)
         if (laneClear(to, c.z, hf, c.speed)) h.target = to
-        else if (c.z < s.drop.z1 + 60) c.speed = Math.max(0, c.speed - 4 * dt) // wait for a gap
+        else if (late && Math.abs(c.z - p.z) > 160) { respawn(i); continue }
+        else if (late && zipClear(to, c.z, hf)) h.target = to
       }
       // --- catching up with something slower: pass on the left if there is room, otherwise on the right ---
       h.cool -= dt
@@ -341,7 +372,7 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
         if (h.lcT < 0) { h.lcT = 0; h.lcFrom = h.lat }
         h.lcT = Math.min(1, h.lcT + dt / (isTruck(c) ? 4.5 : 3.2))
         h.lat = h.lcFrom + (tx - h.lcFrom) * ease(h.lcT)
-        if (h.lcT >= 1) { h.lat = tx; h.lane = h.target; h.target = -1; h.lcT = -1; setBand(h, isTruck(c)) }
+        if (h.lcT >= 1) { h.lat = tx; h.lane = h.target; h.target = -1; h.lcT = -1; setBand(h, isTruck(c), c.z) }
       }
       c.sig = h.target >= 0 ? (NBX[h.target] < h.lat ? -1 : 1) : 0
     } else if (h.mode === M.Exit && r) {
@@ -353,7 +384,7 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
       if (!h.merging && u < -30 && laneClear(h.lane, c.z, hf, c.speed)) h.merging = true
       if (h.merging) h.blend = Math.min(1, h.blend + dt * 0.3)
       c.sig = u < 0 && h.blend < 1 ? (r.side === 1 ? -1 : 1) : 0
-      if (h.blend >= 1) { h.mode = M.Lane; h.ramp = -1; h.merging = false; c.sig = 0; setBand(h, isTruck(c)) }
+      if (h.blend >= 1) { h.mode = M.Lane; h.ramp = -1; h.merging = false; c.sig = 0; setBand(h, isTruck(c), c.z) }
     }
 
     // --- speed: each driver drifts about inside their band, and keeps their distance (intelligent driver model) ---
@@ -394,7 +425,7 @@ export function stepHighwayTraffic(dt: number, _t: number, p: { x: number; z: nu
     const rel = c.z - p.z
     if (h.mode === M.Exit && r && c.z < rampZ1(r) + 30) { respawn(i); continue }
     if (h.mode === M.Enter && r && (c.z > rampZ0(r) + 20)) { c.active = false; continue }
-    if (h.lane === dropLane() && h.mode === M.Lane && h.target < 0 && s.drop && c.z < s.drop.z1 + 5) { respawn(i); continue }
+    if (h.mode === M.Lane && h.target < 0 && laneW(h.lane, c.z) < 0.55) { respawn(i); continue } // (its lane has ended and it found no gap: it leaves the highway)
     if (rel > WINDOW || rel < -WINDOW * 1.15 || c.z < Z_FINISH + 30) respawn(i)
   }
 }
@@ -407,7 +438,7 @@ function respawn(i: number) {
   for (let tries = 0; tries < 8; tries++) {
     const ahead = rel > 0 || hw[i].mode === M.Exit // it was behind -> reappear ahead of you; it was ahead -> reappear behind
     const z = ahead ? player.z - rnd(WINDOW * 0.55, WINDOW) : player.z + rnd(WINDOW * 0.4, WINDOW * 0.9)
-    if (z < Z_FINISH + 40 || z > Z_TOP - 30) continue
+    if (z < Z_FINISH + 40 || z > Z_TOP - 30 || !placeOk(z)) continue
     const lane = pickLane(z)
     const kind = newKind(lane)
     if (!spacingOk(lane, z, lenOf(kind), i)) continue

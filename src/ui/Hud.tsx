@@ -159,8 +159,8 @@ function HoldButton({ label, onDown, onUp, className = '', active = false, child
 }
 
 /**
- * On-screen controls for phones and tablets. Bottom left, in one row: steer left/right, the indicators, and the eye (slide to look around).
- * Bottom right: brake, lane keeping and gas.
+ * On-screen controls for phones and tablets. Bottom left, stacked: the eye (slide to look around), the indicators, steer left/right.
+ * Right: lane assist in the middle of the edge; brake and gas at the bottom.
  */
 const Chev = ({ dir }: { dir: -1 | 1 }) => (
   <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style={{ transform: dir === 1 ? 'scaleX(-1)' : undefined }}>
@@ -183,17 +183,17 @@ function TouchControls() {
   const hold = (key: 'up' | 'down') => ({ onDown: () => { input[key] = true }, onUp: () => { input[key] = false } })
   return (
     <div className="touch-controls" onContextMenu={(e) => e.preventDefault()}>
-      {/* bottom left, in one row: steering, then the indicators, then the eye */}
+      {/* bottom left, stacked: the eye on top, the indicators under it, the steering at the bottom */}
       <div className="tleft">
-        <div className="pod steerpod">
-          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}><Chev dir={-1} /></HoldButton>
-          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}><Chev dir={1} /></HoldButton>
-        </div>
+        <EyeControl />
         <div className="pod sigpod">
           <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}><TurnArrow dir={-1} /></HoldButton>
           <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}><TurnArrow dir={1} /></HoldButton>
         </div>
-        <EyeControl />
+        <div className="pod steerpod">
+          <HoldButton label="Steer left" className="steer" onDown={() => { input.left = true; steerTap(-1) }} onUp={() => { input.left = false }}><Chev dir={-1} /></HoldButton>
+          <HoldButton label="Steer right" className="steer" onDown={() => { input.right = true; steerTap(1) }} onUp={() => { input.right = false }}><Chev dir={1} /></HoldButton>
+        </div>
       </div>
 
       <div className="tgroup center" />
@@ -201,7 +201,7 @@ function TouchControls() {
       <div className="tgroup">
         <HoldButton label="Brake" className="pedal brake" {...hold('down')}>Brake</HoldButton>
         <div className="gascol">
-          <button className={`tbtn lanekeep${assist ? ' on' : ''}${assist === 2 ? ' active' : ''}`} aria-pressed={assist > 0} aria-label="Lane assist (tap to switch on or off; also returns the view to your default)" onPointerDown={() => { input.laneToggle = true; recentreView() }}><span className="ring" /><small>LANE</small></button>
+          <button className={`tbtn lanekeep lanemid${assist ? ' on' : ''}${assist === 2 ? ' active' : ''}`} aria-pressed={assist > 0} aria-label="Lane assist (tap to switch on or off; also returns the view to your default)" onPointerDown={() => { input.laneToggle = true; recentreView() }}><span className="ring" /><small>LANE</small></button>
           <HoldButton label="Accelerator" className="pedal gas" onDown={() => { input.up = true; gasTapFn() }} onUp={() => { input.up = false }}>Gas</HoldButton>
         </div>
       </div>

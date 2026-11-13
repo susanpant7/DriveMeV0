@@ -1,11 +1,13 @@
 import { sim } from '../game/sim'
-import { HW, LANE, NB_EDGE_L, NL, Z_FINISH, Z_TOP, edgeL, edgeR, forkShift, paveR, rampX, rampZ0, rampZ1, strips } from './layout'
+import { HW, LANE, NB_EDGE_L, NL, Z_FINISH, Z_TOP, edgeL, edgeR, forkShift, hC, laneW, paveR, rampX, rampZ0, rampZ1, strips, toRoadX } from './layout'
 
 /** A heading-up map of the highway: the carriageways, ramps and extra lanes, the lanes, your way through (blue), and your car. */
 export function drawHighwayMap(g: CanvasRenderingContext2D, w: number, h: number) {
   const s = 4.0 // pixels per metre
   const px = w * 0.5, py = h * 0.62
-  const X = (x: number) => px + (x - sim.x) * s
+  // (drawn straight, in road coordinates: the map shows the lanes and where they go; your car turns with the bends)
+  const meX = toRoadX(sim.x, sim.z), meH = sim.h - hC(sim.z)
+  const X = (x: number) => px + (x - meX) * s
   const Y = (z: number) => py + (z - sim.z) * s
   g.fillStyle = '#0d141e'
   g.fillRect(0, 0, w, h)
@@ -27,7 +29,17 @@ export function drawHighwayMap(g: CanvasRenderingContext2D, w: number, h: number
   // lane lines
   const f = HW.s.fork
   g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = 1.2; g.setLineDash([6, 9])
-  for (let k = 1; k < NL; k++) path((z) => NB_EDGE_L + k * LANE + (f && k > f.split ? forkShift(z) : 0), Z_FINISH, Z_TOP)
+  for (let k = 1; k < NL; k++) {
+    // only where the lane to its right is there (lanes end and are added)
+    g.beginPath()
+    let on = false
+    for (let z = zTop; z <= zBot; z += 8) {
+      if (laneW(k, z) < 1) { on = false; continue }
+      const xx = X(NB_EDGE_L + k * LANE + (f && k > f.split ? forkShift(z) : 0)), yy = Y(z)
+      if (on) g.lineTo(xx, yy); else { g.moveTo(xx, yy); on = true }
+    }
+    g.stroke()
+  }
   g.setLineDash([])
   g.strokeStyle = 'rgba(255,214,70,.75)'; g.lineWidth = 2; path(edgeL, Z_FINISH, Z_TOP)
   g.strokeStyle = 'rgba(255,255,255,.8)'; g.lineWidth = 1.5; path(edgeR, Z_FINISH, Z_TOP)
@@ -45,7 +57,7 @@ export function drawHighwayMap(g: CanvasRenderingContext2D, w: number, h: number
   g.lineCap = 'butt'
   void paveR
   // you
-  g.save(); g.translate(px, py); g.rotate(-sim.h)
+  g.save(); g.translate(px, py); g.rotate(-meH)
   g.fillStyle = '#1a1f29'; g.strokeStyle = '#fff'; g.lineWidth = 2.5
   g.beginPath(); g.moveTo(0, -13); g.lineTo(9, 11); g.lineTo(0, 6); g.lineTo(-9, 11); g.closePath(); g.fill(); g.stroke()
   g.restore()

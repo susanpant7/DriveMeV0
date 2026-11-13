@@ -3,8 +3,8 @@ import { armClosed, noTurnOnRed, arrowPhase, streetLimit, resStyle, PARKED, jLan
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
-import { HW, CITY, MIXED_ROAD, NL, firstStage, hwRoute, SPAWN_Z, forkCurve, ACC_LEN, dropLane, forkShift, laneAt, makeStage, nearestLane, rampHeading, rampNear, rampX, type Ramp, rampU, routeName, splitX, unshiftX, onRoad as hwOnRoad, recoverPose, startPose, type Route, type Stage } from '../highway/layout'
-import { initHighwayTraffic, resetJoins, setHighwayCount, shiftHighwayTraffic, stepHighwayTraffic } from '../highway/traffic'
+import { HW, CITY, MIXED_ROAD, NL, firstStage, hwRoute, SPAWN_Z, forkCurve, ACC_LEN, hC, toRoadX, toWorldX, forkShift, laneAt, makeStage, nearestLane, rampHeading, rampNear, rampX, type Ramp, rampU, routeName, splitX, unshiftX, onRoadW as hwOnRoad, recoverPose, startPose, type Route, type Stage } from '../highway/layout'
+import { initHighwayTraffic, resetJoins, setHighwayCount, shiftHighwayTraffic, stepHighwayTraffic, unwarpAll, warpAll } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, setTrafficTarget, whyStuck, junctionBusy, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
 
@@ -185,24 +185,26 @@ function resetHwState() {
 function continueHighway(road: Route) {
   const f = HW.s.fork
   const z = sim.z
+  const rx = toRoadX(sim.x, z), relH = sim.h - hC(z) // (where you are on the road, and your heading along it)
   const sx = f ? splitX() : 0
   const sh = (zz: number) => (f && zz < f.z ? forkCurve(f.z - zz) : 0)
-  const meRight = f ? sim.x > sx + sh(z) / 2 : false
+  const meRight = f ? rx > sx + sh(z) / 2 : false
   const dz = SPAWN_Z - z
+  unwarpAll()
   shiftHighwayTraffic(dz, (x, cz) => !f || (x > sx + sh(cz) / 2) === meRight)
-  const baseX = unshiftX(sim.x, z)
+  const baseX = unshiftX(rx, z)
   // what comes next: after taking the lanes to the next highway, an exit off it (to the one after); if you stayed on this highway
   // (missed the split, or the exit), the same thing again further on
   const s = HW.s
   const took = road !== s.road
   HW.s = took ? makeStage(road, 'main', 'exit', s.mixed ? CITY : hwRoute(road.n + 1), s.mixed) : makeStage(road, 'main', s.final, s.to, s.mixed)
   resetJoins()
+  warpAll()
   sim.z = SPAWN_Z
-  sim.x = Math.max(-1, Math.min(15.5, baseX))
-  sim.h = 0
-  sim.yawRate = 0
+  sim.x = toWorldX(Math.max(-1, Math.min(15.5, baseX)), SPAWN_Z)
+  sim.h = relH + hC(SPAWN_Z)
   resetHwState()
-  hw.lane = laneAt(sim.x, sim.z)
+  hw.lane = laneAt(toRoadX(sim.x, sim.z), sim.z)
   hw.alertT = sim.t // (no lane-change alerts in the moment the stage changes over)
   useGame.setState((st) => ({ hwType: routeName(road), hwVersion: st.hwVersion + 1 }))
   say(took ? `You are on ${routeName(road)}. Next: the exit to ${routeName(HW.s.to)}` : `Still on ${routeName(road)}: try again for ${routeName(HW.s.to)}`, 'info')
@@ -212,16 +214,16 @@ function continueHighway(road: Route) {
  * on at the same speed, in the same place in your lane; the new highway is built around you and its traffic starts up.
  */
 function rampHandover(r: Ramp, to: Route) {
-  const off = sim.x - rampX(r, sim.z)
-  const dh = sim.h - rampHeading(r, sim.z)
+  const off = toRoadX(sim.x, sim.z) - rampX(r, sim.z)
+  const dh = sim.h - hC(sim.z) - rampHeading(r, sim.z)
   HW.s = makeStage(to, 'ramp', 'fork', hwRoute(to.n + 1), mixedHw())
   const nr = HW.s.ramps[0]
   const z = nr.g + nr.len - 15
   sim.z = z
-  sim.x = rampX(nr, z) + off
-  sim.h = rampHeading(nr, z) + dh
+  sim.x = toWorldX(rampX(nr, z) + off, z)
+  sim.h = rampHeading(nr, z) + dh + hC(z)
   resetHwState()
-  hw.lane = laneAt(sim.x, sim.z)
+  hw.lane = laneAt(toRoadX(sim.x, sim.z), sim.z)
   hw.alertT = sim.t
   initHighwayTraffic(sim.z, sim.x)
   resetJoins()
@@ -237,7 +239,7 @@ function goToHighway(road: Route, how: string) {
 /** Returns true when the run ended (game over). */
 function trackHighway(): boolean {
   const s = HW.s
-  const x = sim.x, z = sim.z
+  const z = sim.z, x = toRoadX(sim.x, z) // (road coordinates: as if the highway were straight)
   const pl = laneAt(x, z) // 0..4 on the highway, NL on the right-hand ramp / extra lane, -1 on the left-hand one
   const onHw = pl >= 0 && pl < NL
   const banner = (text: string, sub: string, icon: string, dist: number) => { nav.text = text; nav.sub = sub; nav.icon = icon; nav.dist = Math.max(0, dist) }
@@ -365,15 +367,13 @@ function trackHighway(): boolean {
       continue
     }
     if (t.k === 'drop') {
-      const d = s.drop!
-      const word = d.side === 1 ? 'Right' : 'Left'
-      const away = d.side === 1 ? 'left' : 'right'
+      const d = s.drops[t.i]
       if (z > d.z0 + 900) continue
-      const inIt = pl === dropLane()
+      const inIt = pl === d.lane
       if (inIt && z < d.z0 + 750) hw.wasInDrop = true
-      if (z <= d.z1 + 15 && inIt) return fail('Your lane ended before you moved over.', [`When you see "${word.toUpperCase()} LANE ENDS", look for a gap early: signal ${away}, check your mirror and blind spot, then move over.`])
-      if (z < d.z1) { hw.done[ti] = true; if (hw.wasInDrop) good('Moved over before the lane ended'); continue }
-      banner(`${word} lane ends`, inIt ? `Signal ${away} and move over` : 'Let traffic from the ending lane merge in', 'M', z - d.z1)
+      if (z <= d.z1 + 15 && inIt) return fail('Your lane ended before you moved over.', ['When you see "RIGHT LANE ENDS", look for a gap early: signal left, check your mirror and blind spot, then move over.'])
+      if (z < d.z1) { hw.done[ti] = true; if (hw.wasInDrop) good('Moved over before the lane ended'); hw.wasInDrop = false; continue }
+      banner('Right lane ends', inIt ? 'Signal left and move over' : `${d.lane} lanes ahead · let traffic merge in`, 'M', z - d.z1)
       shown = true
       break
     }
@@ -681,7 +681,7 @@ export function stepSim(dt: number) {
   if (input.laneShift && sim.laneAssist) { startSwap(input.laneShift); input.laneShift = 0 } // lane assist does the lane change
   if (input.laneShift) {
     if (sim.speed > 2) {
-      const h0 = Math.round(sim.h / (Math.PI / 2)) * (Math.PI / 2)
+      const h0 = WORLD.highway ? hC(sim.z) : Math.round(sim.h / (Math.PI / 2)) * (Math.PI / 2) // (the highway's own heading where it bends)
       if (Math.abs(sim.h - h0) < 0.35) {
         const rxv = Math.cos(h0), rzv = -Math.sin(h0)
         const w = WORLD.highway ? 3.7 : LANE_W
@@ -1092,8 +1092,8 @@ function finishManeuver(m: Maneuver) {
 /** The centre of the lane the car is mostly in (the nearest lane running the way it is heading): a point on it and the lane's heading. */
 function laneTarget(qx = sim.x, qz = sim.z): { x: number; z: number; h: number } | null {
   if (WORLD.highway) {
-    const n = nearestLane(qx, qz)
-    return { x: n.x, z: qz, h: n.h }
+    const n = nearestLane(toRoadX(qx, qz), qz)
+    return { x: toWorldX(n.x, qz), z: qz, h: n.h + hC(qz) }
   }
   const fx = -Math.sin(sim.h), fz = -Math.cos(sim.h)
   const px = mod(qx, P), pz = mod(qz, P)

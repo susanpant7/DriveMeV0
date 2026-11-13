@@ -472,3 +472,13 @@ canvas { touch-action: none; }
 .hud.touch .navbanner .nb-words b { font-size: 13.5px; }
 .hud.touch .navbanner .nb-words span { font-size: 11.5px; }
 .hud.touch .navbanner .nb-dist { font-size: 14px; }
+
+/* touch: the lower-left controls stacked (eye, indicators, steering), lane assist in the middle of the right edge */
+.hud.touch .tleft { flex-direction: column; align-items: center; gap: clamp(6px, 1.8vh, 10px); }
+.hud.touch .tleft > .eye { order: 0; }
+.hud.touch .tleft .sigpod { order: 1; }
+.hud.touch .tleft .steerpod { order: 2; }
+.hud.touch .tbtn.lanekeep.lanemid {
+  position: fixed; right: max(12px, env(safe-area-inset-right)); top: 50%; transform: translateY(-50%); z-index: 2;
+}
+.hud.touch .tbtn.lanekeep.lanemid:active { transform: translateY(-50%) scale(.94); }
