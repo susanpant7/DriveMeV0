@@ -591,8 +591,9 @@ export function stepTraffic(dt: number, t: number, player: Obstacle) {
   for (let i = 0; i < cars.length; i++) {
     const cc = cars[i]
     if (!cc.active) continue
-    grid[cellOf(cc.x, cc.z)].push(i)
     const pp = PIECES[cc.piece]
+    if (!pp) { cc.active = false; continue } // (a car left over from a town that has just been rebuilt)
+    grid[cellOf(cc.x, cc.z)].push(i)
     if (pp.kind === 'ring') {
       let l = ringCars.get(pp.node)
       if (!l) ringCars.set(pp.node, (l = []))

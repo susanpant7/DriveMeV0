@@ -3,7 +3,7 @@ import { armClosed, noTurnOnRed, arrowPhase, streetLimit, resStyle, PARKED, jLan
 import { FRONT_PITCH, MIRROR_AIM, adjust } from './cabinConfig'
 import { layoutOf, nav, navJunctionExit, navUpdate, startRoute, turnName } from './nav'
 import { WORLD } from './course'
-import { HW, CITY, MIXED_ROAD, NL, firstStage, hwRoute, SPAWN_Z, FORK_MAX, FORK_SLOPE, ACC_LEN, dropLane, forkShift, laneAt, makeStage, nearestLane, rampHeading, rampNear, rampX, type Ramp, rampU, routeName, splitX, unshiftX, onRoad as hwOnRoad, recoverPose, startPose, type Route, type Stage } from '../highway/layout'
+import { HW, CITY, MIXED_ROAD, NL, firstStage, hwRoute, SPAWN_Z, forkCurve, ACC_LEN, dropLane, forkShift, laneAt, makeStage, nearestLane, rampHeading, rampNear, rampX, type Ramp, rampU, routeName, splitX, unshiftX, onRoad as hwOnRoad, recoverPose, startPose, type Route, type Stage } from '../highway/layout'
 import { initHighwayTraffic, resetJoins, setHighwayCount, shiftHighwayTraffic, stepHighwayTraffic } from '../highway/traffic'
 import { initialHud, useGame, type Look, type Msg, type Signal } from './store'
 import { CAR_L, CAR_W, setTrafficTarget, whyStuck, junctionBusy, cars, initTraffic, ringBusy, setActiveCount, stepTraffic, type AiCar } from './trafficAI'
@@ -186,7 +186,7 @@ function continueHighway(road: Route) {
   const f = HW.s.fork
   const z = sim.z
   const sx = f ? splitX() : 0
-  const sh = (zz: number) => (f && zz < f.z ? Math.min(FORK_MAX, (f.z - zz) * FORK_SLOPE) : 0)
+  const sh = (zz: number) => (f && zz < f.z ? forkCurve(f.z - zz) : 0)
   const meRight = f ? sim.x > sx + sh(z) / 2 : false
   const dz = SPAWN_Z - z
   shiftHighwayTraffic(dz, (x, cz) => !f || (x > sx + sh(cz) / 2) === meRight)
@@ -395,6 +395,40 @@ const autoLane = { t: 0, on: false, h0: 0, dir: 1 as -1 | 1, p0: 0, w: 4.7, sig:
 let steerHold = 0, steerHoldDir = 0 // how long a steering key has been held, and which way
 const autoCentre = { on: false, t: 0, ok: 0, prevH: NaN, dhS: 0 }
 let handSteerT = -99 // when you last steered by hand (lane assist waits a moment after it)
+let arrowHeld = 0 // how long a steering arrow has been held
+/**
+ * A lane change done by lane assist (a quick double tap of an arrow while it is on): it signals, eases across into the next lane
+ * following the road (bends included), then keeps to the middle of the new lane and switches the indicator off. `lat` is how far
+ * to the right of the car the new lane's centre is.
+ */
+const swap = { dir: 0, lat: 0, t: 0 }
+function startSwap(dir: -1 | 1) {
+  const side = dir < 0 ? 'left' : 'right'
+  if (sim.speed < 3) { say('Drive on first: lane assist changes lanes on the move', 'info'); return }
+  const rx = Math.cos(sim.h), rz = -Math.sin(sim.h)
+  const W = WORLD.highway ? 3.7 : LANE_W
+  const cur = laneTarget()
+  const lt = laneTarget(sim.x + rx * dir * W, sim.z + rz * dir * W)
+  if (!cur || !lt) { say(`No lane to the ${side} here`, 'info'); return }
+  const lat = (lt.x - sim.x) * rx + (lt.z - sim.z) * rz
+  const latCur = (cur.x - sim.x) * rx + (cur.z - sim.z) * rz
+  if (Math.abs(lat - latCur) < 0.75 * W || Math.abs(lat - latCur) > 1.4 * W || Math.sign(lat - latCur) !== dir) { say(`No lane to the ${side} here`, 'info'); return } // (a real lane, a lane's width over: not a median edge)
+  swap.dir = dir; swap.lat = lat; swap.t = 0
+  if (sim.signal !== dir) { sim.signal = dir; sim.signalSince = sim.t }
+  handSteerT = -99
+  if (!autoCentre.on) { autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN; autoCentre.dhS = 0 }
+  say(`Lane assist: changing to the ${side} lane`, 'info')
+}
+function swapTarget() {
+  if (!swap.dir) return null
+  const rx = Math.cos(sim.h), rz = -Math.sin(sim.h)
+  const lt = laneTarget(sim.x + rx * swap.lat, sim.z + rz * swap.lat)
+  if (!lt) { swap.dir = 0; return null }
+  swap.lat = (lt.x - sim.x) * rx + (lt.z - sim.z) * rz
+  swap.t += 1 / 60
+  if (Math.abs(swap.lat) < 0.7 || swap.t > 6) { swap.dir = 0; if (sim.signal !== 0) sim.signal = 0 } // in the new lane (lane keeping centres it): indicator off
+  return lt
+}
 
 
 const clamp = (v: number, a: number, b: number) => Math.min(b, Math.max(a, v))
@@ -415,6 +449,7 @@ export function resetSim(keepScore = false, stage?: Stage) {
   WORLD.highway = useGame.getState().mode === 'highway' || (useGame.getState().mode === 'mixed' && useGame.getState().leg === 'highway')
   autoCentre.on = false
   handSteerT = -99
+  swap.dir = 0
   overFor = 0; overWarnT = -99; redCross = null
   if (WORLD.highway) {
     HW.s = stage ?? firstStage()
@@ -580,7 +615,7 @@ export function stepSim(dt: number) {
   // ---- the indicator switches itself off when the wheel turns the other way from straight: the right one when you steer left of
   // centre, the left one when you steer right of centre (as you straighten up after a turn or a lane change). Not on a roundabout,
   // where you steer left all the way round while showing right for your exit. Pressing the same indicator again also switches it off.
-  if (sim.signal !== 0 && sim.jn?.kind !== 'round' && sim.steerIn * sim.signal < -0.1) sim.signal = 0
+  if (sim.signal !== 0 && !swap.dir && sim.jn?.kind !== 'round' && sim.steerIn * sim.signal < -0.1) sim.signal = 0 // (not during lane assist's own lane change: it holds the indicator until it is across)
   // ---- pedals and longitudinal dynamics ----
   if (input.down) sim.cruise = 0 // the brake switches cruise control off
   if (input.gasTap) { input.gasTap = false; if (sim.cruise) sim.cruise = 0; else if (sim.speed > 5) { sim.cruise = sim.speed; say(`Cruise control on`, 'info') } }
@@ -616,8 +651,13 @@ export function stepSim(dt: number) {
     if (!sim.laneAssist) { autoCentre.on = false; autoCentre.prevH = NaN }
     say(sim.laneAssist ? 'Lane assist on' : 'Lane assist off', 'info')
   }
-  if (input.left || input.right) handSteerT = sim.t
-  if (sim.laneAssist && !autoLane.on && !autoCentre.on && !input.left && !input.right && sim.speed >= 1.5 && sim.t - handSteerT > 0.5) {
+  // steering by hand: with lane assist on, only an arrow held for a moment counts (quick taps, and a double tap asking for a lane
+  // change, leave it steering)
+  if (input.left || input.right) arrowHeld += dt; else arrowHeld = 0
+  const handSteer = sim.laneAssist ? arrowHeld > 0.25 : input.left || input.right
+  if (handSteer) { handSteerT = sim.t; swap.dir = 0 }
+  if (!sim.laneAssist) swap.dir = 0
+  if (sim.laneAssist && !autoLane.on && !autoCentre.on && !handSteer && sim.speed >= 1.5 && sim.t - handSteerT > 0.5) {
     const lt = laneTarget()
     if (lt && Math.abs(Math.atan2(Math.sin(sim.h - lt.h), Math.cos(sim.h - lt.h))) < 0.3) { autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN; autoCentre.dhS = 0 }
   }
@@ -638,6 +678,7 @@ export function stepSim(dt: number) {
   }
   let target = sim.wheel
   // double-tap lane change: the car steers itself over to the next lane, then straightens up
+  if (input.laneShift && sim.laneAssist) { startSwap(input.laneShift); input.laneShift = 0 } // lane assist does the lane change
   if (input.laneShift) {
     if (sim.speed > 2) {
       const h0 = Math.round(sim.h / (Math.PI / 2)) * (Math.PI / 2)
@@ -669,9 +710,9 @@ export function stepSim(dt: number) {
   }
   if (autoCentre.on && !autoLane.on) {
     autoCentre.t += dt
-    const lt = laneTarget()
+    const lt = swapTarget() ?? laneTarget()
     const hold = sim.laneAssist
-    if (!lt || sim.speed < 1.5 || (!hold && input.down) || input.left || input.right || (!hold && autoCentre.t > 12)) { autoCentre.on = false; autoCentre.prevH = NaN; sim.wheel = 0 }
+    if (!lt || sim.speed < 1.5 || (!hold && input.down) || handSteer || (!hold && autoCentre.t > 12)) { autoCentre.on = false; autoCentre.prevH = NaN; sim.wheel = 0 }
     else {
       const rx = Math.cos(lt.h), rz = -Math.sin(lt.h)
       const e = (sim.x - lt.x) * rx + (sim.z - lt.z) * rz // how far to the right of the lane centre the car is
@@ -683,7 +724,8 @@ export function stepSim(dt: number) {
       const dh = autoCentre.dhS
       const gain = (0.55 * sens) / (1 + (sim.speed / 9) ** 2)
       const ff = (-Math.atan((WHEELBASE * dh) / Math.max(sim.speed, 1.5)) / gain)
-      const des = clamp(e * 0.04, -0.08, 0.08)
+      const lim = swap.dir ? clamp(2.2 / Math.max(sim.speed, 1), 0.07, 0.16) : 0.08 // (a lane change: a firmer move across, about 2-3 s at any speed)
+      const des = clamp(e * (swap.dir ? 0.06 : 0.04), -lim, lim)
       const fb = -clamp(((des - hrel) * 4 * 0.7 - (sim.yawRate - dh) * 0.9) / sens, -1, 1) // the yaw-rate term damps it so it settles without wobbling
       target = clamp(ff + fb, -1, 1)
       sim.wheel = 0
@@ -1048,13 +1090,13 @@ function finishManeuver(m: Maneuver) {
 }
 
 /** The centre of the lane the car is mostly in (the nearest lane running the way it is heading): a point on it and the lane's heading. */
-function laneTarget(): { x: number; z: number; h: number } | null {
+function laneTarget(qx = sim.x, qz = sim.z): { x: number; z: number; h: number } | null {
   if (WORLD.highway) {
-    const n = nearestLane(sim.x, sim.z)
-    return { x: n.x, z: sim.z, h: n.h }
+    const n = nearestLane(qx, qz)
+    return { x: n.x, z: qz, h: n.h }
   }
   const fx = -Math.sin(sim.h), fz = -Math.cos(sim.h)
-  const px = mod(sim.x, P), pz = mod(sim.z, P)
+  const px = mod(qx, P), pz = mod(qz, P)
   let bd = 8, bx = 0, bz = 0, bdx = 0, bdz = 0, found = false
   for (const pc of PIECES) {
     for (let i = 1; i < pc.x.length; i++) {
@@ -1069,7 +1111,7 @@ function laneTarget(): { x: number; z: number; h: number } | null {
       if (d < bd) { bd = d; found = true; bx = -qx; bz = -qz; bdx = dx / len; bdz = dz / len }
     }
   }
-  return found ? { x: sim.x + bx, z: sim.z + bz, h: Math.atan2(-bdx, -bdz) } : null
+  return found ? { x: qx + bx, z: qz + bz, h: Math.atan2(-bdx, -bdz) } : null
 }
 
 /* ---------- rules: lanes inside a two-lane roundabout ---------- */

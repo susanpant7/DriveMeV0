@@ -435,8 +435,8 @@ function buildPieces() {
         // where the median starts and stops changing width
         const tA = jTypeOf(i, j, d % 2), tB = jTypeOf(ni, nj, d % 2)
         for (const dd of tA && tB ? [80, segLen - 80] : [MED0, MED1]) { if (tA && dd < segLen) bps.add(dd); if (tB && segLen - dd > 0) bps.add(segLen - dd) }
-        // a winding residential street: sample its lanes every few metres
-        if (armOne(i, j, d)) for (let sv = 4; sv < segLen; sv += 5) bps.add(sv)
+        // a winding street (residential, or a main road with a gentle curve): sample its lanes every few metres along the bend
+        for (let sv = 4; sv < segLen; sv += 5) if (armOne(i, j, d) || bendAt(cx, cz, d, clrA + sv) !== 0 || bendAt(cx, cz, d, clrA + sv - 5) !== 0 || bendAt(cx, cz, d, clrA + sv + 5) !== 0) bps.add(sv)
         const sorted = [...bps].sort((p, q) => p - q)
         const one = armOne(i, j, d)
         for (let k = 0; k < LANES; k++) {
@@ -727,25 +727,32 @@ export interface Lot {
   empty: boolean // nothing here (a side street's car park)
 }
 
-/* ---------- residential streets wind a little ---------- */
+/* ---------- streets wind a little ---------- */
 /**
- * Lateral offset (m) of the centre of a residential street at distance u from its west / north junction (ai, aj), towards the
- * right of a driver heading east (axis 0) or south (axis 1). Streets run straight near junctions and bend gently between them:
- * some sweep out to one side and back, some make an S, some stay straight.
+ * Lateral offset (m) of the centre of a street at distance u from its west / north junction (ai, aj), towards the right of a driver
+ * heading east (axis 0) or south (axis 1). Streets run straight near junctions and bend gently between them: some sweep out to one
+ * side and back, some make an S, a few stay straight. Residential streets wind more; the town's main roads only curve gently, and only
+ * well clear of the junctions (where they widen for the turn lanes), so the buildings beside them are never reached.
  */
 export function roadBend(ai: number, aj: number, axis: number, u: number): number {
-  if (!oneLane(axis, axis === 0 ? aj : ai)) return 0
+  const one = oneLane(axis, axis === 0 ? aj : ai)
+  if (!one) {
+    // main roads that must stay straight: the one with the side streets into the car parks, and the one the highway entrance leaves
+    if (stubsOn() && axis === 1 && mod(ai, G) === CENTRE_COL) return 0
+    if (LAYOUT.kind === 'mixed' && axis === 0 && mod(ai, G) === RAMP_I && mod(aj, G) === RAMP_J) return 0
+  }
   const L = axis === 0 ? nodeX(ai + 1) - nodeX(ai) : nodeZ(aj + 1) - nodeZ(aj)
   const cA = clearance(ai, aj, axis), cB = axis === 0 ? clearance(ai + 1, aj, axis) : clearance(ai, aj + 1, axis)
-  const u0 = cA + 28, u1 = L - cB - 28
+  const pad = one ? 28 : MED1 + 15 // (a main road starts to bend only past its turn lanes and median)
+  const u0 = cA + pad, u1 = L - cB - pad
   if (u1 - u0 < 70 || u <= u0 || u >= u1) return 0
   const mi = mod(ai, G), mj = mod(aj, G)
   const h0 = hash(mi * 7 + 1, mj * 5 + 3, axis + 11), h1 = hash(mi + 3, mj + 9, axis + 21), h2 = hash(mi + 13, mj + 2, axis + 31)
-  if (h0 < 0.2) return 0 // a straight one
+  if (h0 < 0.1) return 0 // a straight one
   const t = (u - u0) / (u1 - u0)
-  const A = (4.5 + 3.5 * h1) * (h2 < 0.5 ? -1 : 1)
+  const A = (one ? 6 + 4 * h1 : 4 + 4 * h1) * (h2 < 0.5 ? -1 : 1) // (residential: 6-10 m; main roads: 4-8 m over a few hundred metres)
   const s = Math.sin(Math.PI * t)
-  return h0 < 0.6 ? A * s * s : (A * Math.sin(2 * Math.PI * t) * s) / 0.77 // a sweep out and back, or an S-bend
+  return h0 < 0.55 ? A * s * s : (A * Math.sin(2 * Math.PI * t) * s) / 0.77 // a sweep out and back, or an S-bend
 }
 /** the bend's offset in the frame of a road leaving the node at (ax, az) in direction d (to the right of that direction) */
 export function bendAt(ax: number, az: number, d: number, u: number) {

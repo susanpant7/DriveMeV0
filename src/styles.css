@@ -453,3 +453,22 @@ canvas { touch-action: none; }
 /* lane assist button: lit while lane assist is on, brighter while it is steering */
 .hud.touch .tbtn.lanekeep.on { background: rgba(59,130,246,.28); border-color: rgba(160,200,255,.85); }
 .hud.touch .tbtn.lanekeep.on.active { background: rgba(34,197,94,.32); border-color: #7dffa0; color: #eafff0; box-shadow: 0 0 12px rgba(61,255,154,.45); }
+
+/* the instruction banner at the top: compact, but real, sharp text (a long line wraps; it is never squeezed) */
+.navbanner {
+  position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 3; pointer-events: none;
+  display: flex; align-items: center; gap: 10px; padding: 6px 12px 6px 6px; border-radius: 12px;
+  width: max-content; max-width: min(420px, 46vw);
+  background: rgba(10, 15, 23, .9); color: #fff; box-shadow: 0 4px 14px rgba(0,0,0,.35);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased;
+}
+.navbanner .nb-icon { flex: none; width: 40px; height: 40px; border-radius: 9px; background: #1f6fe0; display: grid; place-items: center; }
+.navbanner .nb-words { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.navbanner .nb-words b { font-size: 15px; font-weight: 700; letter-spacing: .005em; }
+.navbanner .nb-words span { font-size: 12.5px; font-weight: 500; color: #c3d2e6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.navbanner .nb-dist { flex: none; font-size: 16px; font-weight: 700; padding-left: 6px; border-left: 1px solid rgba(255,255,255,.18); margin-left: 2px; font-variant-numeric: tabular-nums; }
+.hud.touch .navbanner { top: 6px; padding: 4px 10px 4px 4px; gap: 8px; max-width: min(380px, 44vw); }
+.hud.touch .navbanner .nb-icon { width: 34px; height: 34px; }
+.hud.touch .navbanner .nb-words b { font-size: 13.5px; }
+.hud.touch .navbanner .nb-words span { font-size: 11.5px; }
+.hud.touch .navbanner .nb-dist { font-size: 14px; }

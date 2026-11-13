@@ -38,9 +38,12 @@ export const RAMP_SHOULDER_OUT = 2.4
 /** the ramp the player starts on: where it meets the highway and how long it is */
 export const START_G = 420
 export const START_LEN = 690
-/** a split: how fast the right-hand branch pulls away, and how far */
-export const FORK_SLOPE = 0.22
+/** a split: how far the right-hand branch pulls away, and over how long (a long, smooth S: it eases away and eases straight again) */
 export const FORK_MAX = 40
+export const FORK_LEN = 700
+/** the branch's sideways distance d metres past the split (0 .. FORK_MAX), and its slope there */
+export const forkCurve = (d: number) => { const t = Math.max(0, Math.min(1, d / FORK_LEN)); return FORK_MAX * t * t * (3 - 2 * t) }
+const forkSlope = (d: number) => { const t = Math.max(0, Math.min(1, d / FORK_LEN)); return (FORK_MAX * 6 * t * (1 - t)) / FORK_LEN }
 /** centre of the extra lane on that side (1 = right, -1 = left) */
 export const AUX_X = (side: 1 | -1) => (side === 1 ? NB_X[NL - 1] + LANE : NB_X[0] - LANE)
 
@@ -149,12 +152,12 @@ export const splitX = () => NB_EDGE_L + (HW.s.fork?.split ?? NL) * LANE
 export function forkShift(z: number) {
   const f = HW.s.fork
   if (!f || z >= f.z) return 0
-  return Math.min(FORK_MAX, (f.z - z) * FORK_SLOPE)
+  return forkCurve(f.z - z)
 }
 /** how the right-hand branch bends there (rad) */
 export function forkHeading(z: number) {
   const f = HW.s.fork
-  return f && z < f.z && z > f.z - FORK_MAX / FORK_SLOPE ? -Math.atan(FORK_SLOPE) : 0
+  return f && z < f.z ? -Math.atan(forkSlope(f.z - z)) : 0
 }
 export const laneShift = (k: number, z: number) => (HW.s.fork && k >= HW.s.fork.split ? forkShift(z) : 0)
 /** how much of the ending lane is left at z, 1 .. 0 */
@@ -289,7 +292,7 @@ export function makeStage(road: Route, entry: 'ramp' | 'main', final: 'fork' | '
     const [left, right] = forkSide === 'left' ? [to, road] : [road, to]
     s.fork = { z: finalG, split, left, right, want: forkSide, exitOnly: forkSide }
     s.tasks.push({ k: 'fork' })
-    s.zEnd = finalG - 650
+    s.zEnd = finalG - FORK_LEN - 80 // (past the end of the split's curve: the branches run straight again)
   } else {
     s.ramps.push({ kind: 'off', side: 1, g: finalG, len: START_LEN, exit: '', to, take: true })
     s.tasks.push({ k: 'exit', ramp: s.ramps.length - 1 })

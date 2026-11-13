@@ -3,7 +3,7 @@ import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { useGame } from '../game/store'
 import {
-  ACC_LEN, HW, LANE, MEDIAN_X, NB_EDGE_L, NB_EDGE_R, NB_SHOULDER_L, NB_X, NL, RAMP_K, SB_EDGE_IN, SB_EDGE_OUT, SHOULDER_R, TAPER, Z_FINISH, Z_TOP,
+  ACC_LEN, FORK_LEN, HW, LANE, MEDIAN_X, NB_EDGE_L, NB_EDGE_R, NB_SHOULDER_L, NB_X, NL, RAMP_K, SB_EDGE_IN, SB_EDGE_OUT, SHOULDER_R, TAPER, Z_FINISH, Z_TOP,
   auxAt, auxEdge, dropLane, edgeL, edgeR, forkShift, paveL, paveR, rampU, rampX, rampZ0, rampZ1, splitX, strips, type Ramp, type Route,
 } from './layout'
 
@@ -135,7 +135,7 @@ export function buildHighway() {
       line(marks, f.z + 300, f.z, () => x, 0.3, WHITE, [3, 3]) // wide dotted: the lanes are about to part
       line(marks, f.z, Z_FINISH, () => x - 0.3, 0.18, WHITE, undefined, 12)
       line(marks, f.z, Z_FINISH, (z) => x + forkShift(z) + 0.3, 0.18, YELLOW, undefined, 12)
-      for (let z = f.z; z > f.z - 60; z -= 6) marks.flat([x - 0.3, z], [x + 0.3 + forkShift(z - 3), z - 3], [x + 0.5 + forkShift(z - 3), z - 3], [x - 0.1, z], 0.02, WHITE)
+      for (let z = f.z - 60; z > f.z - 260; z -= 8) marks.flat([x - 0.3, z], [x + 0.3 + forkShift(z - 3), z - 3], [x + 0.5 + forkShift(z - 3), z - 3], [x - 0.1, z], 0.02, WHITE)
     } else {
       // where the lane beside a dropping lane is nearly gone the line becomes the new edge (drawn above), so the dashes stop there
       line(marks, Z_TOP, zEndDash, (z) => x + shiftK(z), 0.15, WHITE, [3, 9])
@@ -207,7 +207,7 @@ export function buildHighway() {
   rail(Z_TOP, Z_FINISH, (z) => paveR(z) + 0.4, (z) => nearRampSide(1)(z) || (!!f && z < f.z && z > f.z - 400))
   if (f) {
     rail(f.z - 400, Z_FINISH, (z) => paveR(z) + 0.4)
-    for (let z = f.z - 30; z > f.z - FORK_SPAN; z -= 6) solid.box(splitX() + forkShift(z) / 2, 0, z, 0.5, 0.8, 6, BARRIER)
+    for (let z = f.z - 260; z > f.z - FORK_LEN - 60; z -= 6) solid.box(splitX() + forkShift(z) / 2, 0, z, 0.5, 0.8, 6, BARRIER) // (once the branches are well apart)
   }
   // the outer side of each ramp
   for (const r of s.ramps) {
@@ -223,7 +223,6 @@ export function buildHighway() {
   }
   return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build() }
 }
-const FORK_SPAN = 40 / 0.22
 
 /* ================================ signs ================================ */
 /**

@@ -17,6 +17,7 @@ export function steerTap(dir: -1 | 1) {
   const d = dir < 0 ? 0 : 1, now = performance.now()
   if (now - steerTaps[d] < 380) { input.laneShift = dir; steerTaps[d] = 0 } else steerTaps[d] = now
 }
+if (typeof window !== 'undefined') Object.assign(window, { __tap: steerTap })
 export function installInput() {
   // ---- free look: press and drag the mouse, or swipe with two fingers on a trackpad, to turn your head ----
   // (holding C or the right mouse button also works). Let go and your head returns to the road.
