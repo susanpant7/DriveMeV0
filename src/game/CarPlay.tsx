@@ -3,8 +3,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { CARPLAY } from './cabinConfig'
 import { IS_COARSE } from './device'
-import { drawIcon, drawNavMap } from './navMap'
-import { fmtDist, nav } from './nav'
+import { drawNavMap } from './navMap'
 import { sim } from './sim'
 import { useGame } from './store'
 import { drawHighwayMap } from '../highway/hwMap'
@@ -79,15 +78,7 @@ export function CarPlay() {
     const st = useGame.getState()
     if (st.mode === 'highway' || (st.mode === 'mixed' && st.leg === 'highway')) drawHighwayMap(g, MW, CH)
     else drawNavMap(g, MW, CH, Math.min(dt, 0.1), units, false, false, 4) // zoomed in: the next junction fills the screen
-    // next turn
-    if (nav.text) {
-      card(g, 16, 16, 380, 104)
-      g.fillStyle = '#1f6fe0'; rr(g, 28, 28, 80, 80, 16); g.fill()
-      drawIcon(g, nav.icon, 68, 68, 56)
-      g.textAlign = 'left'; g.textBaseline = 'alphabetic'
-      g.fillStyle = '#fff'; g.font = '700 34px system-ui, sans-serif'; g.fillText(fmtDist(nav.dist, units), 124, 62)
-      g.fillStyle = '#c9d6e8'; g.font = '500 20px system-ui, sans-serif'; g.fillText(nav.sub || nav.text, 124, 94, 258)
-    }
+    // (no turn card here: the next turn is shown in the banner at the top of the screen)
     // speed and limit
     // your speed and the speed limit: a big, clear US speed-limit sign (it turns red-edged when you are over the limit)
     // (a phone's screen is small: the speed card is drawn bigger there)

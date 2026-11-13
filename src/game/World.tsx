@@ -6,9 +6,35 @@ import { sim, stepSim } from './sim'
 import { useGame } from './store'
 
 /** Advances the simulation before anything is drawn this frame. */
+/**
+ * The car, the traffic and the rules move in fixed steps of 1/60 s, whatever the frame rate: the driving feels the same on a slow phone
+ * and a fast computer, and a dropped frame never makes the car jump. The camera shows the car between its last two steps (renderPose),
+ * so the view stays smooth on screens faster or slower than 60 Hz.
+ */
+const STEP = 1 / 60
+export const renderPose = { x: 0, z: 0, h: 0 }
 export function Simulation() {
+  const acc = useRef(0)
+  const prev = useRef({ x: 0, z: 0, h: 0 })
   useFrame((_, dt) => {
-    stepSim(Math.min(dt, 0.05))
+    acc.current += Math.min(dt, 0.25)
+    let n = 0
+    while (acc.current >= STEP && n < 6) {
+      prev.current.x = sim.x; prev.current.z = sim.z; prev.current.h = sim.h
+      stepSim(STEP)
+      acc.current -= STEP
+      n++
+    }
+    if (n === 6) acc.current = 0 // far behind (a long hitch): drop the backlog rather than race to catch up
+    const a = acc.current / STEP, p = prev.current
+    // a reset or a jump to a new place: no blending across it
+    if (Math.hypot(sim.x - p.x, sim.z - p.z) > 15) { renderPose.x = sim.x; renderPose.z = sim.z; renderPose.h = sim.h }
+    else {
+      renderPose.x = p.x + (sim.x - p.x) * a
+      renderPose.z = p.z + (sim.z - p.z) * a
+      const dh = Math.atan2(Math.sin(sim.h - p.h), Math.cos(sim.h - p.h))
+      renderPose.h = p.h + dh * a
+    }
     updateAudio(sim.rpm, sim.speed, useGame.getState().status === 'playing')
   }, -3)
   return null

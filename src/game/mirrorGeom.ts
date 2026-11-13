@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { quality } from './quality'
+import { autoQ, quality } from './quality'
+import { useGame } from './store'
 
 /**
  * Outline of a side-mirror glass: a rounded shape with the lower corner nearest the
@@ -257,7 +258,10 @@ export class MirrorGlass extends THREE.Mesh {
     const v = this.vcam
     v.position.copy(_Ev)
     v.quaternion.setFromRotationMatrix(_M)
-    v.far = (camera as THREE.PerspectiveCamera).far // the mirror sees as far as you do
+    // light mirrors: no road wear (layer 3) and only about 200 m behind you; otherwise the mirror sees what you see
+    const lite = useGame.getState().mirrorLite
+    v.far = lite ? Math.min(200, (camera as THREE.PerspectiveCamera).far) : (camera as THREE.PerspectiveCamera).far
+    v.layers.set(0); v.layers.enable(2); if (!lite) v.layers.enable(3)
     v.updateMatrixWorld(true)
 
     // off-axis frustum through the glass window (scaled by `wide` for the convex look)
@@ -310,7 +314,7 @@ export class MirrorGlass extends THREE.Mesh {
     const aspect = this.half.x / this.half.y
     // twice the on-screen size (supersampled: fine detail stays smooth and sharp), within sensible limits
     const q = quality()
-    let w = Math.max(pw, ph * aspect) * q.mirrorScale * this.wide
+    let w = Math.max(pw, ph * aspect) * q.mirrorScale * autoQ.scale * (useGame.getState().mirrorLite ? 0.85 : 1) * this.wide
     w = Math.max(this.minW, Math.min(q.mirrorMax, w))
     const h = w / aspect
     const cur = this.rt.width

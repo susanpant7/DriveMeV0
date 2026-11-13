@@ -7,6 +7,7 @@ import { CarPlay } from './CarPlay'
 import { CARPLAY, EYE, GLASS, FRONT_PITCH, FRONT_YAW, adjust, mirrorAdj, mirrorScreen, saveMirrors, LOOK_TARGETS, MIRROR_AIM, MIRRORS, type MirrorCfg } from './cabinConfig'
 import { MirrorGlass, mirrorShape } from './mirrorGeom'
 import { input, sim } from './sim'
+import { renderPose } from './World'
 import { recentreView } from './input'
 import { useGame } from './store'
 
@@ -94,6 +95,7 @@ export function PlayerRig() {
 
   useEffect(() => {
     camera.layers.enable(1)
+    camera.layers.enable(3) // road wear (the mirrors may skip it)
     camera.rotation.order = 'YXZ'
     // Cabin + mirrors live on layer 1: the driver sees them, mirror cameras don't.
     rig.current.traverse((o) => {
@@ -169,7 +171,7 @@ export function PlayerRig() {
       r.x0 = r.y0 = Infinity; r.x1 = r.y1 = -Infinity; r.ok = true
       const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(...CARPLAY.rot))
       for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
-        const v = new THREE.Vector3((sx * CARPLAY.W) / 2, (sy * CARPLAY.H) / 2, 0).applyQuaternion(q).add(CARPLAY.pos).applyAxisAngle(UP, sim.h).add(rig.current.position).project(camera)
+        const v = new THREE.Vector3((sx * CARPLAY.W) / 2, (sy * CARPLAY.H) / 2, 0).applyQuaternion(q).add(CARPLAY.pos).applyAxisAngle(UP, renderPose.h).add(rig.current.position).project(camera)
         if (v.z > 1) r.ok = false
         const px = (v.x * 0.5 + 0.5) * size.width, py = (-v.y * 0.5 + 0.5) * size.height
         r.x0 = Math.min(r.x0, px); r.x1 = Math.max(r.x1, px); r.y0 = Math.min(r.y0, py); r.y1 = Math.max(r.y1, py)
@@ -177,7 +179,7 @@ export function PlayerRig() {
     }
     // where the mirrors are on screen (for clicking)
     for (const [k, p, rad] of [['left', MIRRORS[0].pos, 0.2], ['center', MIRRORS[1].pos, 0.16], ['right', MIRRORS[2].pos, 0.2]] as Array<[string, THREE.Vector3, number]>) {
-      const wp = p.clone().applyAxisAngle(UP, sim.h).add(rig.current.position)
+      const wp = p.clone().applyAxisAngle(UP, renderPose.h).add(rig.current.position)
       const dist = camera.position.distanceTo(wp)
       proj.copy(wp).project(camera)
       const e = mirrorScreen[k]
@@ -188,8 +190,8 @@ export function PlayerRig() {
     }
     const crashed = useGame.getState().status === 'crashed'
     const g = rig.current
-    g.position.set(sim.x, 0, sim.z)
-    g.rotation.y = sim.h
+    g.position.set(renderPose.x, 0, renderPose.z)
+    g.rotation.y = renderPose.h
     wheel.current.rotation.z = -sim.steerIn * Math.PI * 2 * 1.5 // like a real car: three turns from lock to lock
 
     // touch free-look turns the head to wherever the thumb points; the keys snap to a mirror. The lens never zooms.
@@ -228,12 +230,12 @@ export function PlayerRig() {
 
     // ---- how the car moves under you: nose dips when braking, lifts on throttle, body rolls in a turn ----
     const bd = body.current
-    if (!bd.init || dt > 0.2) { bd.lastSpeed = sim.speed; bd.lastH = sim.h; bd.init = true }
+    if (!bd.init || dt > 0.2) { bd.lastSpeed = sim.speed; bd.lastH = renderPose.h; bd.init = true }
     const stepDt = Math.max(dt, 1e-3)
     const accelRaw = (sim.speed - bd.lastSpeed) / stepDt
-    const yawRate = ((((sim.h - bd.lastH) + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI) / stepDt
+    const yawRate = ((((renderPose.h - bd.lastH) + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI) / stepDt
     bd.lastSpeed = sim.speed
-    bd.lastH = sim.h
+    bd.lastH = renderPose.h
     const kf = 1 - Math.exp(-2.5 * dt)
     bd.accel += (Math.max(-9, Math.min(5, accelRaw)) - bd.accel) * kf
     bd.lat += (Math.max(-6, Math.min(6, yawRate * sim.speed)) - bd.lat) * kf
@@ -246,7 +248,7 @@ export function PlayerRig() {
     bd.bump = 0 // no heave: the view stays steady, it must not bob up and down
     bd.fov += ((sim.speed / 30) * 5 - bd.fov) * (1 - Math.exp(-2 * dt)) // the world opens up a little at speed
     const bodyOn = crashed ? 0 : 1
-    tmp.copy(EYE).add(v.lean).add(new THREE.Vector3(bd.sway * bodyOn, bd.bump * 6 * bodyOn, bd.pitch * -0.5 * bodyOn)).applyAxisAngle(UP, sim.h).add(g.position)
+    tmp.copy(EYE).add(v.lean).add(new THREE.Vector3(bd.sway * bodyOn, bd.bump * 6 * bodyOn, bd.pitch * -0.5 * bodyOn)).applyAxisAngle(UP, renderPose.h).add(g.position)
     camera.position.copy(tmp)
 
     let shake = 0
@@ -254,7 +256,7 @@ export function PlayerRig() {
     const vib = 0
     camera.rotation.set(
       v.pitch + vib + bd.pitch * bodyOn + bd.bump * bodyOn + (shake ? (Math.random() - 0.5) * shake : 0) - (crashed ? Math.min(0.15, sim.crashT * 0.6) : 0),
-      v.yaw + sim.h + (shake ? (Math.random() - 0.5) * shake : 0),
+      v.yaw + renderPose.h + (shake ? (Math.random() - 0.5) * shake : 0),
       -sim.steer * 0.15 + bd.roll * bodyOn,
     )
     ;(window as unknown as { __view?: unknown }).__view = { yaw: v.yaw, pitch: v.pitch, fov: v.fov }

@@ -57,6 +57,8 @@ interface GameState {
   motionSens: 1 | 2 | 3 | 4 | 5
   /** graphics quality: how much drawing work each frame does (see game/quality.ts) */
   graphics: Graphics
+  /** light mirrors: the mirrors skip road wear and only draw about 200 m behind you (cheaper; nothing you drive by is lost) */
+  mirrorLite: boolean
   /** your own resting view: how far it is turned (yaw, + = left) and tilted (pitch, + = up) from the standard one (radians) */
   viewOffset: { yaw: number; pitch: number }
   /** paused and setting the default view by dragging */
@@ -127,6 +129,7 @@ export const useGame = create<GameState>(() => ({
   lookMode: load<'eye' | 'motion'>('driveme.look', 'eye', (v) => v === 'eye' || v === 'motion'),
   steerSens: load<1 | 2 | 3 | 4 | 5>('driveme.steer', 2, (v) => [1, 2, 3, 4, 5].includes(v as number)),
   motionSens: load<1 | 2 | 3 | 4 | 5>('driveme.motion', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
+  mirrorLite: load<boolean>('driveme.mirrorLite', false, (v) => v === true || v === false),
   graphics: load<Graphics>('driveme.gfx', IS_COARSE ? 'medium' : 'high', (v) => v === 'high' || v === 'medium' || v === 'low'),
   viewOffset: load<{ yaw: number; pitch: number }>('driveme.view', { yaw: 0, pitch: 0 }, (v) => !!v && typeof (v as { yaw: unknown }).yaw === 'number' && typeof (v as { pitch: unknown }).pitch === 'number'),
   viewAdjusting: false,
@@ -144,6 +147,10 @@ export const setLookMode = (m: 'eye' | 'motion') => {
 export const setViewOffset = (v: { yaw: number; pitch: number }, persist = true) => {
   if (persist) save('driveme.view', v)
   useGame.setState({ viewOffset: v })
+}
+export const setMirrorLite = (on: boolean) => {
+  save('driveme.mirrorLite', on)
+  useGame.setState({ mirrorLite: on })
 }
 export const setGraphics = (g: Graphics) => {
   save('driveme.gfx', g)

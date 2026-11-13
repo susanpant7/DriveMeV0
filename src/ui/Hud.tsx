@@ -3,7 +3,7 @@ import { gasTapFn, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
-import { setGraphics, setViewOffset, setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
+import { setMirrorLite, setGraphics, setViewOffset, setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
 import { useViewport } from './useViewport'
@@ -19,6 +19,7 @@ function Settings() {
   const lookMode = useGame((s) => s.lookMode)
   const motionSens = useGame((s) => s.motionSens)
   const graphics = useGame((s) => s.graphics)
+  const mirrorLite = useGame((s) => s.mirrorLite)
   const { touch } = useViewport()
   return (
     <div className="settings">
@@ -77,6 +78,16 @@ function Settings() {
           {(['high', 'medium', 'low'] as const).map((g) => (
             <button key={g} className={graphics === g ? 'on' : ''} onClick={() => setGraphics(g)}>{g === 'high' ? 'High' : g === 'medium' ? 'Medium' : 'Low'}</button>
           ))}
+        </div>
+      </div>
+      <div className="setting">
+        <div className="setting-head">
+          <span>Light mirrors</span>
+          <span className="muted">{mirrorLite ? 'Faster: no road wear, about 200 m behind' : 'Off: mirrors show everything'}</span>
+        </div>
+        <div className="seg" role="group" aria-label="Light mirrors">
+          <button className={!mirrorLite ? 'on' : ''} onClick={() => setMirrorLite(false)}>Off</button>
+          <button className={mirrorLite ? 'on' : ''} onClick={() => setMirrorLite(true)}>On</button>
         </div>
       </div>
       <div className="setting">

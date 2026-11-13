@@ -3,6 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { P, arrowPhase, hashN, signalColor } from './map'
+import { quality } from './quality'
 import { ATLAS_H, ATLAS_W, HEAD_LAMP_SCALE, buildCity, drawSpeedSign, facadeCanvases, makeAtlas } from './cityBuild'
 import { sim } from './sim'
 import { useGame } from './store'
@@ -21,6 +22,37 @@ export const leafGeo = (() => {
     return g
   })
   return mergeGeometries(planes.map((g) => g.toNonIndexed()))!
+})()
+
+/** A distant tree: one flat picture of a whole tree (trunk and crown) that always faces you. Far away (in the haze) it reads the same
+ *  as the 3D tree and costs two triangles instead of thirty. */
+export const treeCardGeo = (() => { const g = new THREE.PlaneGeometry(1, 1); g.translate(0, 0.5, 0); return g })()
+function treeCardTexture() {
+  const c = document.createElement('canvas')
+  c.width = 128; c.height = 192
+  const g = c.getContext('2d')!
+  g.fillStyle = '#5a4030'; g.fillRect(58, 120, 12, 72) // trunk
+  for (let i = 0; i < 900; i++) {
+    const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random())
+    const x = 64 + Math.cos(a) * r * 58, y = 74 + Math.sin(a) * r * 62
+    const shade = 0.55 + Math.random() * 0.45 - (r < 0.5 ? 0.2 : 0) - ((y - 74) / 62) * 0.12
+    g.fillStyle = `rgb(${Math.round(40 * shade)},${Math.round(98 * shade + 20)},${Math.round(36 * shade)})`
+    g.beginPath(); g.ellipse(x, y, 4 + Math.random() * 4, 3 + Math.random() * 3, Math.random() * Math.PI, 0, Math.PI * 2); g.fill()
+  }
+  const t = new THREE.CanvasTexture(c)
+  t.colorSpace = THREE.SRGBColorSpace
+  return t
+}
+export const treeCardMat = (() => {
+  const m = new THREE.MeshLambertMaterial({ map: treeCardTexture(), alphaTest: 0.5, side: THREE.DoubleSide })
+  m.onBeforeCompile = (sh) => {
+    // face the camera: the card stands at the tree's base, sized by its instance scale
+    sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', `
+      vec4 mvPosition = viewMatrix * modelMatrix * instanceMatrix * vec4( 0.0, 0.0, 0.0, 1.0 );
+      mvPosition.xy += transformed.xy * vec2( length( instanceMatrix[0].xyz ), length( instanceMatrix[1].xyz ) );
+      gl_Position = projectionMatrix * mvPosition;`)
+  }
+  return m
 })()
 
 export function foliageTexture() {
@@ -181,6 +213,21 @@ export function City() {
   const groups = useRef<Array<THREE.Group | null>>([])
   const trunks = useRef<Array<THREE.InstancedMesh | null>>([])
   const leaves = useRef<Array<THREE.InstancedMesh | null>>([])
+  const cards = useRef<Array<THREE.InstancedMesh | null>>([])
+  // every tree's 3D placement (in its copy of the town) and its card (the flat far-away picture), worked out once
+  const treeLOD = useMemo(() => {
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), sc = new THREE.Vector3(), col = new THREE.Color()
+    return data.trees.map((t) => {
+      p.set(t.x, 0, t.z)
+      sc.set(t.s * (0.9 + hashN(t.z, t.x, 4) * 0.3), t.s * (0.9 + hashN(t.x, t.z, 7) * 0.35), t.s * (0.9 + hashN(t.z, t.x, 8) * 0.3))
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), hashN(t.x, t.z, 3) * 6.28)
+      const full = m.compose(p, q, sc).clone()
+      const card = new THREE.Matrix4().compose(p, new THREE.Quaternion(), new THREE.Vector3(5.4 * sc.x, 8.1 * sc.y, 1))
+      const g = hashN(t.x, t.z, 9)
+      return { x: t.x, z: t.z, full, card, col: col.setRGB(0.85 + g * 0.25, 0.9 + g * 0.2, 0.8 + g * 0.2).clone() }
+    })
+  }, [data])
+  const treeT = useRef({ t: 9, x: NaN, z: NaN, g: '' })
   const lampMeshes = useRef<Array<THREE.InstancedMesh | null>>([])
   const arrowMeshes = useRef<Array<THREE.InstancedMesh | null>>([])
   const lampColors = useMemo(() => new Float32Array(data.lamps.length * 3), [data])
@@ -193,20 +240,8 @@ export function City() {
     const sc = new THREE.Vector3()
     const col = new THREE.Color()
     for (let c = 0; c < COPIES.length; c++) {
-      const tm = trunks.current[c], lm = leaves.current[c], lamp = lampMeshes.current[c], arrow = arrowMeshes.current[c]
-      if (!tm || !lm || !lamp || !arrow) continue
-      data.trees.forEach((t, i) => {
-        p.set(t.x, 0, t.z)
-        sc.set(t.s * (0.9 + hashN(t.z, t.x, 4) * 0.3), t.s * (0.9 + hashN(t.x, t.z, 7) * 0.35), t.s * (0.9 + hashN(t.z, t.x, 8) * 0.3))
-        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), hashN(t.x, t.z, 3) * 6.28)
-        m.compose(p, q, sc)
-        tm.setMatrixAt(i, m)
-        lm.setMatrixAt(i, m)
-        const g = hashN(t.x, t.z, 9)
-        lm.setColorAt(i, col.setRGB(0.85 + g * 0.25, 0.9 + g * 0.2, 0.8 + g * 0.2))
-      })
-      tm.instanceMatrix.needsUpdate = lm.instanceMatrix.needsUpdate = true
-      if (lm.instanceColor) lm.instanceColor.needsUpdate = true
+      const lamp = lampMeshes.current[c], arrow = arrowMeshes.current[c]
+      if (!lamp || !arrow) continue
       data.lamps.forEach((l, i) => {
         p.set(l.x, l.y, l.z)
         q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), l.yaw)
@@ -249,6 +284,30 @@ export function City() {
       drawSpeedSign(res.atlasCanvas.getContext('2d')!, units)
       res.atlas.needsUpdate = true
     }
+    // trees: 3D near you, flat cards further out, nothing beyond the view distance (re-sorted a few times a second as you move)
+    {
+      const tt = treeT.current, q = quality()
+      tt.t += dt
+      const moved = Math.hypot(sim.x - tt.x, sim.z - tt.z)
+      if ((tt.t > 0.35 && moved > 4) || tt.g !== useGame.getState().graphics || Number.isNaN(tt.x)) {
+        tt.t = 0; tt.x = sim.x; tt.z = sim.z; tt.g = useGame.getState().graphics
+        const near2 = q.treeNear * q.treeNear, far2 = q.far * q.far
+        for (let k = 0; k < COPIES.length; k++) {
+          const tm = trunks.current[k], lm = leaves.current[k], cm = cards.current[k], gp = groups.current[k]
+          if (!tm || !lm || !cm || !gp) continue
+          let nn = 0, nc = 0
+          for (const tr of treeLOD) {
+            const dx = tr.x + gp.position.x - sim.x, dz = tr.z + gp.position.z - sim.z, d2 = dx * dx + dz * dz
+            if (d2 < near2) { tm.setMatrixAt(nn, tr.full); lm.setMatrixAt(nn, tr.full); lm.setColorAt(nn, tr.col); nn++ }
+            else if (d2 < far2) { cm.setMatrixAt(nc, tr.card); cm.setColorAt(nc, tr.col); nc++ }
+          }
+          tm.count = lm.count = nn; cm.count = nc
+          tm.instanceMatrix.needsUpdate = lm.instanceMatrix.needsUpdate = cm.instanceMatrix.needsUpdate = true
+          if (lm.instanceColor) lm.instanceColor.needsUpdate = true
+          if (cm.instanceColor) cm.instanceColor.needsUpdate = true
+        }
+      }
+    }
     // traffic-light lamps (5 Hz)
     st.lampT += dt
     if (st.lampT > 0.2) {
@@ -276,13 +335,14 @@ export function City() {
       {COPIES.map(([di, dj], k) => (
         <group key={k} ref={(g) => { groups.current[k] = g }} position={[di * P, 0, dj * P]}>
           {data.asphalt.map((g, n) => <mesh key={'a' + n} geometry={g} material={res.asphalt} receiveShadow />)}
-          {data.wear.map((g, n) => <mesh key={'w' + n} geometry={g} material={res.wear} renderOrder={1} receiveShadow />)}
+          {data.wear.map((g, n) => <mesh key={'w' + n} geometry={g} material={res.wear} renderOrder={1} receiveShadow ref={(m) => { m?.layers.set(3) }} />)}
           {data.marks.map((g, n) => <mesh key={'m' + n} geometry={g} material={res.marks} receiveShadow />)}
           {data.solid.map((g, n) => <mesh key={'s' + n} geometry={g} material={res.solid} receiveShadow />)}
           {data.buildings.map((g, n) => <mesh key={'b' + n} geometry={g} material={res.buildings} />)}
           {data.signs.map((g, n) => <mesh key={'g' + n} geometry={g} material={res.signs} />)}
           <instancedMesh ref={(m) => { trunks.current[k] = m }} args={[trunkGeo, trunkMat, data.trees.length]} frustumCulled={false} />
           <instancedMesh ref={(m) => { leaves.current[k] = m }} args={[leafGeo, leafMat, data.trees.length]} frustumCulled={false} />
+          <instancedMesh ref={(m) => { cards.current[k] = m }} args={[treeCardGeo, treeCardMat, data.trees.length]} frustumCulled={false} />
           {data.lamps.length > 0 && <instancedMesh ref={(m) => { lampMeshes.current[k] = m }} args={[lampGeo, lampMat, data.lamps.length]} frustumCulled={false} />}
           {data.lamps.length > 0 && <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, arrowMat, data.lamps.length]} frustumCulled={false} />}
         </group>
