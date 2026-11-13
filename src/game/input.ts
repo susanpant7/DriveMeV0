@@ -203,7 +203,19 @@ export function installInput() {
   }
 }
 
-/* ---------- phone motion: look around by moving the phone (instead of the eye icon) ---------- */
+/* ---------- looking around on a phone: the eye icon and (if switched on) moving the phone, both at once ---------- */
+/** the two sources of free look on a touch screen; the head turns by their sum */
+const lookParts = { eye: { on: false, yaw: 0, pitch: 0 }, motion: { on: false, yaw: 0, pitch: 0 } }
+function applyLook() {
+  const e = lookParts.eye, m = lookParts.motion
+  input.free = e.on || m.on
+  input.yaw = (e.on ? e.yaw : 0) + (m.on ? m.yaw : 0)
+  input.pitch = (e.on ? e.pitch : 0) + (m.on ? m.pitch : 0)
+  if (!input.free) input.look = 'front'
+}
+/** the eye icon: held (on) with a head turn, or let go */
+export function setEyeLook(on: boolean, yaw = 0, pitch = 0) { lookParts.eye = { on, yaw, pitch }; applyLook() }
+/* ---------- phone motion: look around by moving the phone ---------- */
 let motionHandler: ((e: DeviceOrientationEvent) => void) | null = null
 const motion = { on: false, base: null as null | { yaw: number; pitch: number } }
 export const motionActive = () => motion.on
@@ -215,7 +227,7 @@ export function recentreMotion() { motion.base = null }
  */
 export async function setMotionLook(on: boolean): Promise<boolean> {
   if (motionHandler) { window.removeEventListener('deviceorientation', motionHandler); motionHandler = null }
-  if (motion.on) { motion.on = false; input.free = false; input.yaw = input.pitch = 0; input.look = 'front' }
+  if (motion.on) { motion.on = false; lookParts.motion = { on: false, yaw: 0, pitch: 0 }; applyLook() }
   if (!on) return true
   const DO = DeviceOrientationEvent as unknown as { requestPermission?: () => Promise<'granted' | 'denied'> }
   try {
@@ -243,9 +255,8 @@ export async function setMotionLook(on: boolean): Promise<boolean> {
     const tP = clamp((pitch - motion.base.pitch) * 1.4 * gain, -0.3, 0.95)
     sy += (tY - sy) * 0.4
     sp += (tP - sp) * 0.4
-    input.free = true
-    input.yaw = sy
-    input.pitch = sp
+    lookParts.motion = { on: true, yaw: sy, pitch: sp }
+    applyLook()
   }
   window.addEventListener('deviceorientation', motionHandler)
   return true

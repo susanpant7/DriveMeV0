@@ -1,9 +1,9 @@
-import { useEffect, useState, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { gasTapFn, motionActive, recentreMotion, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
-import { setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
+import { setViewOffset, setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
 import { useViewport } from './useViewport'
@@ -34,12 +34,12 @@ function Settings() {
       {touch && (
         <div className="setting">
           <div className="setting-head">
-            <span>Look around</span>
-            <span className="muted">{lookMode === 'eye' ? 'Eye icon' : 'Move the phone'}</span>
+            <span>Phone motion</span>
+            <span className="muted">{lookMode === 'motion' ? 'Move the phone to look (the eye icon works too)' : 'Off: look with the eye icon'}</span>
           </div>
-          <div className="seg" role="group" aria-label="Look around">
-            <button className={lookMode === 'eye' ? 'on' : ''} onClick={() => setLookMode('eye')}>Eye icon</button>
-            <button className={lookMode === 'motion' ? 'on' : ''} onClick={async () => { if (await setMotionLook(true)) setLookMode('motion') }}>Phone motion</button>
+          <div className="seg" role="group" aria-label="Phone motion">
+            <button className={lookMode === 'eye' ? 'on' : ''} onClick={() => setLookMode('eye')}>Off</button>
+            <button className={lookMode === 'motion' ? 'on' : ''} onClick={async () => { if (await setMotionLook(true)) setLookMode('motion') }}>On</button>
           </div>
         </div>
       )}
@@ -147,8 +147,9 @@ function TouchControls() {
       <div className="tleft">
         <div className="eyerow">
           <HoldButton label="Left indicator" className={`sig${signal === -1 ? ' blink' : ''}`} active={signal === -1} onDown={() => toggleSignal(-1)} onUp={() => {}}><TurnArrow dir={-1} /></HoldButton>
-          {lookMode === 'eye' ? <EyeControl /> : (
-            <button className="tbtn tilt" aria-label="Recentre the view" onClick={async () => { if (motionActive()) recentreMotion(); else await setMotionLook(true) }}>⌖ View</button>
+          <EyeControl />
+          {lookMode === 'motion' && (
+            <button className="tbtn tilt recentre" aria-label="Phone motion: make where the phone points now straight ahead" onClick={async () => { if (motionActive()) recentreMotion(); else await setMotionLook(true) }}>⌖</button>
           )}
           <HoldButton label="Right indicator" className={`sig${signal === 1 ? ' blink' : ''}`} active={signal === 1} onDown={() => toggleSignal(1)} onUp={() => {}}><TurnArrow dir={1} /></HoldButton>
         </div>
@@ -180,6 +181,37 @@ function FadeCard() {
       <b>{fade.text}</b>
       <span>{fade.sub}</span>
     </div>
+  )
+}
+
+/** Set your default view: drag anywhere (finger or mouse) to turn and tilt the resting view; it is saved for next time. */
+function ViewAdjust() {
+  const vo = useGame((s) => s.viewOffset)
+  const last = useRef<{ x: number; y: number } | null>(null)
+  const clampV = (v: { yaw: number; pitch: number }) => ({ yaw: Math.max(-0.5, Math.min(0.5, v.yaw)), pitch: Math.max(-0.35, Math.min(0.35, v.pitch)) })
+  return (
+    <>
+      <div
+        className="viewdrag"
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); last.current = { x: e.clientX, y: e.clientY } }}
+        onPointerMove={(e) => {
+          if (!last.current) return
+          const dx = e.clientX - last.current.x, dy = e.clientY - last.current.y
+          last.current = { x: e.clientX, y: e.clientY }
+          const cur = useGame.getState().viewOffset
+          // drag the view like a picture: drag left to look further right, down to look up
+          setViewOffset(clampV({ yaw: cur.yaw + dx * 0.0025, pitch: cur.pitch + dy * 0.0025 }), false)
+        }}
+        onPointerUp={() => { last.current = null; setViewOffset(useGame.getState().viewOffset) }}
+        onPointerCancel={() => { last.current = null }}
+      />
+      <div className="adjbar high viewbar">
+        <span>Drag anywhere to aim your normal view ahead.</span>
+        <small className="muted">{Math.round((vo.yaw * 180) / Math.PI)}° · {Math.round((vo.pitch * 180) / Math.PI)}°</small>
+        <button className="secondary" onClick={() => setViewOffset({ yaw: 0, pitch: 0 })}>Reset</button>
+        <button className="primary" onClick={() => { setViewOffset(useGame.getState().viewOffset); useGame.setState({ viewAdjusting: false }) }}>Done</button>
+      </div>
+    </>
   )
 }
 
@@ -302,6 +334,7 @@ export function Hud() {
   const mode = useGame((s) => s.mode)
   const hud = useGame((s) => s.hud)
   const adjusting = useGame((s) => s.adjusting)
+  const viewAdjusting = useGame((s) => s.viewAdjusting)
   const [adjSel, setAdjSel] = useState<'left' | 'center' | 'right' | null>(null)
   useEffect(() => { if (!adjusting) setAdjSel(null) }, [adjusting])
   const { touch, portrait } = useViewport()
@@ -377,7 +410,9 @@ export function Hud() {
         </div>
       )}
 
-      {status === 'paused' && pauseReason === 'user' && !adjusting && (
+      {status === 'paused' && pauseReason === 'user' && viewAdjusting && <ViewAdjust />}
+
+      {status === 'paused' && pauseReason === 'user' && !adjusting && !viewAdjusting && (
         <div className="overlay">
           <div className="panel">
             <h2>Paused</h2>
@@ -387,6 +422,7 @@ export function Hud() {
               <button className="primary" onClick={resumeGame}>Resume <Key>Esc</Key></button>
               <button className="secondary" onClick={start}>Restart <Key>R</Key></button>
               <button className="secondary" onClick={() => useGame.setState({ adjusting: true })}>Adjust mirrors</button>
+              <button className="secondary" onClick={() => { adjustMirror(null); useGame.setState({ viewAdjusting: true }) }}>Set default view</button>
               <button className="secondary" onClick={goMenu}>Change practice</button>
             </div>
           </div>

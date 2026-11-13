@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent } from 'react'
-import { input } from '../game/sim'
+import { setEyeLook } from '../game/input'
 
-const MAX_YAW = 1.5 // rad: how far the head can turn (a bit more than 85 degrees, to see out of the side window)
+const MAX_YAW = 2.1 // rad: how far the head can turn: right round (about 120 degrees) to look into the blind spot over your shoulder
 const MAX_UP = 0.9
 const REACH = 64 // px of thumb travel for the full turn
 
@@ -18,8 +18,7 @@ export function EyeControl() {
     const dx = Math.max(-REACH, Math.min(REACH, e.clientX - origin.current.x))
     const dy = Math.max(-REACH, Math.min(REACH * 0.4, e.clientY - origin.current.y))
     // sliding left turns the head left (the view swings to the left of the car)
-    input.yaw = (-dx / REACH) * MAX_YAW
-    input.pitch = dy < 0 ? (-dy / REACH) * MAX_UP : 0
+    setEyeLook(true, (-dx / REACH) * MAX_YAW, dy < 0 ? (-dy / REACH) * MAX_UP : 0)
     setD({ x: dx, y: dy, on: true })
   }
   const down = (e: PointerEvent<HTMLDivElement>) => {
@@ -27,13 +26,10 @@ export function EyeControl() {
     e.currentTarget.setPointerCapture(e.pointerId)
     const r = e.currentTarget.getBoundingClientRect()
     origin.current = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
-    input.free = true
     move(e)
   }
   const up = () => {
-    input.free = false
-    input.yaw = input.pitch = 0
-    input.look = 'front' // eyes straight back on the road
+    setEyeLook(false) // eyes back on the road (phone motion, if on, still turns the head)
     setD({ x: 0, y: 0, on: false })
   }
   useEffect(() => up, [])
@@ -56,7 +52,7 @@ export function EyeControl() {
         <circle cx={50 + (d.x / REACH) * 20} cy={32 + (d.y / REACH) * 10} r="13" fill="currentColor" />
         <circle cx={50 + (d.x / REACH) * 20 + 4} cy={32 + (d.y / REACH) * 10 - 4} r="4" fill="#0e131c" />
       </svg>
-      <small>{d.on ? (d.x < -12 ? 'Left' : d.x > 12 ? 'Right' : d.y < -14 ? 'Rear' : 'Look') : 'Look'}</small>
+      <small>{d.on ? (d.x < -50 ? 'Blind L' : d.x > 50 ? 'Blind R' : d.x < -12 ? 'Left' : d.x > 12 ? 'Right' : d.y < -14 ? 'Rear' : 'Look') : 'Look'}</small>
     </div>
   )
 }

@@ -368,3 +368,9 @@ canvas { touch-action: none; }
 .pts.neg b { color: #ff8a8a; }
 .finalpts { margin: 2px 0 10px; color: var(--muted); }
 .finalpts b { color: #fff; font-size: 1.15em; }
+
+/* setting the default view: a full-screen drag surface under the bar */
+.viewdrag { position: fixed; inset: 0; z-index: 4; pointer-events: auto; touch-action: none; cursor: grab; }
+.hud.touch .tbtn.tilt.recentre { width: 34px; height: 34px; padding: 0; border-radius: 50%; font-size: 16px; }
+.adjbar { z-index: 6; }
+.hud.touch .adjbar.viewbar span { display: inline; }

@@ -9,10 +9,10 @@ export const G = 4 // junctions per side before the map repeats
 export const RAMP_I = 2, RAMP_J = 3, RAMP_AT = 150
 export const RAMP_HALF = 3.1
 /** period of the world (it repeats every P metres); set by the course being driven (see setLayout) */
-export let P = 1500
+export let P = 2000
 /** Where the avenues are, within one period: the blocks are of different lengths (about 270 to 470 m), like a real town,
  *  so some roads are long and some short. XS: the north-south avenues (by i), ZS: the east-west ones (by j). */
-const XS_TOWN = [0, 330, 800, 1090], ZS_TOWN = [0, 420, 700, 1140]
+const XS_TOWN = [0, 440, 1060, 1460], ZS_TOWN = [0, 560, 940, 1500] // blocks of about 380-620 m: long stretches between the lights
 /** the Residential course: short blocks (about 230 to 270 m), as in a real neighbourhood */
 const XS_RES = [0, 240, 470, 740], ZS_RES = [0, 260, 500, 740]
 let XS = XS_TOWN, ZS = ZS_TOWN
@@ -593,7 +593,7 @@ export function setLayout(kind: LayoutKind) {
   const res = kind === 'res'
   XS = res ? XS_RES : XS_TOWN
   ZS = res ? ZS_RES : ZS_TOWN
-  P = res ? 1000 : 1500
+  P = res ? 1000 : 2000
   WORLD_PERIOD.v = P
   LAYOUT.version++
   buildAll()

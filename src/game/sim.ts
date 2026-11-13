@@ -367,7 +367,7 @@ export function adjustMirror(k: 'left' | 'center' | 'right' | null) {
 export function resumeGame() {
   adjust.sel = null; adjust.dragging = false
   input.look = 'front'; sim.look = 'front' // the head may have been turned to a mirror while adjusting it
-  useGame.setState({ adjusting: false })
+  useGame.setState({ adjusting: false, viewAdjusting: false })
   if (useGame.getState().status !== 'paused') return
   if (useGame.getState().pauseReason === 'offroad') recoverToRoad()
   applyTraffic()
@@ -600,8 +600,10 @@ export function stepSim(dt: number) {
       const d = Math.hypot(gy - MIRROR_AIM[k].yaw, gp - MIRROR_AIM[k].pitch)
       if (d < bd) { bd = d; best = k }
     }
-    if (best === 'front' && input.yaw > 1.5) best = 'blindL' // looking over the shoulder counts as a blind-spot check
-    else if (best === 'front' && input.yaw < -1.5) best = 'blindR'
+    // looking well round to one side (past about 70 degrees: the eye icon slid most of the way, or the phone turned that way)
+    // counts as a blind-spot check
+    if (best === 'front' && input.yaw > 1.2) best = 'blindL'
+    else if (best === 'front' && input.yaw < -1.2) best = 'blindR'
     input.look = best
     freeWas = true
   } else if (freeWas) {

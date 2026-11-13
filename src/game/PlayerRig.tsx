@@ -168,12 +168,14 @@ export function PlayerRig() {
     wheel.current.rotation.z = -sim.steerIn * Math.PI * 2 * 1.5 // like a real car: three turns from lock to lock
 
     // touch free-look turns the head to wherever the thumb points; the keys snap to a mirror. The lens never zooms.
-    const front = LOOK_TARGETS.front
-    let t: { yaw: number; pitch: number; fov: number; lean: THREE.Vector3 } = LOOK_TARGETS[sim.look]
+    // your own default view (set from the pause menu): the resting view is turned / tilted by it
+    const vo = useGame.getState().viewOffset
+    const front = { ...LOOK_TARGETS.front, yaw: LOOK_TARGETS.front.yaw + vo.yaw, pitch: LOOK_TARGETS.front.pitch + vo.pitch }
+    let t: { yaw: number; pitch: number; fov: number; lean: THREE.Vector3 } = sim.look === 'front' ? front : LOOK_TARGETS[sim.look]
     if (input.free) {
       // Free look: the head goes where the thumb / mouse points. Close to a mirror, a gentle magnet pulls the view onto it
       // and the head leans toward it (like a real driver), so the mirror is centred and larger on screen. The lens never zooms.
-      const gy = FRONT_YAW + input.yaw, gp = FRONT_PITCH + input.pitch
+      const gy = FRONT_YAW + vo.yaw + input.yaw, gp = FRONT_PITCH + vo.pitch + input.pitch
       let best: 'left' | 'center' | 'right' | null = null
       let bd = 0.55
       for (const kk of ['left', 'center', 'right'] as const) {

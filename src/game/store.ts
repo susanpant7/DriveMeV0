@@ -53,6 +53,10 @@ interface GameState {
   steerSens: 1 | 2 | 3 | 4 | 5
   /** how far the view turns for a given movement of the phone (phone-motion look): 1 (least) .. 5 (most) */
   motionSens: 1 | 2 | 3 | 4 | 5
+  /** your own resting view: how far it is turned (yaw, + = left) and tilted (pitch, + = up) from the standard one (radians) */
+  viewOffset: { yaw: number; pitch: number }
+  /** paused and setting the default view by dragging */
+  viewAdjusting: boolean
   pauseReason: 'user' | 'offroad'
   mode: Mode
   nav: NavHud
@@ -119,6 +123,8 @@ export const useGame = create<GameState>(() => ({
   lookMode: load<'eye' | 'motion'>('driveme.look', 'eye', (v) => v === 'eye' || v === 'motion'),
   steerSens: load<1 | 2 | 3 | 4 | 5>('driveme.steer', 2, (v) => [1, 2, 3, 4, 5].includes(v as number)),
   motionSens: load<1 | 2 | 3 | 4 | 5>('driveme.motion', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
+  viewOffset: load<{ yaw: number; pitch: number }>('driveme.view', { yaw: 0, pitch: 0 }, (v) => !!v && typeof (v as { yaw: unknown }).yaw === 'number' && typeof (v as { pitch: unknown }).pitch === 'number'),
+  viewAdjusting: false,
   traffic: load<1 | 2 | 3 | 4 | 5>('driveme.traffic', 3, (v) => [1, 2, 3, 4, 5].includes(v as number)),
 }))
 
@@ -129,6 +135,10 @@ export const setUnits = (u: Units) => {
 export const setLookMode = (m: 'eye' | 'motion') => {
   save('driveme.look', m)
   useGame.setState({ lookMode: m })
+}
+export const setViewOffset = (v: { yaw: number; pitch: number }, persist = true) => {
+  if (persist) save('driveme.view', v)
+  useGame.setState({ viewOffset: v })
 }
 export const setMotionSens = (n: 1 | 2 | 3 | 4 | 5) => {
   save('driveme.motion', n)
