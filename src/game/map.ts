@@ -58,14 +58,16 @@ export const armOne = (i: number, j: number, d: number) => (mod(d, 2) === 0 ? on
 /** half the width of an ordinary carriageway */
 /**
  * The kinds of residential street:
- *  dense  - a narrow street lined with houses: no lines at all, traffic both ways, cars parked along both kerbs
+ *  quiet  - the usual one: about 7 m (3.5 cars) wide, two-way, no lines at all
+ *  dense  - a crowded street lined with houses: no lines, traffic both ways, cars parked along both kerbs
  *  normal - two lanes separated by a broken yellow line
  *  centre - three lanes: a centre lane for turning left from either direction (where there are fewer houses, or near the city)
  */
-export type ResStyle = 'dense' | 'normal' | 'centre'
-const RES_STYLE_COL: ResStyle[] = ['dense', 'normal', 'dense', 'centre'] // the Residential course, north-south streets (by i)
-const RES_STYLE_ROW: ResStyle[] = ['normal', 'centre', 'dense', 'normal'] // the Residential course, east-west streets (by j)
-const MIXED_STYLE_COL: ResStyle[] = ['dense', 'centre', 'normal', 'normal'] // the Mixed course: the street next to the city has a centre lane
+export type ResStyle = 'quiet' | 'dense' | 'normal' | 'centre'
+// most residential streets are quiet ones: about 7 m wide (3.5 cars), two-way, no lines at all
+const RES_STYLE_COL: ResStyle[] = ['quiet', 'normal', 'quiet', 'centre'] // the Residential course, north-south streets (by i)
+const RES_STYLE_ROW: ResStyle[] = ['quiet', 'quiet', 'dense', 'quiet'] // the Residential course, east-west streets (by j)
+const MIXED_STYLE_COL: ResStyle[] = ['quiet', 'centre', 'normal', 'normal'] // the Mixed course: the street next to the city has a centre lane
 export function resStyle(axis: number, idx: number): ResStyle | null {
   if (!oneLane(axis, idx)) return null
   const m = mod(idx, G)
@@ -83,7 +85,7 @@ export const PARKED: Array<{ x: number; z: number; tx: number; tz: number; kind:
 export const PARKED_KINDS = [0, 0, 0, 1, 1, 3, 4, 5] // sedans most, then SUVs, a few classics; no vans or trucks
 export const PARKED_COLORS = ['#2e86de', '#ecf0f1', '#27ae60', '#34495e', '#c0392b', '#95a5a6', '#1b1f24', '#7f8c8d', '#d4c9b0']
 /** Residential streets are narrow: about 13 ft lanes (the town's main roads have very generous 17 ft ones) */
-export const RES_LANE_W = 4.0
+export const RES_LANE_W = 3.5
 /** centre of lane k, measured from the edge of the median, on a one-lane street or an ordinary road */
 export const laneC = (k: number, one: boolean) => (one ? RES_LANE_W : LANE_W) * (k + 0.5)
 export const HALF_ROAD = 4 * LANE_W // half the width of the widest junction approach (two ordinary lanes + two turn lanes)

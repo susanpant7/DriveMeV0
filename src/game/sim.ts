@@ -829,6 +829,8 @@ function laneInfo() {
   return { d, r, k, e: k < 0 ? r : r - laneC(k, oneLane(alongZ ? 1 : 0, ci)), left: false, nTurnL: 0, rTurn: -1, n: oneLane(alongZ ? 1 : 0, ci) ? 1 : 2, backLen: fullBack }
 }
 
+/** is the street you are on one without lines (a quiet or a dense residential street)? */
+function unmarkedHere(d: number) { const st = resStyle(d % 2, d % 2 === 0 ? nearZ(sim.z) : nearX(sim.x)); return st === 'dense' || st === 'quiet' }
 function trackLane() {
   const L = laneInfo()
   if (!L || sim.speed < 3) {
@@ -850,7 +852,7 @@ function trackLane() {
         if (target < 0) {
           // only a solid (double) yellow line may not be crossed: a dense residential street has no line, a normal one a broken line
           const st = resStyle(L.d % 2, L.d % 2 === 0 ? nearZ(sim.z) : nearX(sim.x))
-          if (st !== 'dense' && st !== 'normal' && sim.t - sim.warnT.centre > 3) {
+          if (st !== 'dense' && st !== 'quiet' && st !== 'normal' && sim.t - sim.warnT.centre > 3) {
             sim.warnT.centre = sim.t
             say('Do not cross the double yellow line!', 'warn')
           }
@@ -863,7 +865,7 @@ function trackLane() {
           startManeuver(dir, k, target, shortLane)
         }
       }
-    } else if (k === -1 && sim.t - sim.warnT.wrong > 3 && !(resStyle(L.d % 2, L.d % 2 === 0 ? nearZ(sim.z) : nearX(sim.x)) === 'dense' && L.r > -1.6)) { // (on an unmarked street, only once you are clearly over the middle)
+    } else if (k === -1 && sim.t - sim.warnT.wrong > 3 && !(unmarkedHere(L.d) && L.r > -1.6)) { // (on an unmarked street, only once you are clearly over the middle)
       sim.warnT.wrong = sim.t
       say('You are on the wrong side of the road!', 'warn')
     }

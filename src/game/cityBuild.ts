@@ -687,7 +687,7 @@ export function buildCity() {
         // pairs of opposing left-turn arrows in the two-way section
         for (const uu of [STUBU - 24, STUBU + 24]) { arrow(ax, az, d, uu + 2.5, 1, 0, 'L'); arrow(ax, az, d, uu - 2.5, -1, 0, 'L') }
       }
-      for (let u = S0; !centreRd && style !== 'dense' && u < S1 - 0.01; u += 3) { // (a dense residential street has no lines)
+      for (let u = S0; !centreRd && style !== 'dense' && style !== 'quiet' && u < S1 - 0.01; u += 3) { // (quiet and dense residential streets have no lines)
         const ue = Math.min(u + 3, S1)
         if (style === 'normal') {
           // two lanes separated by a broken yellow line (3 m dashes, 6 m gaps)
@@ -775,7 +775,7 @@ export function buildCity() {
         const ue = Math.min(u + 3, S1 - clipB)
         const h0 = sgh(u), h1 = sgh(ue)
         if (centreRd && stubsOn() && u + 1.5 > STUBU - STUB.half - 3 && u + 1.5 < STUBU + STUB.half + 3) continue // the mouth of a side street
-        if (style === 'dense') continue // a dense residential street has no edge lines either
+        if (style === 'dense' || style === 'quiet') continue // quiet and dense residential streets have no edge lines either
         const rampMouth = LAYOUT.kind === 'mixed' && d === 0 && i === RAMP_I && j === RAMP_J && u + 1.5 > RAMP_AT - 32 && u < RAMP_AT + 6
         if (!rampMouth) marks.upQuad([at(ax, az, d, u, h0.right - 0.35), at(ax, az, d, ue, h1.right - 0.35), at(ax, az, d, ue, h1.right - 0.15), at(ax, az, d, u, h0.right - 0.15)], 0.02, WHITE)
         marks.upQuad([at(ax, az, d, u, -(h0.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.15)), at(ax, az, d, ue, -(h1.left - 0.35)), at(ax, az, d, u, -(h0.left - 0.35))], 0.02, WHITE)
