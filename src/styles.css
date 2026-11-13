@@ -395,3 +395,16 @@ canvas { touch-action: none; }
 .hud.touch .steerrow .tbtn.steer svg { width: 30px; height: 30px; }
 .hud.touch .eye { width: 66px; height: 40px; background: rgba(14,19,28,.16); }
 .hud.touch .eye svg { width: 36px; height: 22px; }
+
+/* touch: translucent controls - you can see they are there, but they hide almost nothing behind them */
+.hud.touch .tbtn, .hud.touch .eye, .hud.touch .sigcol .tbtn.sig { background: rgba(255,255,255,.05); border-color: rgba(255,255,255,.32); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; color: rgba(255,255,255,.85); }
+.hud.touch .tbtn.pedal.gas { background: rgba(34,197,94,.1); border-color: rgba(140,255,180,.45); }
+.hud.touch .tbtn.pedal.brake { background: rgba(239,68,68,.1); border-color: rgba(255,150,150,.45); }
+.hud.touch .tbtn.lanekeep { background: rgba(59,130,246,.08); border-color: rgba(160,200,255,.45); }
+.hud.touch .steerrow { background: transparent; border-color: rgba(255,255,255,.18); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.hud.touch .steerrow .tbtn { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.3); }
+/* still clearly lit while pressed / on */
+.hud.touch .tbtn.pedal.gas:active { background: rgba(34,197,94,.55); }
+.hud.touch .tbtn.pedal.brake:active { background: rgba(239,68,68,.55); }
+.hud.touch .steerrow .tbtn.steer:active { background: rgba(59,130,246,.5); }
+.hud.touch .sigcol .tbtn.sig.on { background: rgba(34,197,94,.5); border-color: #7dffa0; }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { CARPLAY } from './cabinConfig'
+import { IS_COARSE } from './device'
 import { drawIcon, drawNavMap } from './navMap'
 import { fmtDist, nav } from './nav'
 import { sim } from './sim'
@@ -89,19 +90,21 @@ export function CarPlay() {
     }
     // speed and limit
     // your speed and the speed limit: a big, clear US speed-limit sign (it turns red-edged when you are over the limit)
-    card(g, 16, CH - 196, 280, 180)
+    // (a phone's screen is small: the speed card is drawn bigger there)
+    const K = IS_COARSE ? 1.3 : 1
+    card(g, 16, CH - 196 * K, 280 * K, 180 * K)
     const mph = units === 'mph'
     const lim = useGame.getState().hud.limit
     const limShown = mph ? Math.round((lim * 2.237) / 5) * 5 : Math.round((lim * 3.6) / 10) * 10
     const vShown = Math.round(sim.speed * (mph ? 2.237 : 3.6))
-    g.fillStyle = vShown > limShown ? '#ff8a80' : '#fff'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.font = '700 72px system-ui, sans-serif'
-    g.fillText(String(vShown), 82, CH - 72)
-    g.fillStyle = '#9fb0c6'; g.font = '700 20px system-ui, sans-serif'; g.fillText(mph ? 'MPH' : 'KM/H', 82, CH - 42)
-    const sx = 160, sy = CH - 186, sw = 122, sh = 160
+    g.fillStyle = vShown > limShown ? '#ff8a80' : '#fff'; g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.font = `700 ${72 * K}px system-ui, sans-serif`
+    g.fillText(String(vShown), 16 + 66 * K, CH - 72 * K)
+    g.fillStyle = '#9fb0c6'; g.font = `700 ${20 * K}px system-ui, sans-serif`; g.fillText(mph ? 'MPH' : 'KM/H', 16 + 66 * K, CH - 42 * K)
+    const sx = 16 + 144 * K, sy = CH - 186 * K, sw = 122 * K, sh = 160 * K
     g.fillStyle = '#fff'; rr(g, sx, sy, sw, sh, 12); g.fill()
     g.strokeStyle = vShown > limShown ? '#e53935' : '#111'; g.lineWidth = 6; rr(g, sx + 7, sy + 7, sw - 14, sh - 14, 8); g.stroke()
-    g.fillStyle = '#111'; g.font = '800 21px system-ui, sans-serif'; g.fillText('SPEED', sx + sw / 2, sy + 40); g.fillText('LIMIT', sx + sw / 2, sy + 64)
-    g.font = '800 64px system-ui, sans-serif'; g.fillText(String(limShown), sx + sw / 2, sy + 132)
+    g.fillStyle = '#111'; g.font = `800 ${21 * K}px system-ui, sans-serif`; g.fillText('SPEED', sx + sw / 2, sy + 40 * K); g.fillText('LIMIT', sx + sw / 2, sy + 64 * K)
+    g.font = `800 ${64 * K}px system-ui, sans-serif`; g.fillText(String(limShown), sx + sw / 2, sy + 132 * K)
     // now playing
     card(g, MW - 316, CH - 106, 300, 90)
     const ag = g.createLinearGradient(0, CH - 94, 0, CH - 28); ag.addColorStop(0, '#ff7a59'); ag.addColorStop(1, '#c2185b')

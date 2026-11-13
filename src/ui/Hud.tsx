@@ -3,7 +3,7 @@ import { gasTapFn, setMotionLook, steerTap } from '../game/input'
 import { MODES, type Mode } from '../game/nav'
 import { adjustMirror, goMenu, input, pauseGame, resumeGame, startGame, toggleSignal } from '../game/sim'
 import type { RbDiag, RbPath } from '../game/store'
-import { setViewOffset, setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
+import { setGraphics, setViewOffset, setLookMode, setMode, setMotionSens, setSteerSens, setTraffic, setUnits, useGame } from '../game/store'
 import { MapOverlay } from './MapOverlay'
 import { EyeControl } from './TouchPad'
 import { useViewport } from './useViewport'
@@ -18,6 +18,7 @@ function Settings() {
   const steerSens = useGame((s) => s.steerSens)
   const lookMode = useGame((s) => s.lookMode)
   const motionSens = useGame((s) => s.motionSens)
+  const graphics = useGame((s) => s.graphics)
   const { touch } = useViewport()
   return (
     <div className="settings">
@@ -64,6 +65,17 @@ function Settings() {
         <div className="seg" role="group" aria-label="Steering sensitivity">
           {([1, 2, 3, 4, 5] as const).map((n) => (
             <button key={n} className={steerSens === n ? 'on' : ''} onClick={() => setSteerSens(n)}>{n}</button>
+          ))}
+        </div>
+      </div>
+      <div className="setting">
+        <div className="setting-head">
+          <span>Graphics</span>
+          <span className="muted">{graphics === 'high' ? 'Best look' : graphics === 'medium' ? 'Balanced' : 'Smoothest'}</span>
+        </div>
+        <div className="seg" role="group" aria-label="Graphics quality">
+          {(['high', 'medium', 'low'] as const).map((g) => (
+            <button key={g} className={graphics === g ? 'on' : ''} onClick={() => setGraphics(g)}>{g === 'high' ? 'High' : g === 'medium' ? 'Medium' : 'Low'}</button>
           ))}
         </div>
       </div>

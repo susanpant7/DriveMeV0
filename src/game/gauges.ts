@@ -77,17 +77,10 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
     g.fillText(String(v), cx + Math.cos(a) * R * 0.76, cy + Math.sin(a) * R * 0.76)
   }
 
-  // big speed number
-  g.shadowColor = d.cruise > 0 ? 'rgba(52,224,138,0.6)' : 'rgba(110,200,255,0.55)'
-  g.shadowBlur = R * 0.14
-  g.fillStyle = d.cruise > 0 ? '#34e08a' : '#f4f9ff' // the speed turns green while cruise control is on
-  g.font = `600 ${R * 0.78}px ${FONT}`
+  // (no speed number here: your speed is shown large on the centre screen, beside the speed limit; the arc still shows it)
+  void shown
   g.textAlign = 'center'
-  g.fillText(String(Math.round(shown)), cx, cy - R * 0.06)
-  g.shadowBlur = 0
-  g.fillStyle = '#7fa6cf'
-  g.font = `500 ${R * 0.14}px ${FONT}`
-  g.fillText(mph ? 'MPH' : 'KM/H', cx, cy + R * 0.42)
+  if (d.cruise > 0) { g.fillStyle = '#34e08a'; g.font = `700 ${R * 0.18}px ${FONT}`; g.fillText('CRUISE', cx, cy + R * 0.1) }
 
   // gear selector (P R N D) under the speed
   const gears = ['P', 'R', 'N', 'D']

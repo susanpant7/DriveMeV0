@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { quality } from './quality'
 
 /**
  * Outline of a side-mirror glass: a rounded shape with the lower corner nearest the
@@ -195,6 +196,7 @@ export class MirrorGlass extends THREE.Mesh {
   private readonly phase = MirrorGlass.count++ & 1
   private frame = 0
   private readonly alt: boolean
+  private readonly rear: boolean
   private primed = false
 
   constructor(geometry: THREE.BufferGeometry, o: MirrorGlassOpts) {
@@ -221,6 +223,7 @@ export class MirrorGlass extends THREE.Mesh {
     super(geometry, material)
     this.rt = rt
     this.alt = !!o.alt
+    this.rear = (o.inner ?? 0) === 0
     this.half = new THREE.Vector2(o.w / 2, o.h / 2)
     this.wide = wide
     this.shift = o.shift ?? [0, 0]
@@ -230,7 +233,9 @@ export class MirrorGlass extends THREE.Mesh {
 
   private renderView(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera) {
     this.frame++
-    if (this.alt && this.primed && (this.frame & 1) !== this.phase) return
+    const q = quality()
+    const alt = this.alt || (this.rear ? q.rearAlt : q.sideAlt) // (on lower graphics levels, mirrors refresh every other frame)
+    if (alt && this.primed && (this.frame & 1) !== this.phase) return
     const mw = this.matrixWorld
     _C.setFromMatrixPosition(mw)
     _N.set(0, 0, 1).transformDirection(mw)
@@ -304,8 +309,9 @@ export class MirrorGlass extends THREE.Mesh {
     const pw = ((x1 - x0) / 2) * db.x, ph = ((y1 - y0) / 2) * db.y // the mirror's size on screen, in pixels
     const aspect = this.half.x / this.half.y
     // twice the on-screen size (supersampled: fine detail stays smooth and sharp), within sensible limits
-    let w = Math.max(pw, ph * aspect) * 2.0 * this.wide
-    w = Math.max(this.minW, Math.min(this.maxW, w))
+    const q = quality()
+    let w = Math.max(pw, ph * aspect) * q.mirrorScale * this.wide
+    w = Math.max(this.minW, Math.min(q.mirrorMax, w))
     const h = w / aspect
     const cur = this.rt.width
     if (Math.abs(w - cur) / cur > 0.18) {
@@ -314,7 +320,6 @@ export class MirrorGlass extends THREE.Mesh {
     }
   }
   private minW = 640
-  private maxW = 3000
 
   dispose() {
     this.rt.dispose()
