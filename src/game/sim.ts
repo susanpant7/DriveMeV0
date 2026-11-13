@@ -52,7 +52,8 @@ export const input = {
   recentre: false,
   /** a double press of A (+1) / D (-1): look over that shoulder into the blind spot */
   blind: 0 as 0 | 1 | -1,
-  space: false, // Space (or the ⦿ button) is held: keep the car in the middle of its lane
+  /** Space (or the LANE button) was pressed: switch lane assist on / off */
+  laneToggle: false,
   /** a quick double tap of the accelerator: toggles cruise control */
   gasTap: false,
   yaw: 0,
@@ -134,6 +135,10 @@ export const sim = {
   rbl: { node: -1, lane: -1 },
   /** cruise control: the set speed in m/s, 0 = off */
   cruise: 0,
+  /** lane assist is switched on (Space / LANE): the car keeps itself in the middle of its lane */
+  laneAssist: false,
+  /** lane assist is steering right now (it stands by while you steer by hand, stop, or there is no lane to follow) */
+  laneActive: false,
   trip: 0,
   offRoadT: 0,
   errors: 0,
@@ -270,6 +275,7 @@ const autoLane = { t: 0, on: false, h0: 0, dir: 1 as -1 | 1, p0: 0, w: 4.7, sig:
 /** Space: an "auto" mode that steers the car smoothly into the middle of its lane and straightens it, then lets go */
 let steerHold = 0, steerHoldDir = 0 // how long a steering key has been held, and which way
 const autoCentre = { on: false, t: 0, ok: 0, prevH: NaN, dhS: 0 }
+let handSteerT = -99 // when you last steered by hand (lane assist waits a moment after it)
 
 /** state of the highway merge attempt */
 const hw = { stage: 'ramp' as 'ramp' | 'merge' | 'merged', crossed: false, mergedAt: 0, doneT: 0, sigOffWarn: false, exitTaken: false, warned: false, lane: -99, alertT: -99 }
@@ -290,6 +296,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
   // the highway course is its own flat world (no wrapping); the grid city repeats every 800 m
   WORLD.highway = useGame.getState().mode === 'highway' || (useGame.getState().mode === 'mixed' && useGame.getState().leg === 'highway')
   autoCentre.on = false
+  handSteerT = -99
   overFor = 0; overWarnT = -99; redCross = null
   hw.stage = 'ramp'; hw.crossed = false; hw.mergedAt = 0; hw.doneT = 0; hw.sigOffWarn = false; hw.exitTaken = false; hw.lane = -99
   if (WORLD.highway) { scen.type = hwType; useGame.setState((st) => ({ hwType, hwVersion: st.hwVersion + 1 })) }
@@ -301,6 +308,7 @@ export function resetSim(hwType: HwType = 'merge', keepScore = false) {
     signal: 0, signalSince: 0, look: 'front', lookSince: 0, lastCheck: { left: -99, center: -99, right: -99 }, lastBlind: { left: -99, right: -99 },
     score: keep, changes: 0, clean: 0, crashT: 0, hudTimer: 0, man: null, jn: null, stop: null,
     warnT: { off: -99, centre: -99, wrong: -99, speed: -99 }, speedingFor: 0, trip: 0, offRoadT: 0, errors: 0, yawRate: 0, head: { yaw: 0, pitch: 0 }, wheel: 0, cruise: 0, rbl: { node: -1, lane: -1 },
+    laneAssist: keepScore ? sim.laneAssist : false, laneActive: false, // (it stays on when the mixed course moves between town and highway)
   })
   input.look = 'front'
   input.up = input.down = input.left = input.right = false
@@ -478,9 +486,20 @@ export function stepSim(dt: number) {
   // The arrow keys / buttons turn the wheel a little and it STAYS there (like holding a real wheel); Space centres it.
   if (input.recentreHead) { input.recentreHead = false; blindGoal = null; sim.head.yaw = 0; sim.head.pitch = 0 }
   if (input.recentre) { blindGoal = null; sim.wheel = 0; sim.head.yaw = 0; sim.head.pitch = 0; input.recentre = false; autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN }
-  // while Space is HELD the car keeps itself in the middle of its lane, on straights, curves and roundabouts (steering by hand, braking or
-  // slowing right down hands control back until the key is let go and pressed again)
-  if (input.space && !autoLane.on && !autoCentre.on && !input.left && !input.right && !input.down && sim.speed >= 1.5) { autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN; autoCentre.dhS = 0 }
+  // lane assist: Space / LANE switches it on and off. While on, the car keeps itself in the middle of its lane, on straights, bends and
+  // roundabouts. Steering by hand overrides it; it takes over again once you let go and the car is lined up with a lane. It stands by
+  // while stopped (and carries on when you move off).
+  if (input.laneToggle) {
+    input.laneToggle = false
+    sim.laneAssist = !sim.laneAssist
+    if (!sim.laneAssist) { autoCentre.on = false; autoCentre.prevH = NaN }
+    say(sim.laneAssist ? 'Lane assist on' : 'Lane assist off', 'info')
+  }
+  if (input.left || input.right) handSteerT = sim.t
+  if (sim.laneAssist && !autoLane.on && !autoCentre.on && !input.left && !input.right && sim.speed >= 1.5 && sim.t - handSteerT > 0.5) {
+    const lt = laneTarget()
+    if (lt && Math.abs(Math.atan2(Math.sin(sim.h - lt.h), Math.cos(sim.h - lt.h))) < 0.3) { autoCentre.on = true; autoCentre.t = 0; autoCentre.ok = 0; autoCentre.prevH = NaN; autoCentre.dhS = 0 }
+  }
   if (!autoLane.on && !autoCentre.on) {
     // the wheel keeps turning while an arrow (or the on-screen button) is held and springs back to straight when it is released
     const dirIn = (input.right ? 1 : 0) - (input.left ? 1 : 0)
@@ -530,8 +549,8 @@ export function stepSim(dt: number) {
   if (autoCentre.on && !autoLane.on) {
     autoCentre.t += dt
     const lt = laneTarget()
-    const hold = input.space
-    if (!lt || sim.speed < 1.5 || input.down || input.left || input.right || (!hold && autoCentre.t > 12)) { autoCentre.on = false; autoCentre.prevH = NaN; sim.wheel = 0 }
+    const hold = sim.laneAssist
+    if (!lt || sim.speed < 1.5 || (!hold && input.down) || input.left || input.right || (!hold && autoCentre.t > 12)) { autoCentre.on = false; autoCentre.prevH = NaN; sim.wheel = 0 }
     else {
       const rx = Math.cos(lt.h), rz = -Math.sin(lt.h)
       const e = (sim.x - lt.x) * rx + (sim.z - lt.z) * rz // how far to the right of the lane centre the car is
@@ -554,6 +573,7 @@ export function stepSim(dt: number) {
     }
   }
   const manual = !autoLane.on && !autoCentre.on
+  sim.laneActive = sim.laneAssist && autoCentre.on
   const rate = manual ? 6 : target ? 1.5 + sens : 3
   // the wheel eases toward where you point it (and returns to centre gently), like a real wheel under the hands
   const err = target - sim.steerIn
@@ -1198,6 +1218,7 @@ function syncHud() {
       clean: sim.clean,
       errors: sim.errors,
       limit: currentLimit(),
+      assist: sim.laneAssist ? (sim.laneActive ? 2 : 1) : 0,
     },
     nav: { text: nav.text, sub: nav.sub, icon: nav.icon, dist: nav.dist, arrived: nav.arrived },
     messages: s.messages.filter((m) => m.until > sim.t),
@@ -1205,4 +1226,4 @@ function syncHud() {
 }
 
 // handy for debugging in the browser console
-if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __why: (c: AiCar) => whyStuck(c, sim.t, playerObs()), __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __world: WORLD, __legs: { enterHighway, leaveHighway }, __laneInfo: () => laneInfo(), __ramp: rampAt, __navfn: { startRoute, navUpdate, navJunctionExit } })
+if (typeof window !== 'undefined') Object.assign(window, { __resetSim: resetSim, __sim: sim, __cars: cars, __why: (c: AiCar) => whyStuck(c, sim.t, playerObs()), __step: stepSim, __input: input, __start: startGame, __store: useGame, __resume: resumeGame, __onRoad: onAsphalt, __pieces: PIECES, __signal: signalColor, __nodeIndex: nodeIndex, __links: LINKS, __nav: nav, __world: WORLD, __legs: { enterHighway, leaveHighway }, __laneInfo: () => laneInfo(), __laneTarget: () => laneTarget(), __ramp: rampAt, __navfn: { startRoute, navUpdate, navJunctionExit } })

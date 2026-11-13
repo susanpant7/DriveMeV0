@@ -145,7 +145,7 @@ export function installInput() {
       // a quick double press of the down arrow puts the wheel back to straight
       if (!e.repeat) { const now = performance.now(); if (now - lastTap[3] < 320) { input.recentre = true; lastTap[3] = 0 } else lastTap[3] = now }
     }
-    if (e.code === 'Space') { input.space = true; if (!e.repeat) input.recentre = true }
+    if (e.code === 'Space' && !e.repeat) { input.laneToggle = true; stopLook(); recentreView(); e.preventDefault() } // lane assist on / off, and the view back to your default
     if (e.code === 'ArrowLeft') input.left = true
     if (e.code === 'ArrowRight') input.right = true
     if (!e.repeat && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
@@ -168,7 +168,6 @@ export function installInput() {
     if (e.code === 'ArrowDown') input.down = false
     if (e.code === 'ArrowLeft') input.left = false
     if (e.code === 'ArrowRight') input.right = false
-    if (e.code === 'Space') input.space = false
   }
   const release = () => {
     stopLook()

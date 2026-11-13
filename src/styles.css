@@ -424,3 +424,32 @@ canvas { touch-action: none; }
 .infobox-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
 .infobox-head button { background: transparent; border: 0; color: #cfe0ff; font-size: 20px; line-height: 1; padding: 0 4px; min-height: 0; cursor: pointer; }
 .infobox p { margin: 0; font-size: 13px; line-height: 1.45; color: #dce6f5; }
+
+/* ================= touch: lower-left row (steering, indicators, eye) — final design ================= */
+/* each group sits in a faint pill; buttons stay as see-through as before */
+.hud.touch .tleft { flex-direction: row; align-items: center; gap: clamp(8px, 2.4vh, 14px); margin-bottom: 0; }
+.hud.touch .pod {
+  display: flex; align-items: center; gap: clamp(6px, 1.8vh, 10px); padding: 4px; border-radius: 999px; pointer-events: none;
+  background: transparent; border: 1px solid rgba(255,255,255,.16);
+}
+.hud.touch .pod .tbtn {
+  min-width: 0; padding: 0; border-radius: 50%; font-size: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+  background: rgba(255,255,255,.05); border: 1.5px solid rgba(255,255,255,.32); color: rgba(255,255,255,.88);
+}
+.hud.touch .steerpod .tbtn.steer { width: clamp(54px, 15.5vh, 68px); height: clamp(54px, 15.5vh, 68px); }
+.hud.touch .steerpod .tbtn.steer svg { width: 30px; height: 30px; }
+.hud.touch .steerpod .tbtn.steer:active { background: rgba(59,130,246,.5); transform: scale(.94); }
+.hud.touch .sigpod .tbtn.sig { width: clamp(40px, 11.5vh, 50px); height: clamp(40px, 11.5vh, 50px); }
+.hud.touch .sigpod .tbtn.sig svg { width: 22px; height: 22px; }
+.hud.touch .sigpod .tbtn.sig.on { background: rgba(34,197,94,.5); border-color: #7dffa0; color: #eafff0; }
+.hud.touch .tleft > .eye {
+  width: clamp(54px, 15vh, 64px); height: clamp(44px, 12.5vh, 52px); border-radius: 999px;
+  background: rgba(255,255,255,.05); border: 1.5px solid rgba(255,255,255,.32); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; color: rgba(255,255,255,.88);
+}
+.hud.touch .tleft > .eye svg { width: 32px; height: 20px; }
+.hud.touch .tleft > .eye small { font-size: 7.5px; }
+.hud.touch .tleft > .eye.on { background: rgba(59,130,246,.5); border-color: rgba(255,255,255,.7); }
+
+/* lane assist button: lit while lane assist is on, brighter while it is steering */
+.hud.touch .tbtn.lanekeep.on { background: rgba(59,130,246,.28); border-color: rgba(160,200,255,.85); }
+.hud.touch .tbtn.lanekeep.on.active { background: rgba(34,197,94,.32); border-color: #7dffa0; color: #eafff0; box-shadow: 0 0 12px rgba(61,255,154,.45); }

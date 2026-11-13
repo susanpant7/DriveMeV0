@@ -35,6 +35,7 @@ function Displays() {
       blink: Math.floor(now / 350) % 2 === 0,
       trip: sim.trip,
       cruise: sim.cruise,
+      assist: sim.laneAssist ? (sim.laneActive ? 2 : 1) : 0,
     })
     cluster.tex.needsUpdate = true
   }, -1)

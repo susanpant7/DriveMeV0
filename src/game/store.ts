@@ -29,6 +29,8 @@ export interface Hud {
   clean: number
   errors: number
   limit: number // posted speed limit here, m/s
+  /** lane assist: 0 off, 1 on but standing by, 2 steering */
+  assist: 0 | 1 | 2
 }
 
 export interface NavHud {
@@ -93,6 +95,7 @@ export const initialHud: Hud = {
   clean: 0,
   errors: 0,
   limit: 13.4,
+  assist: 0,
 }
 
 const load = <T,>(key: string, fallback: T, ok: (v: unknown) => boolean): T => {

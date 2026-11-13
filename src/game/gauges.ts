@@ -10,6 +10,8 @@ export interface ClusterData {
   blink: boolean
   trip: number // metres
   cruise: number // set speed in m/s, 0 = off
+  /** lane assist: 0 off, 1 on (standing by), 2 steering */
+  assist: 0 | 1 | 2
 }
 
 function arrow(g: CanvasRenderingContext2D, x: number, y: number, dir: -1 | 1, on: boolean, s: number) {
@@ -81,6 +83,18 @@ export function drawCluster(g: CanvasRenderingContext2D, w: number, h: number, d
   void shown
   g.textAlign = 'center'
   if (d.cruise > 0) { g.fillStyle = '#34e08a'; g.font = `700 ${R * 0.18}px ${FONT}`; g.fillText('CRUISE', cx, cy + R * 0.1) }
+  // lane assist: a glowing lane icon and its name (green while it steers, grey while it stands by)
+  if (d.assist) {
+    const on = d.assist === 2, col = on ? '#3dff9a' : 'rgba(190,205,225,0.75)'
+    const iy = cy - R * 0.5, s = R * 0.22
+    g.save()
+    if (on) { g.shadowColor = col; g.shadowBlur = s * 0.9 }
+    g.strokeStyle = col; g.fillStyle = col; g.lineWidth = s * 0.13; g.lineCap = 'round'
+    for (const k of [-1, 1]) { g.beginPath(); g.moveTo(cx + k * s * 0.55, iy - s * 0.55); g.lineTo(cx + k * s * 0.95, iy + s * 0.55); g.stroke() } // the lane edges
+    g.beginPath(); g.roundRect(cx - s * 0.24, iy - s * 0.12, s * 0.48, s * 0.6, s * 0.1); g.fill() // the car between them
+    g.font = `800 ${R * 0.14}px ${FONT}`; g.fillText('LANE ASSIST', cx, iy + s * 1.2)
+    g.restore()
+  }
 
   // gear selector (P R N D) under the speed
   const gears = ['P', 'R', 'N', 'D']
