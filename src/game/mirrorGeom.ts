@@ -116,11 +116,11 @@ const FRAG = /* glsl */ `
     float rr = length( vLocal / uHalf );
     float m = mix( uM0, uM1, rr * rr );       // convex: more compression toward the edges
     vec2 uvm = 0.5 + ( p - 0.5 ) * m;
-    vec3 col = texture2D( tDiffuse, uvm ).rgb;
+    vec3 col = texture2D( tDiffuse, uvm, -0.6 ).rgb; // (a sharper level of the picture: no softening)
     // a gentle sharpen (unsharp mask against the four neighbours): edges of cars, lane lines and signs read crisply in the glass
     vec3 blur = ( texture2D( tDiffuse, uvm + vec2( uTexel.x, 0.0 ) ).rgb + texture2D( tDiffuse, uvm - vec2( uTexel.x, 0.0 ) ).rgb
                 + texture2D( tDiffuse, uvm + vec2( 0.0, uTexel.y ) ).rgb + texture2D( tDiffuse, uvm - vec2( 0.0, uTexel.y ) ).rgb ) * 0.25;
-    col = max( col + ( col - blur ) * 0.55, 0.0 );
+    col = max( col + ( col - blur ) * 0.7, 0.0 );
     vec2 q = vLocal / ( 2.0 * uHalf ) + 0.5;
     if ( uOwn > 0.5 ) col = ownCar( q, col );
     else if ( uInner == 0.0 ) {
@@ -258,7 +258,7 @@ export class MirrorGlass extends THREE.Mesh {
     const v = this.vcam
     v.position.copy(_Ev)
     v.quaternion.setFromRotationMatrix(_M)
-    // light mirrors: no road wear (layer 3) and only about 200 m behind you; otherwise the mirror sees what you see
+    // the mirrors show the road and the traffic (no scenery: layer 4); light mirrors also skip road wear (layer 3) and only see ~200 m
     const lite = useGame.getState().mirrorLite
     v.far = lite ? Math.min(200, (camera as THREE.PerspectiveCamera).far) : (camera as THREE.PerspectiveCamera).far
     v.layers.set(0); v.layers.enable(2); if (!lite) v.layers.enable(3)

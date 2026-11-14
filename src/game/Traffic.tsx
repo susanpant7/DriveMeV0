@@ -7,6 +7,7 @@ import { PARKED, wrapD } from './map'
 import { WORLD } from './course'
 import { extrudeProfile } from './geom'
 import { sim } from './sim'
+import { useGame } from './store'
 import { trafficPrev } from './World'
 import { MAX_CARS, cars, type AiCar } from './trafficAI'
 
@@ -203,7 +204,7 @@ export function Traffic() {
   useEffect(() => () => models.forEach((m) => { m.body.dispose(); m.dark.dispose() }), [models])
 
   useFrame((_, dt) => {
-    const LOD_D = 100
+    const LOD_D = useGame.getState().graphics === 'high' ? 160 : useGame.getState().graphics === 'medium' ? 120 : 90 // (detailed cars further out on better graphics)
     const counts = GLB_FILES.map(() => 0)
     const low = [0, 0, 0] // cars drawn with the simple low-poly bodies (far away, or the model has not loaded yet)
     let nw = 0

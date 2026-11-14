@@ -1,6 +1,9 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useThree } from '@react-three/fiber'
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { Text, preloadFont } from 'troika-three-text'
+import signFontUrl from '@fontsource/overpass/files/overpass-latin-800-normal.woff?url'
 import { useGame } from '../game/store'
 import {
   ACC_LEN, FORK_LEN, HW, LANE, MEDIAN_X, NB_EDGE_L, NB_EDGE_R, NB_SHOULDER_L, NB_X, NL, RAMP_K, SB_EDGE_IN, SB_EDGE_OUT, SHOULDER_R, TAPER, Z_FINISH, Z_TOP,
@@ -223,57 +226,15 @@ export function buildHighway() {
 /**
  * Sign boards made to be read at highway speed: a few large words each (the highway, an arrow, which lanes), not the fine print of a
  * real guide sign. Overhead boards on gantries say which lanes lead where; boards beside the road give early warning.
+ *
+ * Each board is a real panel (a rounded board with a border, a grey back, and its posts standing behind it), and its words are sharp
+ * vector text (signed-distance-field text, in a bold highway-style typeface): crisp at any distance, never blurred like a picture.
  */
-type Draw = (g: CanvasRenderingContext2D, W: number, H: number) => void
-interface Sign { x: number; y: number; z: number; w: number; h: number; draw: Draw; post?: 'one' | 'two' }
-let PX = 128 // texture pixels per metre (lowered only if the signs of a stage would not fit the texture)
-const FONT = 'Arial, "Helvetica Neue", Roboto, sans-serif' // (a full-width face: narrow faces blur together at a distance)
-const GREEN = '#00653a'
-
-function roundRect(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) { g.beginPath(); g.roundRect(x, y, w, h, r) }
-/** a white arrow pointing up (straight on), up and to one side (leaving), or down (over a lane) */
-function arrow(g: CanvasRenderingContext2D, x: number, y: number, S: number, dir: 'down' | 'up' | 'upR' | 'upL', col = '#fff') {
-  g.save(); g.translate(x, y)
-  g.rotate(dir === 'down' ? Math.PI : dir === 'upR' ? Math.PI / 4 : dir === 'upL' ? -Math.PI / 4 : 0)
-  g.fillStyle = col
-  g.beginPath()
-  g.moveTo(0, -S * 0.5); g.lineTo(S * 0.36, -S * 0.08); g.lineTo(S * 0.13, -S * 0.08); g.lineTo(S * 0.13, S * 0.5); g.lineTo(-S * 0.13, S * 0.5); g.lineTo(-S * 0.13, -S * 0.08); g.lineTo(-S * 0.36, -S * 0.08)
-  g.closePath(); g.fill()
-  g.restore()
-}
 interface Line { t: string; size: number; arrow?: 'up' | 'upR' | 'upL' | 'down'; band?: boolean }
+interface BoardSpec { lines: Line[]; color: 'green' | 'yellow' | 'white' }
+interface Sign { x: number; y: number; z: number; w: number; h: number; draw: BoardSpec; post?: 'one' | 'two' }
 /** a board of a few lines of big text; each line may have an arrow, and a line may sit on a yellow band (EXIT ONLY, which lanes) */
-function board(lines: Line[], color: 'green' | 'yellow' | 'white' = 'green'): Draw {
-  return (g, W, H) => {
-    const b = Math.max(6, Math.min(W, H) * 0.03)
-    const bg = color === 'green' ? GREEN : color === 'yellow' ? '#f7c600' : '#fff'
-    const fg = color === 'green' ? '#fff' : '#111'
-    g.fillStyle = bg; roundRect(g, 0, 0, W, H, b * 2.5); g.fill()
-    g.strokeStyle = fg; g.lineWidth = b * 0.8; roundRect(g, b, b, W - 2 * b, H - 2 * b, b * 1.8); g.stroke()
-    const tot = lines.reduce((a, l) => a + l.size, 0)
-    const inner = H - 4 * b
-    let y = 2 * b
-    g.textBaseline = 'middle'
-    for (const l of lines) {
-      const lh = (inner * l.size) / tot
-      const cy = y + lh / 2
-      let fs = lh * 0.8
-      g.font = `800 ${fs}px ${FONT}`
-      const aw = l.arrow ? fs * 0.95 : 0, gap = l.arrow ? fs * 0.3 : 0
-      let tw = g.measureText(l.t).width
-      const maxW = W - 6 * b
-      if (tw + aw + gap > maxW) { const k = maxW / (tw + aw + gap); fs *= k; tw *= k; g.font = `800 ${fs}px ${FONT}` }
-      const total = tw + (l.arrow ? fs * 1.25 : 0)
-      let x0 = (W - total) / 2
-      if (l.band) { g.fillStyle = '#f7c600'; roundRect(g, 2.4 * b, y + lh * 0.06, W - 4.8 * b, lh * 0.88, b * 1.5); g.fill() }
-      const col = l.band ? '#111' : fg
-      if (l.arrow === 'upL') { arrow(g, x0 + fs * 0.47, cy, fs * 0.95, 'upL', col); x0 += fs * 1.25 }
-      g.fillStyle = col; g.textAlign = 'left'; g.fillText(l.t, x0, cy + fs * 0.04)
-      if (l.arrow && l.arrow !== 'upL') arrow(g, x0 + tw + fs * 0.3 + fs * 0.47, cy, fs * 0.95, l.arrow, col)
-      y += lh
-    }
-  }
-}
+const board = (lines: Line[], color: BoardSpec['color'] = 'green'): BoardSpec => ({ lines, color })
 const nm = (r: Route) => r.name.toUpperCase()
 
 interface Gantry { z: number; x0: number; x1: number }
@@ -301,12 +262,12 @@ function stageSigns(): Sign[] {
     const rx = (z: number) => rampX(r, z) + (LANE / 2 + 2.4) * RAMP_K + 2.6
     out.push({ x: rx(z0 - 90), y: 1.8, z: z0 - 90, w: 5.2, h: 2.6, post: 'two', draw: board([{ t: `TO ${ROAD}`, size: 1, arrow: 'up' }]) })
     out.push({ x: rx(r.g + 300), y: 1.8, z: r.g + 300, w: 4.6, h: 2.2, post: 'two', draw: board([{ t: `${ROAD} AHEAD`, size: 1 }]) })
-    out.push({ x: rx(r.g + 150), y: 1.6, z: r.g + 150, w: 3.4, h: 1.7, post: 'two', draw: board([{ t: 'MERGE', size: 1 }], 'yellow') })
+    out.push({ x: rx(r.g + 150), y: 1.6, z: r.g + 150, w: 4.2, h: 2.2, post: 'two', draw: board([{ t: 'MERGE', size: 1 }], 'yellow') })
   }
   // other entrances (always on the right): traffic joins
   for (const r of s.ramps.filter((r) => r.kind === 'on' && !r.player)) {
-    out.push({ x: right(r.g + 380), y: 1.6, z: r.g + 380, w: 4.2, h: 2.8, post: 'two', draw: board([{ t: 'TRAFFIC', size: 1 }, { t: 'JOINING', size: 1 }], 'yellow') })
-    out.push({ x: rampX(r, r.g + 200) + 6, y: 1.6, z: r.g + 200, w: 3.4, h: 1.7, post: 'two', draw: board([{ t: 'MERGE', size: 1 }], 'yellow') })
+    out.push({ x: right(r.g + 380), y: 1.6, z: r.g + 380, w: 5.2, h: 3.4, post: 'two', draw: board([{ t: 'TRAFFIC', size: 1 }, { t: 'JOINING', size: 1 }], 'yellow') })
+    out.push({ x: rampX(r, r.g + 200) + 6, y: 1.6, z: r.g + 200, w: 4.2, h: 2.2, post: 'two', draw: board([{ t: 'MERGE', size: 1 }], 'yellow') })
   }
   // the exit to the next highway (always on the right)
   const take = s.ramps.find((r) => r.take)
@@ -344,95 +305,141 @@ function stageSigns(): Sign[] {
   }
   // lanes that end (always the right lane: merge left), and lanes added on the right again
   for (const d of s.drops) {
-    out.push({ x: right(d.z0 + 650), y: 1.8, z: d.z0 + 650, w: 4.6, h: 3.0, post: 'two', draw: board([{ t: 'RIGHT LANE', size: 1 }, { t: 'ENDS AHEAD', size: 1 }], 'yellow') })
-    out.push({ x: right(d.z0 + 300), y: 1.8, z: d.z0 + 300, w: 4.6, h: 3.0, post: 'two', draw: board([{ t: 'RIGHT LANE ENDS', size: 1 }, { t: 'MERGE LEFT', size: 1, arrow: 'upL' }], 'white') })
-    out.push({ x: right(d.z0 + 60), y: 1.6, z: d.z0 + 60, w: 3.6, h: 2.0, post: 'two', draw: board([{ t: 'MERGE LEFT', size: 1, arrow: 'upL' }], 'yellow') })
+    out.push({ x: right(d.z0 + 650), y: 1.8, z: d.z0 + 650, w: 6.2, h: 3.8, post: 'two', draw: board([{ t: 'RIGHT LANE', size: 1 }, { t: 'ENDS AHEAD', size: 1 }], 'yellow') })
+    out.push({ x: right(d.z0 + 300), y: 1.8, z: d.z0 + 300, w: 7.4, h: 4.0, post: 'two', draw: board([{ t: 'RIGHT LANE ENDS', size: 1 }, { t: 'MERGE LEFT', size: 1, arrow: 'upL' }], 'white') })
+    out.push({ x: right(d.z0 + 60), y: 1.6, z: d.z0 + 60, w: 5.4, h: 2.6, post: 'two', draw: board([{ t: 'MERGE LEFT', size: 1, arrow: 'upL' }], 'yellow') })
   }
-  for (const a of s.adds) out.push({ x: right(a.z0 + 80), y: 1.8, z: a.z0 + 80, w: 3.8, h: 2.2, post: 'two', draw: board([{ t: 'LANE ADDED', size: 1 }], 'yellow') })
+  for (const a of s.adds) out.push({ x: right(a.z0 + 80), y: 1.8, z: a.z0 + 80, w: 5.4, h: 2.6, post: 'two', draw: board([{ t: 'LANE ADDED', size: 1 }], 'yellow') })
   // speed limits, KEEP RIGHT, and which highway you are on
   const clearRight = (z: number) => !s.ramps.some((r) => z < rampZ0(r) + 40 && z > rampZ1(r) - 40)
   for (let z = 900; z > Z_FINISH + 200; z -= 1100) {
     if (!clearRight(z)) continue
-    out.push({ x: right(z), y: 1.6, z, w: 1.8, h: 2.3, post: 'one', draw: board([{ t: 'SPEED', size: 0.7 }, { t: 'LIMIT', size: 0.7 }, { t: '70', size: 1.6 }], 'white') })
+    out.push({ x: right(z), y: 1.6, z, w: 2.3, h: 2.9, post: 'one', draw: board([{ t: 'SPEED', size: 0.7 }, { t: 'LIMIT', size: 0.7 }, { t: '70', size: 1.6 }], 'white') })
   }
-  if (clearRight(300)) out.push({ x: right(300), y: 1.6, z: 300, w: 3.2, h: 2.4, post: 'two', draw: board([{ t: 'KEEP RIGHT', size: 1 }, { t: 'EXCEPT TO PASS', size: 0.8 }], 'white') })
+  if (clearRight(300)) out.push({ x: right(300), y: 1.6, z: 300, w: 5.2, h: 3.2, post: 'two', draw: board([{ t: 'KEEP RIGHT', size: 1 }, { t: 'EXCEPT TO PASS', size: 0.8 }], 'white') })
   for (const z of [s.start.z - 350, -1100]) {
     if (!clearRight(z) || z > Z_TOP - 50 || z < Z_FINISH + 100) continue
-    out.push({ x: right(z), y: 1.8, z, w: 3.2, h: 2.0, post: 'two', draw: board([{ t: ROAD, size: 1 }]) })
+    out.push({ x: right(z), y: 1.8, z, w: 3.6, h: 2.4, post: 'two', draw: board([{ t: ROAD, size: 1 }]) })
   }
   return out
 }
 
-/** pack the sign faces into one texture and make a quad for each (facing you as you drive north) */
-function signMesh(items: Sign[], maxAniso: number) {
-  // shelf packing into a 2048-wide atlas, at the highest resolution that fits in 2048 x 4096
-  const AW = 2048
-  let x = 0, y = 0, rowH = 0
-  let boxes: Array<{ x: number; y: number; w: number; h: number }> = []
-  for (PX = 128; PX >= 48; PX -= 16) {
-    x = 0; y = 0; rowH = 0
-    boxes = pack()
-    if (y + rowH + 4 <= 4096) break
-  }
-  function pack() { return items.map((it) => {
-    let w = Math.round(it.w * PX), h = Math.round(it.h * PX)
-    if (w > AW - 4) { const k = (AW - 4) / w; w = Math.floor(w * k); h = Math.floor(h * k) }
-    if (x + w + 4 > AW) { x = 0; y += rowH + 4; rowH = 0 }
-    const b = { x, y, w, h }
-    x += w + 4
-    rowH = Math.max(rowH, h)
-    return b
-  }) }
-  const AH = Math.min(4096, 1 << Math.ceil(Math.log2(Math.max(64, y + rowH + 4))))
-  const c = document.createElement('canvas')
-  c.width = AW; c.height = AH
-  const g = c.getContext('2d')!
-  items.forEach((it, i) => { const b = boxes[i]; g.save(); g.translate(b.x, b.y); g.beginPath(); g.rect(0, 0, b.w, b.h); g.clip(); it.draw(g, b.w, b.h); g.restore() })
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  tex.anisotropy = maxAniso // (signs are seen at a steep angle from far off: full anisotropic filtering keeps the letters sharp)
-  tex.generateMipmaps = true
-  tex.minFilter = THREE.LinearMipmapLinearFilter
-  const pos: number[] = [], uv: number[] = [], nor: number[] = [], idx: number[] = []
+/* ---- the sign typeface: loaded once, as a font the page can measure with and the 3D text can draw with ---- */
+const SIGN_FONT = 'SignFace'
+const fontReady: Promise<void> = (async () => {
+  try {
+    const f = new FontFace(SIGN_FONT, `url(${signFontUrl})`, { weight: '800' })
+    await f.load()
+    document.fonts.add(f)
+  } catch { /* the measuring falls back to a similar face */ }
+  await new Promise<void>((done) => preloadFont({ font: signFontUrl, characters: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 /·-' }, () => done()))
+})()
+const measureCtx = document.createElement('canvas').getContext('2d')!
+/** the width of a line of text at a font size of 1 m */
+const textW = (t: string) => { measureCtx.font = `800 100px ${SIGN_FONT}, Arial, sans-serif`; return measureCtx.measureText(t).width / 100 }
+
+const COL = { green: new THREE.Color('#00703c'), yellow: new THREE.Color('#f6c400'), white: new THREE.Color('#f5f5f2'), black: new THREE.Color('#121212'), back: new THREE.Color('#7d838b') }
+function roundedShape(w: number, h: number, r: number, x0 = -w / 2, y0 = 0) {
+  const s = new THREE.Shape()
+  s.moveTo(x0 + r, y0); s.lineTo(x0 + w - r, y0); s.quadraticCurveTo(x0 + w, y0, x0 + w, y0 + r); s.lineTo(x0 + w, y0 + h - r); s.quadraticCurveTo(x0 + w, y0 + h, x0 + w - r, y0 + h)
+  s.lineTo(x0 + r, y0 + h); s.quadraticCurveTo(x0, y0 + h, x0, y0 + h - r); s.lineTo(x0, y0 + r); s.quadraticCurveTo(x0, y0, x0 + r, y0)
+  return s
+}
+function arrowShape(S: number) {
+  const s = new THREE.Shape()
+  s.moveTo(0, S * 0.5); s.lineTo(S * 0.36, S * 0.08); s.lineTo(S * 0.13, S * 0.08); s.lineTo(S * 0.13, -S * 0.5); s.lineTo(-S * 0.13, -S * 0.5); s.lineTo(-S * 0.13, S * 0.08); s.lineTo(-S * 0.36, S * 0.08)
+  s.closePath()
+  return s
+}
+
+/**
+ * Build the boards of a stage: one merged mesh for all the panels, borders, bands and arrows (a single draw), and one sharp text object
+ * per line of words. Each board stands where the highway's bend puts it, square to the road there, facing the traffic coming at it.
+ */
+function buildSigns(items: Sign[]) {
+  // three layers, each drawn with a bigger depth bias than the one behind it (board; border and bands; arrows), and the words in front
+  // of all of them: far away the depth buffer cannot tell surfaces a centimetre apart, and they would flicker through each other
+  const parts: THREE.BufferGeometry[][] = [[], [], []]
+  const texts: InstanceType<typeof Text>[] = []
   const posts: Array<[number, number, number]> = [] // x, z, height
-  // each sign stands where the highway's bend puts it, turned square to the road there (facing the traffic coming towards it)
-  const frame = (it: Sign) => {
-    const h = hC(it.z), cx = it.x + C(it.z)
-    return { cx, rx: Math.cos(h), rz: -Math.sin(h), nx: Math.sin(h), nz: Math.cos(h) } // right along the sign, and its normal
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0)
+  const add = (g: THREE.BufferGeometry, col: THREE.Color, local: THREE.Matrix4, layer = 0) => {
+    g.applyMatrix4(local)
+    const n = g.getAttribute('position').count
+    const c = new Float32Array(n * 3)
+    for (let k = 0; k < n; k++) { c[k * 3] = col.r; c[k * 3 + 1] = col.g; c[k * 3 + 2] = col.b }
+    g.setAttribute('color', new THREE.BufferAttribute(c, 3))
+    g.deleteAttribute('uv')
+    if (!g.getAttribute('normal')) g.computeVertexNormals()
+    parts[layer].push(g.index ? g.toNonIndexed() : g)
   }
-  items.forEach((it, i) => {
-    const b = boxes[i]
-    const u0 = b.x / AW, u1 = (b.x + b.w) / AW, v0 = 1 - (b.y + b.h) / AH, v1 = 1 - b.y / AH
-    const { cx, rx, rz, nx, nz } = frame(it)
-    const hw = it.w / 2, y0 = it.y, y1 = it.y + it.h
-    const ax = cx - rx * hw, az = it.z - rz * hw, bx = cx + rx * hw, bz = it.z + rz * hw
-    pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y1, az)
-    uv.push(u0, v0, u1, v0, u1, v1, u0, v1)
-    for (let k = 0; k < 4; k++) nor.push(nx, 0, nz)
-    idx.push(i * 4, i * 4 + 1, i * 4 + 2, i * 4, i * 4 + 2, i * 4 + 3)
-    if (it.post === 'one') posts.push([cx, it.z, it.y + it.h * 0.9])
-    else if (it.post === 'two') { posts.push([cx - rx * hw * 0.6, it.z - rz * hw * 0.6, it.y + it.h * 0.9]); posts.push([cx + rx * hw * 0.6, it.z + rz * hw * 0.6, it.y + it.h * 0.9]) }
-  })
-  // a grey back on every sign
-  const n0 = items.length * 4
-  items.forEach((it, i) => {
-    const { cx, rx, rz, nx, nz } = frame(it)
-    const hw = it.w / 2, y0 = it.y, y1 = it.y + it.h
-    const ox = -nx * 0.03, oz = -nz * 0.03
-    const ax = cx - rx * hw + ox, az = it.z - rz * hw + oz, bx = cx + rx * hw + ox, bz = it.z + rz * hw + oz
-    pos.push(bx, y0, bz, ax, y0, az, ax, y1, az, bx, y1, bz)
-    for (let k = 0; k < 4; k++) { uv.push(1, 0); nor.push(-nx, 0, -nz) }
-    const o = n0 + i * 4
-    idx.push(o, o + 1, o + 2, o, o + 2, o + 3)
-  })
-  const geo = new THREE.BufferGeometry()
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2))
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3))
-  geo.setIndex(idx)
-  geo.addGroup(0, items.length * 6, 0)
-  geo.addGroup(items.length * 6, items.length * 6, 1)
-  return { geo, tex, posts }
+  for (const it of items) {
+    const h = hC(it.z), cx = it.x + C(it.z)
+    q.setFromAxisAngle(up, h)
+    const frame = new THREE.Matrix4().compose(new THREE.Vector3(cx, it.y, it.z), q, new THREE.Vector3(1, 1, 1)) // (local x across the board, y up, z towards you)
+    const at = (x: number, y: number, z: number, rot = 0) => new THREE.Matrix4().multiplyMatrices(frame, m.makeRotationZ(rot).setPosition(x, y, z))
+    const spec = it.draw
+    const bg = COL[spec.color], fg = spec.color === 'green' ? COL.white : COL.black
+    const W = it.w, H = it.h
+    const b = Math.min(W, H) * 0.035 // border width
+    // the board, its border (inset, like a real sign) and a grey back
+    add(new THREE.ShapeGeometry(roundedShape(W, H, b * 2.4)), bg, at(0, 0, 0))
+    const ring = roundedShape(W - 2 * b, H - 2 * b, b * 1.8, -(W - 2 * b) / 2, b)
+    ring.holes.push(roundedShape(W - 3.6 * b, H - 3.6 * b, b * 1.3, -(W - 3.6 * b) / 2, 1.8 * b) as unknown as THREE.Path)
+    add(new THREE.ShapeGeometry(ring), fg, at(0, 0, 0.01), 1)
+    add(new THREE.ShapeGeometry(roundedShape(W, H, b * 2.4)), COL.back, at(0, 0, -0.03, 0).multiply(m.makeRotationY(Math.PI)))
+    // the lines of words
+    const tot = spec.lines.reduce((a, l) => a + l.size, 0)
+    const inner = H - 4 * b
+    let y = H - 2 * b
+    for (const l of spec.lines) {
+      const lh = (inner * l.size) / tot
+      const cy = y - lh / 2
+      if (l.band) add(new THREE.ShapeGeometry(roundedShape(W - 4.8 * b, lh * 0.9, b * 1.4, -(W - 4.8 * b) / 2, cy - lh * 0.45)), COL.yellow, at(0, 0, 0.015), 1)
+      const col = l.band ? COL.black : fg
+      let fs = lh * 0.66
+      const tw0 = textW(l.t)
+      const aw = l.arrow ? 1.0 : 0, gap = l.arrow ? 0.32 : 0 // (arrow size and gap, in font sizes)
+      const maxW = W - 6 * b
+      if ((tw0 + aw + gap) * fs > maxW) fs = maxW / (tw0 + aw + gap)
+      const total = (tw0 + aw + gap) * fs
+      const left = -total / 2
+      let tx = left + (tw0 * fs) / 2
+      if (l.arrow === 'upL') tx += (aw + gap) * fs
+      if (l.arrow) {
+        const ax = l.arrow === 'upL' ? left + (aw * fs) / 2 : left + tw0 * fs + gap * fs + (aw * fs) / 2
+        const rot = l.arrow === 'upR' ? -Math.PI / 4 : l.arrow === 'upL' ? Math.PI / 4 : l.arrow === 'down' ? Math.PI : 0
+        add(new THREE.ShapeGeometry(arrowShape(fs * 0.95)), col, at(ax, cy, 0.025, rot), 2)
+      }
+      const t = new Text()
+      t.text = l.t
+      t.font = signFontUrl
+      t.fontSize = fs
+      t.anchorX = 'center'
+      t.anchorY = 'middle'
+      t.color = col.getHex()
+      t.sdfGlyphSize = 128 // (finer glyphs: sharp edges on the big letters up close)
+      t.material = new THREE.MeshBasicMaterial({ color: col, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6 })
+      t.applyMatrix4(at(tx, cy - fs * 0.04, 0.035))
+      t.sync()
+      texts.push(t)
+      y -= lh
+    }
+    // the posts, standing just behind the board (never in front of it)
+    const nx = Math.sin(h), nz = Math.cos(h), rx = Math.cos(h), rz = -Math.sin(h)
+    const behind = (x: number, z: number): [number, number] => [x - nx * 0.18, z - nz * 0.18]
+    const top = it.y + it.h * 0.85
+    if (it.post === 'one') { const [px, pz] = behind(cx, it.z); posts.push([px, pz, top]) }
+    else if (it.post === 'two') for (const sgn of [-1, 1]) { const [px, pz] = behind(cx + rx * sgn * W * 0.3, it.z + rz * sgn * W * 0.3); posts.push([px, pz, top]) }
+  }
+  // one geometry, one group per layer (each layer has its own material and depth bias)
+  const layers = parts.map((list) => (list.length ? mergeGeometries(list) : null))
+  const used = layers.map((g, k) => [g, k] as const).filter(([g]) => !!g) as Array<readonly [THREE.BufferGeometry, number]>
+  const geo = used.length ? mergeGeometries(used.map(([g]) => g), true) : new THREE.BufferGeometry()
+  used.forEach(([, k], i) => { geo.groups[i].materialIndex = k })
+  parts.flat().forEach((g) => g.dispose())
+  layers.forEach((g) => g?.dispose())
+  return { geo, texts, posts }
 }
 
 /** The stage being driven, drawn in 200 m chunks. Rebuilt whenever a new stage begins. */
@@ -441,31 +448,23 @@ export function Highway() {
   const version = useGame((s) => s.hwVersion)
   const data = useMemo(() => buildHighway(), [version])
   const res = useMemo(() => {
-    const loader = new THREE.TextureLoader()
-    const load = (name: string, srgb: boolean) => {
-      const t = loader.load(`/tex/asphalt_${name}.jpg`)
-      t.wrapS = t.wrapT = THREE.RepeatWrapping
-      t.anisotropy = Math.min(8, maxAniso)
-      if (srgb) t.colorSpace = THREE.SRGBColorSpace
-      return t
-    }
     return {
-      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#8a8c92', normalScale: new THREE.Vector2(0.3, 0.3) }),
+      asphalt: new THREE.MeshStandardMaterial({ color: '#3b3e45', roughness: 0.92 }), // (a clean, even road colour)
       marks: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       solid: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.1 }),
-      back: new THREE.MeshStandardMaterial({ color: '#8a8f96', roughness: 0.6, metalness: 0.5 }),
+      // the boards: flat, true colours (like retroreflective sheeting, always bright and clear)
+      boards: [0, 1, 2].map((k) => new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.FrontSide, toneMapped: false, polygonOffset: k > 0, polygonOffsetFactor: -2 * k, polygonOffsetUnits: -2 * k })),
     }
   }, [maxAniso])
   useEffect(() => () => { res.asphalt.map?.dispose() }, [res])
   useEffect(() => () => { [...data.asphalt, ...data.marks, ...data.solid].forEach((g) => g.dispose()) }, [data])
 
-  const signs = useMemo(() => {
-    const m = signMesh(stageSigns(), maxAniso)
-    // (signs are lit like everything else, but never darker than they would be in daylight: retroreflective sheeting)
-    const face = new THREE.MeshStandardMaterial({ map: m.tex, alphaTest: 0.5, roughness: 0.6, emissive: '#ffffff', emissiveMap: m.tex, emissiveIntensity: 0.3 })
-    return { ...m, face }
-  }, [version, maxAniso])
-  useEffect(() => () => { signs.geo.dispose(); signs.tex.dispose(); signs.face.dispose() }, [signs])
+  // the boards wait for their typeface (a moment, once)
+  const [fontOk, setFontOk] = useState(false)
+  useEffect(() => { let live = true; void fontReady.then(() => { if (live) setFontOk(true) }); return () => { live = false } }, [])
+  const signs = useMemo(() => (fontOk ? buildSigns(stageSigns()) : { geo: new THREE.BufferGeometry(), texts: [], posts: [] }), [version, fontOk])
+  const signGroup = useMemo(() => { const g = new THREE.Group(); signs.texts.forEach((t) => g.add(t)); return g }, [signs])
+  useEffect(() => () => { signs.geo.dispose(); signs.texts.forEach((t) => { (t.material as THREE.Material).dispose(); t.dispose() }) }, [signs])
 
   // trees on both sides, kept well clear of every road and ramp
   const trees = useMemo(() => {
@@ -500,6 +499,7 @@ export function Highway() {
     })
     m1.count = m2.count = trees.length
     m1.frustumCulled = m2.frustumCulled = false
+    m1.layers.set(4); m2.layers.set(4) // (scenery: the mirrors leave it out)
     return [m1, m2]
   }, [trees])
   useEffect(() => () => { treeMesh.forEach((m) => { m.geometry.dispose(); (m.material as THREE.Material).dispose() }) }, [treeMesh])
@@ -507,7 +507,7 @@ export function Highway() {
     const g = new THREE.BoxGeometry(0.12, 1, 0.12); g.translate(0, 0.5, 0)
     const m = new THREE.InstancedMesh(g, new THREE.MeshStandardMaterial({ color: '#6c7077', roughness: 0.6, metalness: 0.4 }), Math.max(1, signs.posts.length))
     const mat = new THREE.Matrix4(), p = new THREE.Vector3(), s = new THREE.Vector3(), q = new THREE.Quaternion()
-    signs.posts.forEach(([x, z, h], i) => { mat.compose(p.set(x, 0, z - 0.06), q, s.set(1, h, 1)); m.setMatrixAt(i, mat) })
+    signs.posts.forEach(([x, z, h], i) => { mat.compose(p.set(x, 0, z), q, s.set(1, h, 1)); m.setMatrixAt(i, mat) })
     m.count = signs.posts.length
     m.frustumCulled = false
     return m
@@ -519,7 +519,8 @@ export function Highway() {
       {data.asphalt.map((g, i) => <mesh key={'a' + i} geometry={g} material={res.asphalt} receiveShadow />)}
       {data.marks.map((g, i) => <mesh key={'m' + i} geometry={g} material={res.marks} renderOrder={1} />)}
       {data.solid.map((g, i) => <mesh key={'s' + i} geometry={g} material={res.solid} />)}
-      <mesh geometry={signs.geo} material={[signs.face, res.back]} />
+      <mesh geometry={signs.geo} material={res.boards} />
+      <primitive object={signGroup} />
       <primitive object={postMesh} />
       <primitive object={treeMesh[0]} />
       <primitive object={treeMesh[1]} />

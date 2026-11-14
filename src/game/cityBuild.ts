@@ -480,7 +480,7 @@ export const DEBUG_POSTS: Array<[number, number, number]> = []
 export const DEBUG_TREES: Array<{ x: number; z: number }> = []
 
 export function buildCity() {
-  const asphalt = new MB(), marks = new MB(), solid = new MB(), buildings = new MB(), signs = new MB(), wear = new Wear()
+  const asphalt = new MB(), marks = new MB(), solid = new MB(), buildings = new MB(), signs = new MB(), wear = new Wear(), scenery = new MB() // (scenery: houses and their gardens; the mirrors leave it out)
   const lamps: LampDef[] = []
   const trees: TreeDef[] = []
   PARKED.length = 0
@@ -546,23 +546,23 @@ export function buildCity() {
     const W = (lx: number, lz: number): V2 => [hx + lx * c + lz * sn, hz - lx * sn + lz * c] // local -> world
     const wallH = 3.0 + (rnd(1) < 0.35 ? 2.8 : 0) // some have two floors
     const wall = WALLS[Math.floor(rnd(2) * WALLS.length)], roof = ROOFS[Math.floor(rnd(3) * ROOFS.length)]
-    solid.box(hx, 0, hz, w, wallH, dp, yaw, wall)
+    scenery.box(hx, 0, hz, w, wallH, dp, yaw, wall)
     // pitched roof: a triangular prism, ridge along the street, with a little overhang
     const span = dp + 1.0, len = w + 1.0, rise = 2.1 + rnd(4) * 0.8
     const rg = new THREE.ExtrudeGeometry(new THREE.Shape([new THREE.Vector2(-span / 2, 0), new THREE.Vector2(span / 2, 0), new THREE.Vector2(0, rise)]), { depth: len, bevelEnabled: false })
     rg.translate(0, 0, -len / 2)
     rg.rotateY(Math.PI / 2 + yaw)
     rg.translate(hx, wallH, hz)
-    solid.addGeometry(rg, roof)
+    scenery.addGeometry(rg, roof)
     // front (towards the street): door, two windows; a chimney
     const [dx, dz] = W(rnd(5) < 0.5 ? -1.6 : 1.6, -dp / 2 - 0.03)
-    solid.box(dx, 0, dz, 1.1, 2.1, 0.08, yaw, [0.32, 0.2, 0.14])
-    for (const ox of [-w / 2 + 2.2, w / 2 - 2.2]) { const [wx, wz] = W(ox, -dp / 2 - 0.03); solid.box(wx, 1.0, wz, 1.6, 1.2, 0.08, yaw, [0.58, 0.7, 0.82]) }
-    { const [cx2, cz2] = W(w * 0.3, dp * 0.15); solid.box(cx2, wallH + 0.6, cz2, 0.7, 2.2, 0.7, yaw, [0.5, 0.32, 0.26]) }
+    scenery.box(dx, 0, dz, 1.1, 2.1, 0.08, yaw, [0.32, 0.2, 0.14])
+    for (const ox of [-w / 2 + 2.2, w / 2 - 2.2]) { const [wx, wz] = W(ox, -dp / 2 - 0.03); scenery.box(wx, 1.0, wz, 1.6, 1.2, 0.08, yaw, [0.58, 0.7, 0.82]) }
+    { const [cx2, cz2] = W(w * 0.3, dp * 0.15); scenery.box(cx2, wallH + 0.6, cz2, 0.7, 2.2, 0.7, yaw, [0.5, 0.32, 0.26]) }
     // driveway from the garage side down to the kerb, and a mailbox at the end of it
     const gx = rnd(6) < 0.5 ? -w / 2 + 1.8 : w / 2 - 1.8
-    { const [px, pz] = W(gx, -dp / 2 - drive / 2); solid.box(px, 0, pz, 3.2, 0.05, drive, yaw, [0.55, 0.55, 0.57]) }
-    { const [mx, mz] = W(gx + (gx < 0 ? 2.4 : -2.4), -dp / 2 - drive + 0.5); solid.box(mx, 0, mz, 0.09, 1.05, 0.09, yaw, [0.3, 0.3, 0.32]); solid.box(mx, 1.05, mz, 0.24, 0.24, 0.48, yaw, [0.15, 0.17, 0.2]) }
+    { const [px, pz] = W(gx, -dp / 2 - drive / 2); scenery.box(px, 0, pz, 3.2, 0.05, drive, yaw, [0.55, 0.55, 0.57]) }
+    { const [mx, mz] = W(gx + (gx < 0 ? 2.4 : -2.4), -dp / 2 - drive + 0.5); scenery.box(mx, 0, mz, 0.09, 1.05, 0.09, yaw, [0.3, 0.3, 0.32]); scenery.box(mx, 1.05, mz, 0.24, 0.24, 0.48, yaw, [0.15, 0.17, 0.2]) }
     // a tree in the front garden, another in the back
     { const [tx, tz] = W(-gx * 0.9, -dp / 2 - drive * 0.5); trees.push({ x: tx, z: tz, s: 0.65 + rnd(7) * 0.4 }) }
     if (rnd(8) < 0.7) { const [tx, tz] = W((rnd(9) - 0.5) * w, dp / 2 + 6 + rnd(10) * 6); trees.push({ x: tx, z: tz, s: 0.7 + rnd(11) * 0.5 }) }
@@ -1435,6 +1435,6 @@ export function buildCity() {
     if ([[0, 0], [2.2, 0], [-2.2, 0], [0, 2.2], [0, -2.2]].some(([dx, dz]) => onAsphalt(t.x + dx, t.z + dz))) trees.splice(k, 1)
   }
   trees.forEach((t) => DEBUG_TREES.push({ x: t.x, z: t.z }))
-  return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build(), buildings: buildings.build(), signs: signs.build(), wear: wear.build(), lamps, trees }
+  return { asphalt: asphalt.build(), marks: marks.build(), solid: solid.build(), buildings: buildings.build(), signs: signs.build(), wear: wear.build(), scenery: scenery.build(), lamps, trees }
 }
 export { BOX }

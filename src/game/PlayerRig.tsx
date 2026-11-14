@@ -96,6 +96,7 @@ export function PlayerRig() {
   useEffect(() => {
     camera.layers.enable(1)
     camera.layers.enable(3) // road wear (the mirrors may skip it)
+    camera.layers.enable(4) // scenery: buildings, houses, trees (the mirrors leave it out)
     camera.rotation.order = 'YXZ'
     // Cabin + mirrors live on layer 1: the driver sees them, mirror cameras don't.
     rig.current.traverse((o) => {

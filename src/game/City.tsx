@@ -176,14 +176,6 @@ export function City() {
   const maxAniso = useThree((s) => s.gl.capabilities.getMaxAnisotropy())
   const data = useMemo(buildCity, [])
   const res = useMemo(() => {
-    const loader = new THREE.TextureLoader()
-    const load = (name: string, srgb: boolean) => {
-      const t = loader.load(`/tex/asphalt_${name}.jpg`)
-      t.wrapS = t.wrapT = THREE.RepeatWrapping
-      t.anisotropy = Math.min(8, maxAniso)
-      if (srgb) t.colorSpace = THREE.SRGBColorSpace
-      return t
-    }
     const atlasCanvas = makeAtlas(useGame.getState().units)
     const atlas = new THREE.CanvasTexture(atlasCanvas)
     atlas.colorSpace = THREE.SRGBColorSpace
@@ -200,7 +192,7 @@ export function City() {
     return {
       atlasCanvas,
       atlas,
-      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#8a8c92', normalScale: new THREE.Vector2(0.3, 0.3) }), // (a smooth, even mid grey: the white lines stand out on it)
+      asphalt: new THREE.MeshStandardMaterial({ color: '#3b3e45', roughness: 0.92 }), // (a clean, even road colour: no texture, cracks or patches, so the lines and the cars stand out clearly)
       wear: new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: false, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
       marks: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), // (flat bright paint: as clear in shade and far away as in sun)
       solid: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.1 }),
@@ -262,7 +254,7 @@ export function City() {
 
   useEffect(
     () => () => {
-      for (const list of [data.asphalt, data.marks, data.solid, data.buildings, data.signs, data.wear]) list.forEach((g) => g.dispose())
+      for (const list of [data.asphalt, data.marks, data.solid, data.buildings, data.signs, data.wear, data.scenery]) list.forEach((g) => g.dispose())
       res.atlas.dispose()
     },
     [data, res],
@@ -338,11 +330,13 @@ export function City() {
           {/* (no road wear patches: a clean road surface keeps the lane lines clear) */}
           {data.marks.map((g, n) => <mesh key={'m' + n} geometry={g} material={res.marks} receiveShadow />)}
           {data.solid.map((g, n) => <mesh key={'s' + n} geometry={g} material={res.solid} receiveShadow />)}
-          {data.buildings.map((g, n) => <mesh key={'b' + n} geometry={g} material={res.buildings} />)}
+          {/* scenery (layer 4): buildings, houses and trees. You see it; the mirrors leave it out, so they show the road and the traffic clearly */}
+          {data.buildings.map((g, n) => <mesh key={'b' + n} geometry={g} material={res.buildings} ref={(m) => { m?.layers.set(4) }} />)}
+          {data.scenery.map((g, n) => <mesh key={'h' + n} geometry={g} material={res.solid} receiveShadow ref={(m) => { m?.layers.set(4) }} />)}
           {data.signs.map((g, n) => <mesh key={'g' + n} geometry={g} material={res.signs} />)}
-          <instancedMesh ref={(m) => { trunks.current[k] = m }} args={[trunkGeo, trunkMat, data.trees.length]} frustumCulled={false} />
-          <instancedMesh ref={(m) => { leaves.current[k] = m }} args={[leafGeo, leafMat, data.trees.length]} frustumCulled={false} />
-          <instancedMesh ref={(m) => { cards.current[k] = m }} args={[treeCardGeo, treeCardMat, data.trees.length]} frustumCulled={false} />
+          <instancedMesh ref={(m) => { trunks.current[k] = m; m?.layers.set(4) }} args={[trunkGeo, trunkMat, data.trees.length]} frustumCulled={false} />
+          <instancedMesh ref={(m) => { leaves.current[k] = m; m?.layers.set(4) }} args={[leafGeo, leafMat, data.trees.length]} frustumCulled={false} />
+          <instancedMesh ref={(m) => { cards.current[k] = m; m?.layers.set(4) }} args={[treeCardGeo, treeCardMat, data.trees.length]} frustumCulled={false} />
           {data.lamps.length > 0 && <instancedMesh ref={(m) => { lampMeshes.current[k] = m }} args={[lampGeo, lampMat, data.lamps.length]} frustumCulled={false} />}
           {data.lamps.length > 0 && <instancedMesh ref={(m) => { arrowMeshes.current[k] = m }} args={[arrowGeo, arrowMat, data.lamps.length]} frustumCulled={false} />}
         </group>
