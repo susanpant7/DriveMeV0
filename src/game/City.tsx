@@ -77,7 +77,7 @@ export function foliageTexture() {
 }
 export const lampGeo = new THREE.CircleGeometry(0.165, 22)
 // soft glow around a lit lens: an additive quad that fades to nothing, only visible from in front (like the lens itself)
-export const glowGeo = new THREE.PlaneGeometry(1.5, 1.5)
+export const glowGeo = new THREE.PlaneGeometry(2.6, 2.6) // (a wide halo: a lit signal shows from far down the road)
 export const glowMat = new THREE.ShaderMaterial({
   transparent: true,
   depthWrite: false,
@@ -104,7 +104,7 @@ export const glowMat = new THREE.ShaderMaterial({
       float r = length( vUv - 0.5 ) * 2.0;
       float a = pow( max( 0.0, 1.0 - r ), 2.6 );
       float lit = step( 0.35, max( vCol.r, max( vCol.g, vCol.b ) ) );
-      gl_FragColor = vec4( vCol * a * 0.55 * vBeam * lit, 1.0 );
+      gl_FragColor = vec4( vCol * a * 0.85 * vBeam * lit, 1.0 );
     }`,
 })
 // left-turn arrow lamp: points to the viewer's left (local -x)
@@ -200,9 +200,9 @@ export function City() {
     return {
       atlasCanvas,
       atlas,
-      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#85858a', normalScale: new THREE.Vector2(1.3, 1.3) }),
+      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#8a8c92', normalScale: new THREE.Vector2(0.3, 0.3) }), // (a smooth, even mid grey: the white lines stand out on it)
       wear: new THREE.MeshStandardMaterial({ vertexColors: true, transparent: true, depthWrite: false, roughness: 0.9, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 }),
-      marks: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      marks: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), // (flat bright paint: as clear in shade and far away as in sun)
       solid: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.1 }),
       buildings: new THREE.MeshStandardMaterial({ map: facade, roughnessMap: tex(fc.rough, false), metalnessMap: tex(fc.metal, false), roughness: 1, metalness: 1, vertexColors: true, envMapIntensity: 1.3 }),
       signs: new THREE.MeshStandardMaterial({ map: atlas, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.55 }),
@@ -335,7 +335,7 @@ export function City() {
       {COPIES.map(([di, dj], k) => (
         <group key={k} ref={(g) => { groups.current[k] = g }} position={[di * P, 0, dj * P]}>
           {data.asphalt.map((g, n) => <mesh key={'a' + n} geometry={g} material={res.asphalt} receiveShadow />)}
-          {data.wear.map((g, n) => <mesh key={'w' + n} geometry={g} material={res.wear} renderOrder={1} receiveShadow ref={(m) => { m?.layers.set(3) }} />)}
+          {/* (no road wear patches: a clean road surface keeps the lane lines clear) */}
           {data.marks.map((g, n) => <mesh key={'m' + n} geometry={g} material={res.marks} receiveShadow />)}
           {data.solid.map((g, n) => <mesh key={'s' + n} geometry={g} material={res.solid} receiveShadow />)}
           {data.buildings.map((g, n) => <mesh key={'b' + n} geometry={g} material={res.buildings} />)}

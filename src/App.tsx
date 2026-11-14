@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { QUALITY, autoQ } from './game/quality'
-import { BrightnessContrast, EffectComposer, HueSaturation, N8AO, Noise, SMAA, ToneMapping, Vignette } from '@react-three/postprocessing'
+import { BrightnessContrast, EffectComposer, N8AO, SMAA, ToneMapping } from '@react-three/postprocessing'
 import { ToneMappingMode } from 'postprocessing'
 import { installInput } from './game/input'
 import { PlayerRig } from './game/PlayerRig'
@@ -83,20 +83,18 @@ export default function App() {
         {/* full-screen effects: one set per level (the composer takes a fixed list of effects) */}
         {fx === 'full' && (
         <EffectComposer key="full" multisampling={4}>
-          <N8AO aoRadius={0.8} distanceFalloff={1} intensity={3} quality="low" />
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          <HueSaturation saturation={-0.14} />
-          <BrightnessContrast brightness={-0.02} contrast={0.1} />
-          <Noise opacity={0.06} />
-          <Vignette offset={0.25} darkness={0.55} />
+          {/* clarity first: true colours (neutral tone mapping), no film grain, no darkened edges, no washed-out colour; a light touch of
+              contact shadow under the cars keeps them standing on the road */}
+          <N8AO aoRadius={0.6} distanceFalloff={1} intensity={1.4} quality="low" />
+          <ToneMapping mode={ToneMappingMode.NEUTRAL} />
+          <BrightnessContrast brightness={0.02} contrast={0.08} />
           <SMAA />
         </EffectComposer>
         )}
         {fx === 'light' && (
         <EffectComposer key="light" multisampling={0}>
-          <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-          <HueSaturation saturation={-0.14} />
-          <BrightnessContrast brightness={-0.02} contrast={0.1} />
+          <ToneMapping mode={ToneMappingMode.NEUTRAL} />
+          <BrightnessContrast brightness={0.02} contrast={0.08} />
           <SMAA />
         </EffectComposer>
         )}

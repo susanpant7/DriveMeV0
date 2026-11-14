@@ -116,12 +116,12 @@ export function buildHighway() {
     }
     // right side
     const ar = auxR(zm)
-    if (ar && rampU(ar, zm) < -2) { seg(() => NB_EDGE_R, 0.3, WHITE, true); seg((zz) => auxEdge(ar, zz), 0.18, WHITE, false) }
-    else seg(edgeR, 0.18, WHITE, false)
+    if (ar && rampU(ar, zm) < -2) { seg(() => NB_EDGE_R, 0.36, WHITE, true); seg((zz) => auxEdge(ar, zz), 0.24, WHITE, false) }
+    else seg(edgeR, 0.24, WHITE, false)
     // left side
     const al = auxL(zm)
-    if (al && rampU(al, zm) < -2) { seg(() => NB_EDGE_L, 0.3, WHITE, true); seg((zz) => auxEdge(al, zz), 0.18, YELLOW, false) }
-    else seg(edgeL, 0.18, YELLOW, false)
+    if (al && rampU(al, zm) < -2) { seg(() => NB_EDGE_L, 0.36, WHITE, true); seg((zz) => auxEdge(al, zz), 0.24, YELLOW, false) }
+    else seg(edgeL, 0.24, YELLOW, false)
   }
   // lane dividers (a lane that ends loses its divider where it tapers; a split turns the divider between the branches into two solid edges)
   const f = s.fork
@@ -137,8 +137,8 @@ export function buildHighway() {
     } else {
       // dashes only where the lane to its right is there at full width (where a lane ends or opens, the edge line does the job)
       for (let z = Z_TOP; z > Z_FINISH; z -= 12) {
-        if (laneW(k, z) < 1 || laneW(k, z - 3) < 1) continue
-        marks.flat([x + shiftK(z) - 0.075, z], [x + shiftK(z) + 0.075, z], [x + shiftK(z - 3) + 0.075, z - 3], [x + shiftK(z - 3) - 0.075, z - 3], 0.02, WHITE)
+        if (laneW(k, z) < 1 || laneW(k, z - 4.5) < 1) continue
+        marks.flat([x + shiftK(z) - 0.11, z], [x + shiftK(z) + 0.11, z], [x + shiftK(z - 4.5) + 0.11, z - 4.5], [x + shiftK(z - 4.5) - 0.11, z - 4.5], 0.02, WHITE) // (wide, long dashes: clear from far off)
       }
     }
   }
@@ -450,8 +450,8 @@ export function Highway() {
       return t
     }
     return {
-      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#85858a', normalScale: new THREE.Vector2(1.3, 1.3) }),
-      marks: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
+      asphalt: new THREE.MeshStandardMaterial({ map: load('diff', true), normalMap: load('nor_gl', false), roughnessMap: load('rough', false), color: '#8a8c92', normalScale: new THREE.Vector2(0.3, 0.3) }),
+      marks: new THREE.MeshBasicMaterial({ vertexColors: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }),
       solid: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.1 }),
       back: new THREE.MeshStandardMaterial({ color: '#8a8f96', roughness: 0.6, metalness: 0.5 }),
     }

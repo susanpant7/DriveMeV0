@@ -94,7 +94,7 @@ const lampGeo = new THREE.BoxGeometry(0.42, 0.13, 0.05)
 const blinkGeo = new THREE.BoxGeometry(0.22, 0.11, 0.07) // amber indicator at a front / rear corner
 const repeaterGeo = new THREE.BoxGeometry(0.05, 0.09, 0.22) // side repeater
 
-const paintMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.32, metalness: 0.55, clearcoat: 1, clearcoatRoughness: 0.12 })
+const paintMat = new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: 0.38, metalness: 0.12, clearcoat: 0.8, clearcoatRoughness: 0.15 }) // (bright, clear colours: little metal, which only looks dark)
 const darkMat = new THREE.MeshStandardMaterial({ color: '#10141a', roughness: 0.18, metalness: 0.8 })
 const tyreMat = new THREE.MeshStandardMaterial({ color: '#0c0c0d', roughness: 0.95 })
 const rimMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.6 })
@@ -167,7 +167,7 @@ function useCarModels() {
               const src = me.material as THREE.MeshStandardMaterial
               let mat: THREE.Material
               const isPaint = f.tint || src.name === 'paint' // the Tesla's body parts take the car's colour, its glass and wheels keep theirs
-              if (isPaint) mat = new THREE.MeshPhysicalMaterial({ map: src.map, roughness: 0.38, metalness: 0.25, clearcoat: 0.6, clearcoatRoughness: 0.15 })
+              if (isPaint) mat = new THREE.MeshPhysicalMaterial({ map: src.map, roughness: 0.4, metalness: 0.1, clearcoat: 0.6, clearcoatRoughness: 0.15 })
               else { mat = src.clone(); (mat as THREE.MeshStandardMaterial).envMapIntensity = 1; (mat as THREE.MeshStandardMaterial).side = THREE.FrontSide }
               if ((mat as THREE.MeshStandardMaterial).map) (mat as THREE.MeshStandardMaterial).map!.anisotropy = 4
               return { geo: f.flip ? me.geometry.clone().rotateY(Math.PI) : me.geometry, mat, tint: isPaint }

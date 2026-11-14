@@ -21,9 +21,9 @@ export interface Quality {
   treeNear: number
 }
 export const QUALITY: Record<Graphics, Quality> = {
-  high: { dpr: 1.5, fx: 'full', mirrorScale: 2, mirrorMax: 3000, sideAlt: false, rearAlt: false, far: 460, fogNear: 120, treeNear: 110 },
-  medium: { dpr: 1.25, fx: 'light', mirrorScale: 1.5, mirrorMax: 2000, sideAlt: false, rearAlt: true, far: 400, fogNear: 110, treeNear: 80 },
-  low: { dpr: 1, fx: 'none', mirrorScale: 1.15, mirrorMax: 1200, sideAlt: true, rearAlt: true, far: 320, fogNear: 90, treeNear: 55 },
+  high: { dpr: 1.5, fx: 'full', mirrorScale: 2, mirrorMax: 3000, sideAlt: false, rearAlt: false, far: 460, fogNear: 280, treeNear: 110 },
+  medium: { dpr: 1.25, fx: 'light', mirrorScale: 1.5, mirrorMax: 2000, sideAlt: false, rearAlt: true, far: 400, fogNear: 240, treeNear: 80 },
+  low: { dpr: 1, fx: 'none', mirrorScale: 1.15, mirrorMax: 1200, sideAlt: true, rearAlt: true, far: 320, fogNear: 190, treeNear: 55 },
 }
 /** the current level's settings (read every frame: changing the setting takes effect at once) */
 export const quality = () => QUALITY[useGame.getState().graphics]
